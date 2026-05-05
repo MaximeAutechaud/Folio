@@ -1,0 +1,213 @@
+import { useState } from 'react';
+import { usePortfolioStore, computeTotals, convertCurrency, type BaseCurrency } from '../../store/portfolio';
+import { usePeriodPnl } from '../../hooks/usePeriodPnl';
+import type { AssetType, PositionWithValue, Snapshot } from '../../types';
+import styles from './Dashboard.module.css';
+
+type Filter = 'all' | AssetType;
+
+function fmtQty(n: number, assetType: string): string {
+  if (assetType === 'crypto') {
+    if (n === 0) return '0';
+    const decimals = n < 0.0001 ? 8 : n < 0.01 ? 6 : n < 1 ? 4 : 2;
+    return n.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  }
+  return n.toLocaleString('en-US', { maximumFractionDigits: 4 });
+}
+
+function displayTicker(position: { ticker: string; name: string; asset_type: string }): string {
+  if (position.asset_type === 'crypto') {
+    const match = position.name.match(/\(([A-Z0-9]+)\)$/i);
+    if (match) return match[1].toUpperCase();
+  }
+  return position.ticker.toUpperCase();
+}
+
+function fmtCurrency(n: number | undefined, currency: string): string {
+  if (n == null) return '—';
+  const sym = currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : '$';
+  return sym + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtPct(n: number | undefined): string {
+  if (n == null) return '—';
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+
+interface Props {
+  snapshots: Snapshot[];
+  onAddClick: () => void;
+  onEdit: (id: number) => void;
+  onRemove: (id: number) => void;
+  onRowClick: (id: number) => void;
+}
+
+export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick }: Props) {
+  const positions = usePortfolioStore((s) => s.positions);
+  const prices = usePortfolioStore((s) => s.prices);
+  const isLoading = usePortfolioStore((s) => s.isLoading);
+  const baseCurrency = usePortfolioStore((s) => s.baseCurrency);
+  const setBaseCurrency = usePortfolioStore((s) => s.setBaseCurrency);
+  const eurUsd = usePortfolioStore((s) => s.eurUsd);
+  const [filter, setFilter] = useState<Filter>('all');
+
+  const filtered = filter === 'all' ? positions : positions.filter((p) => p.asset_type === filter);
+  const { totalValue, totalCost } = computeTotals(filtered, prices, baseCurrency, eurUsd);
+  const periods = usePeriodPnl(snapshots, totalValue);
+  const totalPnl = totalValue - totalCost;
+  const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
+  const rows: PositionWithValue[] = filtered.map((p) => {
+    const price = prices[p.ticker];
+    const value = price != null
+      ? convertCurrency(p.quantity * price, p.currency, baseCurrency, eurUsd)
+      : undefined;
+    const cost = convertCurrency(p.quantity * p.cost_basis, p.currency, baseCurrency, eurUsd);
+    const pnl = value != null ? value - cost : undefined;
+    const pnl_pct = pnl != null && cost > 0 ? (pnl / cost) * 100 : undefined;
+    const current_price = price != null
+      ? convertCurrency(price, p.currency, baseCurrency, eurUsd)
+      : undefined;
+    return { ...p, current_price, current_value: value, pnl, pnl_pct };
+  });
+
+  return (
+    <div className={styles.root}>
+      {/* Summary bar */}
+      <div className={styles.summary}>
+        <div className={styles.summaryItem}>
+          <span className={styles.label}>Portfolio value</span>
+          <span className={styles.valueLarge}>{fmtCurrency(totalValue, baseCurrency)}</span>
+        </div>
+        <div className={styles.summaryItem}>
+          <span className={styles.label}>Total cost</span>
+          <span className={styles.value}>{fmtCurrency(totalCost, baseCurrency)}</span>
+        </div>
+        <div className={styles.summaryItem}>
+          <span className={styles.label}>P&amp;L</span>
+          <span className={`${styles.value} ${totalPnl >= 0 ? styles.green : styles.red}`}>
+            {totalPnl >= 0 ? '+' : ''}{fmtCurrency(totalPnl, baseCurrency)} ({fmtPct(totalPnlPct)})
+          </span>
+        </div>
+
+        {periods.length > 0 && (
+          <div className={styles.periods}>
+            {periods.map((p) => (
+              <div key={p.label} className={styles.period}>
+                <span className={styles.periodLabel}>{p.label}</span>
+                <span className={`${styles.periodValue} ${p.pnl >= 0 ? styles.green : styles.red}`}>
+                  {fmtPct(p.pct)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className={styles.summaryActions}>
+          <div className={styles.currencyToggle}>
+            {(['EUR', 'USD'] as BaseCurrency[]).map((c) => (
+              <button
+                key={c}
+                className={`${styles.currencyBtn} ${baseCurrency === c ? styles.currencyActive : ''}`}
+                onClick={() => setBaseCurrency(c)}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+          <button className={styles.addBtn} onClick={onAddClick}>
+            + Add position
+          </button>
+        </div>
+      </div>
+
+      {isLoading && positions.length === 0 ? (
+        <p className={styles.empty}>Loading…</p>
+      ) : positions.length === 0 ? (
+        <p className={styles.empty}>No positions yet. Add your first one.</p>
+      ) : (
+        <>
+          <div className={styles.tableHeader}>
+            <div className={styles.filterToggle}>
+              {(['all', 'stock', 'crypto'] as Filter[]).map((f) => (
+                <button
+                  key={f}
+                  className={`${styles.filterBtn} ${filter === f ? styles.filterActive : ''}`}
+                  onClick={() => setFilter(f)}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {filtered.length === 0 ? (
+            <p className={styles.empty}>No {filter} positions.</p>
+          ) : (
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>CCY</th>
+                  <th className={styles.right}>Qty</th>
+                  <th className={styles.right}>Cost basis</th>
+                  <th className={styles.right}>Price ({baseCurrency})</th>
+                  <th className={styles.right}>Value ({baseCurrency})</th>
+                  <th className={styles.right}>P&amp;L</th>
+                  <th className={styles.right}>P&amp;L %</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.id} className={styles.clickableRow} onClick={() => onRowClick(row.id)}>
+                    <td className={styles.ticker}>{displayTicker(row)}</td>
+                    <td>{row.name || '—'}</td>
+                    <td>
+                      <span className={`${styles.badge} ${row.asset_type === 'crypto' ? styles.crypto : styles.stock}`}>
+                        {row.asset_type}
+                      </span>
+                    </td>
+                    <td className={styles.ccy}>{row.currency}</td>
+                    <td className={styles.right}>{fmtQty(row.quantity, row.asset_type)}</td>
+                    <td className={styles.right}>{fmtCurrency(row.cost_basis, row.currency)}</td>
+                    <td className={styles.right}>
+                      {row.current_price != null ? fmtCurrency(row.current_price, baseCurrency) : '—'}
+                    </td>
+                    <td className={styles.right}>
+                      {row.current_value != null ? fmtCurrency(row.current_value, baseCurrency) : '—'}
+                    </td>
+                    <td className={`${styles.right} ${row.pnl == null ? '' : row.pnl >= 0 ? styles.green : styles.red}`}>
+                      {row.pnl != null ? `${row.pnl >= 0 ? '+' : ''}${fmtCurrency(row.pnl, baseCurrency)}` : '—'}
+                    </td>
+                    <td className={`${styles.right} ${row.pnl_pct == null ? '' : row.pnl_pct >= 0 ? styles.green : styles.red}`}>
+                      {fmtPct(row.pnl_pct)}
+                    </td>
+                    <td className={styles.actions} onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className={styles.editBtn}
+                        onClick={() => onEdit(row.id)}
+                        title="Edit position"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        className={styles.removeBtn}
+                        onClick={() => onRemove(row.id)}
+                        title="Remove position"
+                      >
+                        ×
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

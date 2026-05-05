@@ -1,0 +1,32 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  height: 44px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.logo {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+}
+
+.main {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+}
