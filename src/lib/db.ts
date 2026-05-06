@@ -1,5 +1,5 @@
 import Database from '@tauri-apps/plugin-sql';
-import type { Position, PositionInput, Snapshot } from '../types';
+import type { Position, PositionInput, Snapshot, Transaction, TransactionInput } from '../types';
 
 const DB_URL = 'sqlite:folio.db';
 
@@ -14,6 +14,8 @@ async function getDb(): Promise<Database> {
 }
 
 async function runMigrations(db: Database): Promise<void> {
+  await db.execute('PRAGMA foreign_keys = ON');
+
   await db.execute(`
     CREATE TABLE IF NOT EXISTS positions (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,6 +48,23 @@ async function runMigrations(db: Database): Promise<void> {
   await db.execute(
     `CREATE INDEX IF NOT EXISTS idx_snapshots_recorded_at ON snapshots(recorded_at)`
   );
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      position_id  INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+      ticker       TEXT    NOT NULL,
+      type         TEXT    NOT NULL,
+      quantity     REAL    NOT NULL,
+      price        REAL    NOT NULL,
+      currency     TEXT    NOT NULL DEFAULT 'USD',
+      linked_tx_id INTEGER,
+      fee          REAL    NOT NULL DEFAULT 0,
+      note         TEXT    NOT NULL DEFAULT '',
+      created_at   INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `);
+  await db.execute(`CREATE INDEX IF NOT EXISTS idx_tx_position ON transactions(position_id)`);
 }
 
 export async function fetchPositions(): Promise<Position[]> {
@@ -91,4 +110,75 @@ export async function insertSnapshot(totalValue: number, totalCost: number): Pro
     'INSERT INTO snapshots (total_value, total_cost) VALUES ($1, $2)',
     [totalValue, totalCost]
   );
+}
+
+export async function fetchAllTransactions(): Promise<Record<number, Transaction[]>> {
+  const db = await getDb();
+  const all = await db.select<Transaction[]>('SELECT * FROM transactions ORDER BY created_at ASC');
+  const map: Record<number, Transaction[]> = {};
+  for (const tx of all) {
+    if (!map[tx.position_id]) map[tx.position_id] = [];
+    map[tx.position_id].push(tx);
+  }
+  return map;
+}
+
+export async function fetchTransactions(positionId: number): Promise<Transaction[]> {
+  const db = await getDb();
+  return db.select<Transaction[]>(
+    'SELECT * FROM transactions WHERE position_id = $1 ORDER BY created_at ASC',
+    [positionId]
+  );
+}
+
+export async function insertTransaction(input: TransactionInput): Promise<number> {
+  const db = await getDb();
+  const result = await db.execute(
+    `INSERT INTO transactions (position_id, ticker, type, quantity, price, currency, linked_tx_id, fee, note, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [
+      input.position_id,
+      input.ticker,
+      input.type,
+      input.quantity,
+      input.price,
+      input.currency,
+      input.linked_tx_id ?? null,
+      input.fee ?? 0,
+      input.note ?? '',
+      input.created_at ?? Math.floor(Date.now() / 1000),
+    ]
+  );
+  return result.lastInsertId as number;
+}
+
+export async function insertSwapTransactions(
+  swapOut: TransactionInput,
+  swapIn: TransactionInput
+): Promise<{ outId: number; inId: number }> {
+  const db = await getDb();
+  const ts = swapOut.created_at ?? Math.floor(Date.now() / 1000);
+
+  const outResult = await db.execute(
+    `INSERT INTO transactions (position_id, ticker, type, quantity, price, currency, fee, note, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [swapOut.position_id, swapOut.ticker, 'swap_out', swapOut.quantity, swapOut.price, swapOut.currency, swapOut.fee ?? 0, swapOut.note ?? '', ts]
+  );
+  const outId = outResult.lastInsertId as number;
+
+  const inResult = await db.execute(
+    `INSERT INTO transactions (position_id, ticker, type, quantity, price, currency, linked_tx_id, fee, note, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [swapIn.position_id, swapIn.ticker, 'swap_in', swapIn.quantity, swapIn.price, swapIn.currency, outId, swapIn.fee ?? 0, swapIn.note ?? '', ts]
+  );
+  const inId = inResult.lastInsertId as number;
+
+  await db.execute('UPDATE transactions SET linked_tx_id = $1 WHERE id = $2', [inId, outId]);
+
+  return { outId, inId };
+}
+
+export async function deleteTransaction(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM transactions WHERE id = $1 OR linked_tx_id = $1', [id]);
 }

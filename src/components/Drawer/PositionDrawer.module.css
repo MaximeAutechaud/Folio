@@ -10,7 +10,7 @@
   top: 44px; /* below header */
   right: 0;
   bottom: 0;
-  width: 320px;
+  width: 360px;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
   display: flex;
@@ -128,3 +128,179 @@
   font-weight: 600;
   color: var(--text-primary);
 }
+
+.headerTicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.calcBadge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(31, 111, 235, 0.15);
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.txSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.txHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.txTitle {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.addTxBtn {
+  font-size: 12px;
+  font-weight: 600;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 4px 10px;
+  transition: background 0.15s;
+}
+.addTxBtn:hover { background: rgba(31, 111, 235, 0.1); }
+
+.txEmpty {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.txList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.txCard {
+  background: var(--bg-primary);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+.txCardExpanded {
+  border-color: var(--border);
+}
+
+.txRow {
+  display: grid;
+  grid-template-columns: 72px 1fr auto auto 16px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.txRow:hover { background: var(--bg-hover); }
+
+.txBadge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border-radius: 3px;
+  text-align: center;
+}
+.tx_buy      { background: rgba(34,197,94,0.15);  color: var(--green); }
+.tx_sell     { background: rgba(239,68,68,0.15);  color: var(--red); }
+.tx_swap_in  { background: rgba(167,139,250,0.15); color: #a78bfa; }
+.tx_swap_out { background: rgba(251,191,36,0.15);  color: #fbbf24; }
+
+.txQty {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.txPrice {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.txDate {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.txChevron {
+  font-size: 8px;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.txDetail {
+  padding: 10px 10px 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.txDetailGrid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 12px;
+  align-items: baseline;
+}
+
+.txDetailLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.txDetailValue {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.txDeleteExpanded {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--red);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 8px;
+  transition: background 0.15s;
+}
+.txDeleteExpanded:hover { background: rgba(239,68,68,0.1); }
+
+.txDelete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0.5;
+  transition: opacity 0.15s, color 0.15s;
+}
+.txDelete:hover { opacity: 1; color: var(--red); }

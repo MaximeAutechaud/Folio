@@ -43,7 +43,7 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
 
   function handleTickerChange(value: string) {
     set('ticker', value);
-    if (form.asset_type === 'stock' && value.includes('.')) {
+    if (form.asset_type === 'stock') {
       set('currency', detectCurrency(value));
     }
     if (value.length < 1) {
@@ -89,7 +89,9 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
   // Default currency when switching type (only in add mode)
   useEffect(() => {
     if (editMode) return;
-    set('currency', form.asset_type === 'crypto' ? 'USD' : 'EUR');
+    if (form.asset_type === 'crypto') set('currency', 'USD');
+    else if (form.asset_type === 'fiat') set('currency', form.ticker || 'EUR');
+    else set('currency', 'EUR');
     setSuggestions([]);
     setShowSuggestions(false);
   }, [form.asset_type]);
@@ -101,15 +103,15 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.ticker.trim()) return setError('Ticker is required');
-    if (form.quantity <= 0) return setError('Quantity must be > 0');
+    if (form.asset_type !== 'fiat' && form.quantity <= 0) return setError('Quantity must be > 0');
     if (form.cost_basis < 0) return setError('Cost basis must be ≥ 0');
     setSaving(true);
     setError(null);
     try {
-      // Stocks: uppercase ticker. Crypto: keep lowercase ID as-is.
-      const ticker = form.asset_type === 'stock'
-        ? form.ticker.trim().toUpperCase()
-        : form.ticker.trim().toLowerCase();
+      let ticker: string;
+      if (form.asset_type === 'fiat') ticker = form.ticker.trim().toUpperCase();
+      else if (form.asset_type === 'stock') ticker = form.ticker.trim().toUpperCase();
+      else ticker = form.ticker.trim().toLowerCase();
       await onSubmit({ ...form, ticker });
       setForm(EMPTY);
       onClose();
@@ -132,7 +134,7 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
           <div className={styles.row}>
             <label className={styles.label}>Type</label>
             <div className={styles.toggle}>
-              {(['stock', 'crypto'] as AssetType[]).map((t) => (
+              {(['stock', 'crypto', 'fiat'] as AssetType[]).map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -147,52 +149,68 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
 
           <div className={styles.row}>
             <label className={styles.label} htmlFor="ticker">
-              {form.asset_type === 'crypto' ? 'Coin' : 'Ticker'}
+              {form.asset_type === 'crypto' ? 'Coin' : form.asset_type === 'fiat' ? 'Currency' : 'Ticker'}
             </label>
-            <div className={styles.autocompleteWrap}>
-              <input
+            {form.asset_type === 'fiat' ? (
+              <select
                 id="ticker"
                 className={styles.input}
                 value={form.ticker}
-                onChange={(e) => handleTickerChange(e.target.value)}
-                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-                placeholder={form.asset_type === 'crypto'
-                  ? 'Rechercher — "bitcoin", "eth"…'
-                  : 'Ticker ou nom — "air liquide", "MSFT"…'}
-                autoComplete="off"
-                autoFocus
-              />
-              {showSuggestions && (
-                <ul className={styles.dropdown}>
-                  {suggestions.map((s) =>
-                    s.kind === 'stock' ? (
-                      <li
-                        key={s.data.symbol}
-                        className={styles.dropdownItem}
-                        onMouseDown={() => pickSuggestion(s)}
-                      >
-                        <span className={styles.suggTicker}>{s.data.symbol}</span>
-                        <span className={styles.suggName}>{s.data.shortname}</span>
-                        <span className={styles.suggExch}>{s.data.exchDisp}</span>
-                      </li>
-                    ) : (
-                      <li
-                        key={s.data.id}
-                        className={styles.dropdownItem}
-                        onMouseDown={() => pickSuggestion(s)}
-                      >
-                        <span className={styles.suggTicker}>{s.data.symbol.toUpperCase()}</span>
-                        <span className={styles.suggName}>{s.data.name}</span>
-                        {s.data.market_cap_rank && (
-                          <span className={styles.suggExch}>#{s.data.market_cap_rank}</span>
-                        )}
-                      </li>
-                    )
-                  )}
-                </ul>
-              )}
-            </div>
+                onChange={(e) => {
+                  set('ticker', e.target.value);
+                  set('currency', e.target.value);
+                  set('name', e.target.value);
+                  set('cost_basis', 1);
+                }}
+              >
+                {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            ) : (
+              <div className={styles.autocompleteWrap}>
+                <input
+                  id="ticker"
+                  className={styles.input}
+                  value={form.ticker}
+                  onChange={(e) => handleTickerChange(e.target.value)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                  onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                  placeholder={form.asset_type === 'crypto'
+                    ? 'Rechercher — "bitcoin", "eth"…'
+                    : 'Ticker ou nom — "air liquide", "MSFT"…'}
+                  autoComplete="off"
+                  autoFocus
+                />
+                {showSuggestions && (
+                  <ul className={styles.dropdown}>
+                    {suggestions.map((s) =>
+                      s.kind === 'stock' ? (
+                        <li
+                          key={s.data.symbol}
+                          className={styles.dropdownItem}
+                          onMouseDown={() => pickSuggestion(s)}
+                        >
+                          <span className={styles.suggTicker}>{s.data.symbol}</span>
+                          <span className={styles.suggName}>{s.data.shortname}</span>
+                          <span className={styles.suggExch}>{s.data.exchDisp}</span>
+                        </li>
+                      ) : (
+                        <li
+                          key={s.data.id}
+                          className={styles.dropdownItem}
+                          onMouseDown={() => pickSuggestion(s)}
+                        >
+                          <span className={styles.suggTicker}>{s.data.symbol.toUpperCase()}</span>
+                          <span className={styles.suggName}>{s.data.name}</span>
+                          {s.data.market_cap_rank && (
+                            <span className={styles.suggExch}>#{s.data.market_cap_rank}</span>
+                          )}
+                        </li>
+                      )
+                    )}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
 
           <div className={styles.row}>
@@ -208,7 +226,9 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
 
           <div className={styles.twoCol}>
             <div className={styles.row}>
-              <label className={styles.label} htmlFor="qty">Quantity</label>
+              <label className={styles.label} htmlFor="qty">
+                {form.asset_type === 'fiat' ? 'Balance' : 'Quantity'}
+              </label>
               <input
                 id="qty"
                 type="text"
@@ -222,45 +242,49 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
                     set('quantity', parseFloat(v) || 0);
                   }
                 }}
-                placeholder={form.asset_type === 'crypto' ? '0.005' : '10'}
+                placeholder={form.asset_type === 'crypto' ? '0.005' : form.asset_type === 'fiat' ? '1000' : '10'}
               />
             </div>
 
-            <div className={styles.row}>
-              <label className={styles.label} htmlFor="currency">Currency</label>
-              <select
-                id="currency"
-                className={styles.input}
-                value={form.currency}
-                onChange={(e) => set('currency', e.target.value)}
-              >
-                {CURRENCIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
+            {form.asset_type !== 'fiat' && (
+              <div className={styles.row}>
+                <label className={styles.label} htmlFor="currency">Currency</label>
+                <select
+                  id="currency"
+                  className={styles.input}
+                  value={form.currency}
+                  onChange={(e) => set('currency', e.target.value)}
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
-          <div className={styles.row}>
-            <label className={styles.label} htmlFor="cost">
-              Cost basis (per unit, {form.currency})
-            </label>
-            <input
-              id="cost"
-              type="text"
-              inputMode="decimal"
-              className={styles.input}
-              value={costRaw}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (/^[0-9]*\.?[0-9]*$/.test(v)) {
-                  setCostRaw(v);
-                  set('cost_basis', parseFloat(v) || 0);
-                }
-              }}
-              placeholder="150.00"
-            />
-          </div>
+          {form.asset_type !== 'fiat' && (
+            <div className={styles.row}>
+              <label className={styles.label} htmlFor="cost">
+                Cost basis (per unit, {form.currency})
+              </label>
+              <input
+                id="cost"
+                type="text"
+                inputMode="decimal"
+                className={styles.input}
+                value={costRaw}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (/^[0-9]*\.?[0-9]*$/.test(v)) {
+                    setCostRaw(v);
+                    set('cost_basis', parseFloat(v) || 0);
+                  }
+                }}
+                placeholder="150.00"
+              />
+            </div>
+          )}
 
           {error && <p className={styles.error}>{error}</p>}
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { usePortfolioStore, computeTotals } from '../store/portfolio';
+import { usePortfolioStore, computeTotals, resolvePositions } from '../store/portfolio';
 import { fetchYahooPrices, fetchEurUsd } from '../lib/api/yahoo';
 import { fetchCryptoPrices, symbolToId } from '../lib/api/coingecko';
 import { insertSnapshot } from '../lib/db';
@@ -11,6 +11,7 @@ export function usePrices() {
   const queryClient = useQueryClient();
   const lastSnapshotRef = useRef(0);
   const positions = usePortfolioStore((s) => s.positions);
+  const storeTransactions = usePortfolioStore((s) => s.transactions);
   const setPrices = usePortfolioStore((s) => s.setPrices);
   const setEurUsd = usePortfolioStore((s) => s.setEurUsd);
   const baseCurrency = usePortfolioStore((s) => s.baseCurrency);
@@ -72,7 +73,8 @@ export function usePrices() {
     if (now - lastSnapshotRef.current < 5) return; // debounce: max 1 snapshot per 5s
     lastSnapshotRef.current = now;
     const freshPrices = { ...stockQuery.data, ...cryptoQuery.data };
-    const { totalValue, totalCost } = computeTotals(positions, freshPrices, baseCurrency, eurUsd);
+    const resolved = resolvePositions(positions, storeTransactions);
+    const { totalValue, totalCost } = computeTotals(resolved, freshPrices, baseCurrency, eurUsd);
     if (totalValue === 0) return;
     insertSnapshot(totalValue, totalCost)
       .then(() => queryClient.invalidateQueries({ queryKey: ['snapshots'] }))

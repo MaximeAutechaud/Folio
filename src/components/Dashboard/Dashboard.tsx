@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { usePortfolioStore, computeTotals, convertCurrency, type BaseCurrency } from '../../store/portfolio';
+import { usePortfolioStore, computeTotals, convertCurrency, resolvePositions, type BaseCurrency } from '../../store/portfolio';
 import { usePeriodPnl } from '../../hooks/usePeriodPnl';
-import type { AssetType, PositionWithValue, Snapshot } from '../../types';
+import type { PositionWithValue, Snapshot } from '../../types';
 import styles from './Dashboard.module.css';
 
-type Filter = 'all' | AssetType;
+type Filter = 'all' | 'stock' | 'crypto';
 
 function fmtQty(n: number, assetType: string): string {
   if (assetType === 'crypto') {
@@ -43,7 +43,8 @@ interface Props {
 }
 
 export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick }: Props) {
-  const positions = usePortfolioStore((s) => s.positions);
+  const rawPositions = usePortfolioStore((s) => s.positions);
+  const storeTransactions = usePortfolioStore((s) => s.transactions);
   const prices = usePortfolioStore((s) => s.prices);
   const isLoading = usePortfolioStore((s) => s.isLoading);
   const baseCurrency = usePortfolioStore((s) => s.baseCurrency);
@@ -51,7 +52,14 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
   const eurUsd = usePortfolioStore((s) => s.eurUsd);
   const [filter, setFilter] = useState<Filter>('all');
 
-  const filtered = filter === 'all' ? positions : positions.filter((p) => p.asset_type === filter);
+  const positions = resolvePositions(rawPositions, storeTransactions);
+  const investmentPositions = positions.filter((p) => p.asset_type !== 'fiat');
+  const fiatPositions = positions.filter((p) => p.asset_type === 'fiat');
+
+  const filtered = filter === 'all'
+    ? investmentPositions
+    : investmentPositions.filter((p) => p.asset_type === filter);
+
   const { totalValue, totalCost } = computeTotals(filtered, prices, baseCurrency, eurUsd);
   const periods = usePeriodPnl(snapshots, totalValue);
   const totalPnl = totalValue - totalCost;
@@ -121,9 +129,9 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
         </div>
       </div>
 
-      {isLoading && positions.length === 0 ? (
+      {isLoading && rawPositions.length === 0 ? (
         <p className={styles.empty}>Loading…</p>
-      ) : positions.length === 0 ? (
+      ) : rawPositions.length === 0 ? (
         <p className={styles.empty}>No positions yet. Add your first one.</p>
       ) : (
         <>
@@ -141,7 +149,9 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
             </div>
           </div>
 
-          {filtered.length === 0 ? (
+          {investmentPositions.length === 0 ? (
+            <p className={styles.empty}>No positions yet. Add your first one.</p>
+          ) : filtered.length === 0 ? (
             <p className={styles.empty}>No {filter} positions.</p>
           ) : (
             <table className={styles.table}>
@@ -205,6 +215,32 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
                 ))}
               </tbody>
             </table>
+          )}
+          {fiatPositions.length > 0 && (
+            <div className={styles.cashSection}>
+              <div className={styles.cashHeader}>Cash</div>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Currency</th>
+                    <th className={styles.right}>Balance</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fiatPositions.map((p) => (
+                    <tr key={p.id} className={styles.clickableRow} onClick={() => onRowClick(p.id)}>
+                      <td className={styles.ticker}>{p.ticker}</td>
+                      <td className={styles.right}>{fmtCurrency(p.quantity, p.currency)}</td>
+                      <td className={styles.actions} onClick={(e) => e.stopPropagation()}>
+                        <button className={styles.editBtn} onClick={() => onEdit(p.id)} title="Edit">✎</button>
+                        <button className={styles.removeBtn} onClick={() => onRemove(p.id)} title="Remove">×</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       )}

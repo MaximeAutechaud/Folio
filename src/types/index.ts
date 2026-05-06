@@ -1,4 +1,33 @@
-export type AssetType = 'stock' | 'crypto';
+export type AssetType = 'stock' | 'crypto' | 'fiat';
+
+export type TransactionType = 'buy' | 'sell' | 'swap_out' | 'swap_in';
+
+export interface Transaction {
+  id: number;
+  position_id: number;
+  ticker: string;
+  type: TransactionType;
+  quantity: number;
+  price: number;
+  currency: string;
+  linked_tx_id: number | null;
+  fee: number;
+  note: string;
+  created_at: number;
+}
+
+export interface TransactionInput {
+  position_id: number;
+  ticker: string;
+  type: TransactionType;
+  quantity: number;
+  price: number;
+  currency: string;
+  linked_tx_id?: number | null;
+  fee?: number;
+  note?: string;
+  created_at?: number;
+}
 
 export interface Position {
   id: number;

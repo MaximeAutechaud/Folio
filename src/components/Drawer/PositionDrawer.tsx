@@ -1,5 +1,8 @@
+import { useState } from 'react';
 import type { Position } from '../../types';
 import { usePortfolioStore, convertCurrency } from '../../store/portfolio';
+import { useTransactions } from '../../hooks/useTransactions';
+import { TransactionForm } from '../TransactionForm/TransactionForm';
 import styles from './PositionDrawer.module.css';
 
 interface Props {
@@ -25,10 +28,22 @@ function displayTicker(position: Position): string {
   return position.ticker.toUpperCase();
 }
 
+const TX_LABELS: Record<string, string> = {
+  buy: 'BUY',
+  sell: 'SELL',
+  swap_in: 'SWAP IN',
+  swap_out: 'SWAP OUT',
+};
+
 export function PositionDrawer({ position, onClose }: Props) {
   const prices = usePortfolioStore((s) => s.prices);
   const baseCurrency = usePortfolioStore((s) => s.baseCurrency);
   const eurUsd = usePortfolioStore((s) => s.eurUsd);
+  const removeTransaction = usePortfolioStore((s) => s.removeTransaction);
+  const allTransactions = usePortfolioStore((s) => s.transactions);
+  const { transactions, isCalculated } = useTransactions(position.id);
+  const [showTxForm, setShowTxForm] = useState(false);
+  const [expandedTxId, setExpandedTxId] = useState<number | null>(null);
 
   const rawPrice = prices[position.ticker];
   const currentPrice = rawPrice != null
@@ -40,62 +55,187 @@ export function PositionDrawer({ position, onClose }: Props) {
   const pnl = currentValue != null ? currentValue - totalCost : undefined;
   const pnlPct = pnl != null && totalCost > 0 ? (pnl / totalCost) * 100 : undefined;
 
-  const daysHeld = Math.floor((Date.now() / 1000 - position.created_at) / 86400);
-  const entryDate = new Date(position.created_at * 1000).toLocaleDateString('fr-FR', {
+  const firstTx = transactions.length > 0
+    ? Math.min(...transactions.map((t) => t.created_at))
+    : position.created_at;
+  const daysHeld = Math.floor((Date.now() / 1000 - firstTx) / 86400);
+  const entryDate = new Date(firstTx * 1000).toLocaleDateString('fr-FR', {
     day: '2-digit', month: 'short', year: 'numeric',
   });
 
-  // Break-even: same as cost basis (position already at break-even when price = cost_basis)
   const breakEven = fmtCcy(entryPrice, baseCurrency);
-
   const isPositive = pnl != null && pnl >= 0;
 
   return (
+    <>
     <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className={styles.drawer}>
         <div className={styles.header}>
           <div className={styles.headerLeft}>
-            <span className={styles.ticker}>{displayTicker(position)}</span>
+            <div className={styles.headerTicker}>
+              <span className={styles.ticker}>{displayTicker(position)}</span>
+              {isCalculated && <span className={styles.calcBadge}>calculé</span>}
+            </div>
             <span className={styles.name}>{position.name || position.ticker.toUpperCase()}</span>
           </div>
           <button className={styles.closeBtn} onClick={onClose}>×</button>
         </div>
 
         <div className={styles.body}>
-          {/* Main P&L */}
-          <div className={styles.pnlBlock}>
-            <span className={styles.pnlLabel}>P&amp;L total</span>
-            {pnl != null ? (
-              <>
-                <span className={`${styles.pnlValue} ${isPositive ? styles.green : styles.red}`}>
-                  {isPositive ? '+' : ''}{fmtCcy(pnl, baseCurrency)}
-                </span>
-                <span className={`${styles.pnlPct} ${isPositive ? styles.green : styles.red}`}>
-                  {fmtPct(pnlPct!)}
-                </span>
-              </>
+          {position.asset_type !== 'fiat' && (
+            <>
+              <div className={styles.pnlBlock}>
+                <span className={styles.pnlLabel}>P&amp;L total</span>
+                {pnl != null ? (
+                  <>
+                    <span className={`${styles.pnlValue} ${isPositive ? styles.green : styles.red}`}>
+                      {isPositive ? '+' : ''}{fmtCcy(pnl, baseCurrency)}
+                    </span>
+                    <span className={`${styles.pnlPct} ${isPositive ? styles.green : styles.red}`}>
+                      {fmtPct(pnlPct!)}
+                    </span>
+                  </>
+                ) : (
+                  <span className={styles.pnlValue}>Prix en attente…</span>
+                )}
+              </div>
+
+              <div className={styles.divider} />
+
+              <div className={styles.grid}>
+                <Stat label="Prix actuel" value={currentPrice != null ? fmtCcy(currentPrice, baseCurrency) : '—'} />
+                <Stat label="Valeur actuelle" value={currentValue != null ? fmtCcy(currentValue, baseCurrency) : '—'} />
+                <Stat label="Prix d'entrée (PRU)" value={fmtCcy(entryPrice, baseCurrency)} />
+                <Stat label="Investi" value={fmtCcy(totalCost, baseCurrency)} />
+                <Stat label="Quantité" value={position.quantity.toLocaleString('en-US', { maximumSignificantDigits: 8 })} />
+                <Stat label="Devise" value={position.currency} />
+                <Stat label="Break-even" value={breakEven} />
+                <Stat label="Jours détenus" value={daysHeld < 1 ? '< 1 jour' : `${daysHeld} j`} />
+                <Stat label="Depuis" value={entryDate} span={2} />
+              </div>
+
+              <div className={styles.divider} />
+            </>
+          )}
+
+          <div className={styles.txSection}>
+            <div className={styles.txHeader}>
+              <span className={styles.txTitle}>Transactions</span>
+              <button className={styles.addTxBtn} onClick={() => setShowTxForm(true)}>+ Ajouter</button>
+            </div>
+
+            {transactions.length === 0 ? (
+              <p className={styles.txEmpty}>Aucune transaction enregistrée.</p>
             ) : (
-              <span className={styles.pnlValue}>Prix en attente…</span>
+              <div className={styles.txList}>
+                {[...transactions].reverse().map((tx) => {
+                  const expanded = expandedTxId === tx.id;
+                  const linkedTx = tx.linked_tx_id
+                    ? Object.values(allTransactions).flat().find((t) => t.id === tx.linked_tx_id)
+                    : undefined;
+                  return (
+                    <div key={tx.id} className={`${styles.txCard} ${expanded ? styles.txCardExpanded : ''}`}>
+                      {/* Summary row — always visible, click to expand */}
+                      <div
+                        className={styles.txRow}
+                        onClick={() => setExpandedTxId(expanded ? null : tx.id)}
+                      >
+                        <span className={`${styles.txBadge} ${styles[`tx_${tx.type}`]}`}>
+                          {TX_LABELS[tx.type]}
+                        </span>
+                        <span className={styles.txQty}>
+                          {tx.quantity.toLocaleString('en-US', { maximumSignificantDigits: 6 })}
+                        </span>
+                        <span className={styles.txPrice}>
+                          @ {tx.price.toLocaleString('en-US', { maximumSignificantDigits: 6 })} {tx.currency}
+                        </span>
+                        <span className={styles.txDate}>
+                          {new Date(tx.created_at * 1000).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' })}
+                        </span>
+                        <span className={styles.txChevron}>{expanded ? '▲' : '▼'}</span>
+                      </div>
+
+                      {/* Expanded detail */}
+                      {expanded && (
+                        <div className={styles.txDetail}>
+                          <div className={styles.txDetailGrid}>
+                            <span className={styles.txDetailLabel}>Quantité</span>
+                            <span className={styles.txDetailValue}>
+                              {tx.quantity.toLocaleString('en-US', { maximumSignificantDigits: 10 })} {position.ticker.toUpperCase()}
+                            </span>
+                            <span className={styles.txDetailLabel}>Prix unitaire</span>
+                            <span className={styles.txDetailValue}>
+                              {tx.price.toLocaleString('en-US', { maximumSignificantDigits: 10 })} {tx.currency.toUpperCase()}
+                            </span>
+                            {tx.type === 'swap_out' && linkedTx != null && (
+                              <>
+                                <span className={styles.txDetailLabel}>Taux</span>
+                                <span className={styles.txDetailValue}>
+                                  1 {tx.ticker.toUpperCase()} = {(linkedTx.quantity / tx.quantity).toLocaleString('en-US', { maximumSignificantDigits: 8 })} {linkedTx.ticker.toUpperCase()}
+                                </span>
+                              </>
+                            )}
+                            {tx.type === 'swap_in' && linkedTx?.type === 'swap_out' && (
+                              <>
+                                <span className={styles.txDetailLabel}>Taux</span>
+                                <span className={styles.txDetailValue}>
+                                  1 {linkedTx.ticker.toUpperCase()} = {(tx.quantity / linkedTx.quantity).toLocaleString('en-US', { maximumSignificantDigits: 8 })} {tx.ticker.toUpperCase()}
+                                </span>
+                              </>
+                            )}
+                            {tx.fee > 0 && <>
+                              <span className={styles.txDetailLabel}>Frais</span>
+                              <span className={styles.txDetailValue}>{tx.fee} {position.currency}</span>
+                            </>}
+                            {tx.note && <>
+                              <span className={styles.txDetailLabel}>Note</span>
+                              <span className={styles.txDetailValue}>{tx.note}</span>
+                            </>}
+                            {linkedTx && <>
+                              <span className={styles.txDetailLabel}>Lié à</span>
+                              <span className={styles.txDetailValue}>
+                                {TX_LABELS[linkedTx.type]} {linkedTx.quantity.toLocaleString('en-US', { maximumSignificantDigits: 6 })} {linkedTx.currency.toUpperCase()}
+                              </span>
+                            </>}
+                            <span className={styles.txDetailLabel}>Date</span>
+                            <span className={styles.txDetailValue}>
+                              {new Date(tx.created_at * 1000).toLocaleString('fr-FR', {
+                                day: '2-digit', month: 'short', year: 'numeric',
+                                hour: '2-digit', minute: '2-digit',
+                              })}
+                            </span>
+                          </div>
+                          <button
+                            className={styles.txDeleteExpanded}
+                            onClick={() => {
+                              const linkedPos = tx.linked_tx_id
+                                ? Object.values(allTransactions).flat().find((t) => t.id === tx.linked_tx_id)?.position_id
+                                : undefined;
+                              removeTransaction(tx.id, position.id, linkedPos);
+                            }}
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
-          </div>
-
-          <div className={styles.divider} />
-
-          {/* Stats grid */}
-          <div className={styles.grid}>
-            <Stat label="Prix actuel" value={currentPrice != null ? fmtCcy(currentPrice, baseCurrency) : '—'} />
-            <Stat label="Valeur actuelle" value={currentValue != null ? fmtCcy(currentValue, baseCurrency) : '—'} />
-            <Stat label="Prix d'entrée" value={fmtCcy(entryPrice, baseCurrency)} />
-            <Stat label="Investi" value={fmtCcy(totalCost, baseCurrency)} />
-            <Stat label="Quantité" value={position.quantity.toLocaleString('en-US', { maximumSignificantDigits: 8 })} />
-            <Stat label="Devise" value={position.currency} />
-            <Stat label="Break-even" value={breakEven} />
-            <Stat label="Jours détenus" value={daysHeld < 1 ? '< 1 jour' : `${daysHeld} j`} />
-            <Stat label="Depuis" value={entryDate} span={2} />
           </div>
         </div>
       </div>
+
     </div>
+
+    {showTxForm && (
+      <TransactionForm
+        position={position}
+        onClose={() => setShowTxForm(false)}
+      />
+    )}
+    </>
   );
 }
 
