@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Position, PositionInput, PriceMap, Transaction, TransactionInput } from '../types';
+import { detectCurrency } from '../lib/api/yahoo';
 import {
   fetchPositions,
   insertPosition,
@@ -200,10 +201,11 @@ export function computeTotals(
   for (const p of positions) {
     if (p.asset_type === 'fiat') continue;
     const price = prices[p.ticker];
+    const priceCcy = detectCurrency(p.ticker);
     const cost = convertCurrency(p.quantity * p.cost_basis, p.currency, baseCurrency, eurUsd);
     totalCost += cost;
     if (price != null) {
-      totalValue += convertCurrency(p.quantity * price, p.currency, baseCurrency, eurUsd);
+      totalValue += convertCurrency(p.quantity * price, priceCcy, baseCurrency, eurUsd);
     }
   }
   return { totalValue, totalCost };

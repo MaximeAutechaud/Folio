@@ -1,0 +1,21 @@
+.tabBtn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  padding: 0 12px;
+  height: 44px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.1s;
+}
+
+.tabBtn:hover {
+  color: var(--text-primary);
+}
+
+.tabActive {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}

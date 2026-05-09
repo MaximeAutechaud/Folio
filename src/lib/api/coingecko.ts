@@ -33,6 +33,19 @@ export async function fetchCryptoPrices(ids: string[]): Promise<Record<string, n
   );
 }
 
+const COINGECKO_DAYS: Record<string, string> = {
+  '1W': '7', '1M': '30', '3M': '90', '1Y': '365',
+};
+
+export async function fetchCryptoHistory(id: string, period: string): Promise<{ time: number; value: number }[]> {
+  const days = COINGECKO_DAYS[period] ?? '30';
+  const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
+  const raw: string = await invoke('fetch_url', { url });
+  const data = JSON.parse(raw);
+  const prices: [number, number][] = data?.prices ?? [];
+  return prices.map(([ts, price]) => ({ time: Math.floor(ts / 1000), value: price }));
+}
+
 // For known symbols → CoinGecko ID (fallback: use id directly)
 const SYMBOL_TO_ID: Record<string, string> = {
   BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binancecoin',

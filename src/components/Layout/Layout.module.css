@@ -25,6 +25,13 @@
   color: var(--text-primary);
 }
 
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 24px;
+}
+
 .main {
   flex: 1;
   overflow: auto;

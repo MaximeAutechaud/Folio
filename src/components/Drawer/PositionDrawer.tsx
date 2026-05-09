@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Position } from '../../types';
 import { usePortfolioStore, convertCurrency } from '../../store/portfolio';
+import { detectCurrency } from '../../lib/api/yahoo';
 import { useTransactions } from '../../hooks/useTransactions';
 import { TransactionForm } from '../TransactionForm/TransactionForm';
 import styles from './PositionDrawer.module.css';
@@ -46,8 +47,9 @@ export function PositionDrawer({ position, onClose }: Props) {
   const [expandedTxId, setExpandedTxId] = useState<number | null>(null);
 
   const rawPrice = prices[position.ticker];
+  const priceCcy = detectCurrency(position.ticker);
   const currentPrice = rawPrice != null
-    ? convertCurrency(rawPrice, position.currency, baseCurrency, eurUsd)
+    ? convertCurrency(rawPrice, priceCcy, baseCurrency, eurUsd)
     : undefined;
   const entryPrice = convertCurrency(position.cost_basis, position.currency, baseCurrency, eurUsd);
   const currentValue = currentPrice != null ? currentPrice * position.quantity : undefined;

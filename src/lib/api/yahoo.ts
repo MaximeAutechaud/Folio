@@ -39,17 +39,52 @@ export async function fetchYahooPrices(tickers: string[]): Promise<Record<string
   return Object.fromEntries(results.filter(([, price]) => price != null)) as Record<string, number>;
 }
 
-// Returns EURUSD rate (1 EUR = X USD). Falls back to 1 on error.
+// Returns EURUSD rate (1 EUR = X USD).
+// Tries Yahoo Finance (query1 then query2), then falls back to Frankfurter (ECB data, no key).
 export async function fetchEurUsd(): Promise<number> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/EURUSD=X?interval=1d&range=1d`;
-  try {
-    const raw: string = await invoke('fetch_url', { url });
-    const data = JSON.parse(raw);
-    const rate = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
-    return typeof rate === 'number' ? rate : 1;
-  } catch {
-    return 1;
+  const isValidRate = (r: unknown): r is number =>
+    typeof r === 'number' && r > 0.5 && r < 3;
+
+  for (const host of ['query1', 'query2']) {
+    try {
+      const url = `https://${host}.finance.yahoo.com/v8/finance/chart/EURUSD=X?interval=1d&range=1d`;
+      const raw: string = await invoke('fetch_url', { url });
+      const data = JSON.parse(raw);
+      const rate = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (isValidRate(rate)) return rate;
+    } catch { /* try next source */ }
   }
+
+  // Fallback: Frankfurter (open ECB-based exchange rate API, no key required)
+  const raw: string = await invoke('fetch_url', { url: 'https://api.frankfurter.app/latest?from=EUR&to=USD' });
+  const data = JSON.parse(raw);
+  const rate = data?.rates?.USD;
+  if (isValidRate(rate)) return rate;
+
+  throw new Error('Could not fetch EUR/USD rate from any source');
+}
+
+const YAHOO_RANGE: Record<string, { range: string; interval: string }> = {
+  '1W': { range: '5d',  interval: '1h' },
+  '1M': { range: '1mo', interval: '1d' },
+  '3M': { range: '3mo', interval: '1d' },
+  '1Y': { range: '1y',  interval: '1wk' },
+};
+
+export async function fetchYahooHistory(ticker: string, period: string): Promise<{ time: number; value: number }[]> {
+  const { range, interval } = YAHOO_RANGE[period] ?? YAHOO_RANGE['1M'];
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${range}`;
+  const raw: string = await invoke('fetch_url', { url });
+  const data = JSON.parse(raw);
+  const result = data?.chart?.result?.[0];
+  if (!result) return [];
+  const timestamps: number[] = result.timestamp ?? [];
+  const closes: (number | null)[] = result.indicators?.quote?.[0]?.close ?? [];
+  const points: { time: number; value: number }[] = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    if (closes[i] != null) points.push({ time: timestamps[i], value: closes[i]! });
+  }
+  return points;
 }
 
 export async function searchYahoo(query: string): Promise<YahooSuggestion[]> {

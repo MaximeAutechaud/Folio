@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { usePortfolioStore, computeTotals, convertCurrency, resolvePositions, type BaseCurrency } from '../../store/portfolio';
+import { detectCurrency } from '../../lib/api/yahoo';
 import { usePeriodPnl } from '../../hooks/usePeriodPnl';
 import type { PositionWithValue, Snapshot } from '../../types';
 import styles from './Dashboard.module.css';
@@ -67,14 +68,15 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
 
   const rows: PositionWithValue[] = filtered.map((p) => {
     const price = prices[p.ticker];
+    const priceCcy = detectCurrency(p.ticker); // currency Yahoo/CoinGecko quotes in (from ticker suffix)
     const value = price != null
-      ? convertCurrency(p.quantity * price, p.currency, baseCurrency, eurUsd)
+      ? convertCurrency(p.quantity * price, priceCcy, baseCurrency, eurUsd)
       : undefined;
     const cost = convertCurrency(p.quantity * p.cost_basis, p.currency, baseCurrency, eurUsd);
     const pnl = value != null ? value - cost : undefined;
     const pnl_pct = pnl != null && cost > 0 ? (pnl / cost) * 100 : undefined;
     const current_price = price != null
-      ? convertCurrency(price, p.currency, baseCurrency, eurUsd)
+      ? convertCurrency(price, priceCcy, baseCurrency, eurUsd)
       : undefined;
     return { ...p, current_price, current_value: value, pnl, pnl_pct };
   });

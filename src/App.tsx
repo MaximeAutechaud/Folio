@@ -5,12 +5,17 @@ import { Dashboard } from './components/Dashboard/Dashboard';
 import { PositionForm } from './components/PositionForm/PositionForm';
 import { PortfolioChart } from './components/PortfolioChart/PortfolioChart';
 import { PositionDrawer } from './components/Drawer/PositionDrawer';
+import { ChartsView } from './components/ChartsView/ChartsView';
 import { usePortfolioStore } from './store/portfolio';
 import { usePrices } from './hooks/usePrices';
 import { fetchSnapshots } from './lib/db';
 import type { PositionInput } from './types';
+import styles from './App.module.css';
+
+type Tab = 'portfolio' | 'charts';
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState<Tab>('portfolio');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [drawerPositionId, setDrawerPositionId] = useState<number | null>(null);
@@ -45,19 +50,38 @@ export default function App() {
     else await addPosition(input);
   }
 
-  return (
-    <Layout>
-      <PortfolioChart snapshots={snapshots} />
+  const nav = (
+    <>
+      {(['portfolio', 'charts'] as Tab[]).map((tab) => (
+        <button
+          key={tab}
+          className={`${styles.tabBtn} ${activeTab === tab ? styles.tabActive : ''}`}
+          onClick={() => setActiveTab(tab)}
+        >
+          {tab === 'portfolio' ? 'Portfolio' : 'Charts'}
+        </button>
+      ))}
+    </>
+  );
 
-      <div style={{ marginTop: 20 }}>
-        <Dashboard
-          snapshots={snapshots}
-          onAddClick={() => { setEditingId(null); setShowForm(true); }}
-          onEdit={handleEdit}
-          onRemove={removePosition}
-          onRowClick={(id) => setDrawerPositionId(drawerPositionId === id ? null : id)}
-        />
-      </div>
+  return (
+    <Layout nav={nav}>
+      {activeTab === 'portfolio' ? (
+        <>
+          <PortfolioChart snapshots={snapshots} />
+          <div style={{ marginTop: 20 }}>
+            <Dashboard
+              snapshots={snapshots}
+              onAddClick={() => { setEditingId(null); setShowForm(true); }}
+              onEdit={handleEdit}
+              onRemove={removePosition}
+              onRowClick={(id) => setDrawerPositionId(drawerPositionId === id ? null : id)}
+            />
+          </div>
+        </>
+      ) : (
+        <ChartsView />
+      )}
 
       {showForm && (
         <PositionForm

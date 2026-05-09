@@ -65,6 +65,7 @@ async function runMigrations(db: Database): Promise<void> {
     )
   `);
   await db.execute(`CREATE INDEX IF NOT EXISTS idx_tx_position ON transactions(position_id)`);
+
 }
 
 export async function fetchPositions(): Promise<Position[]> {

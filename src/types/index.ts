@@ -66,3 +66,8 @@ export interface PositionWithValue extends Position {
   pnl: number | undefined;
   pnl_pct: number | undefined;
 }
+
+export interface HistoricalPoint {
+  time: number;
+  value: number;
+}
