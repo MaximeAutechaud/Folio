@@ -1,5 +1,6 @@
 import Database from '@tauri-apps/plugin-sql';
-import type { Position, PositionInput, Snapshot, Transaction, TransactionInput } from '../types';
+import type { Position, PositionInput, Snapshot, Transaction, TransactionInput, Narrative, NarrativeInput, NarrativeTicker, NarrativeTickerInput, NarrativeKeyword } from '../types';
+import { NARRATIVE_SEED } from './narratives-seed';
 
 const DB_URL = 'sqlite:folio.db';
 
@@ -66,6 +67,111 @@ async function runMigrations(db: Database): Promise<void> {
   `);
   await db.execute(`CREATE INDEX IF NOT EXISTS idx_tx_position ON transactions(position_id)`);
 
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS narratives (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT    NOT NULL,
+      description TEXT    NOT NULL DEFAULT '',
+      color       TEXT    NOT NULL DEFAULT '#6366f1',
+      ref_etf     TEXT,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS narrative_tickers (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      narrative_id INTEGER NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
+      ticker       TEXT    NOT NULL,
+      name         TEXT    NOT NULL DEFAULT '',
+      exchange     TEXT    NOT NULL DEFAULT '',
+      asset_type   TEXT    NOT NULL DEFAULT 'stock'
+    )
+  `);
+  await db.execute(`CREATE INDEX IF NOT EXISTS idx_ntickers_narrative ON narrative_tickers(narrative_id)`);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS narrative_keywords (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      narrative_id INTEGER NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
+      keyword      TEXT    NOT NULL
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS price_history (
+      id      INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker  TEXT    NOT NULL,
+      date    TEXT    NOT NULL,
+      close   REAL    NOT NULL,
+      volume  REAL    NOT NULL DEFAULT 0,
+      UNIQUE(ticker, date)
+    )
+  `);
+  await db.execute(`CREATE INDEX IF NOT EXISTS idx_ph_ticker_date ON price_history(ticker, date)`);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS sentiment_history (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      narrative_id INTEGER NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
+      date         TEXT    NOT NULL,
+      volume_7d    INTEGER NOT NULL DEFAULT 0,
+      volume_prev  INTEGER NOT NULL DEFAULT 0,
+      score        REAL    NOT NULL DEFAULT 0,
+      mainstream   INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(narrative_id, date)
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS fundamentals_history (
+      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+      narrative_id        INTEGER NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
+      date                TEXT    NOT NULL,
+      score               REAL    NOT NULL DEFAULT 0,
+      recommendation_mean REAL,
+      buy_count           INTEGER NOT NULL DEFAULT 0,
+      hold_count          INTEGER NOT NULL DEFAULT 0,
+      sell_count          INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(narrative_id, date)
+    )
+  `);
+
+  await seedNarrativesIfEmpty(db);
+}
+
+async function seedNarrativesIfEmpty(db: Database): Promise<void> {
+  const count = await db.select<{ n: number }[]>('SELECT COUNT(*) as n FROM narratives');
+  if (count[0].n > 0) return;
+
+  for (const n of NARRATIVE_SEED) {
+    const result = await db.execute(
+      'INSERT INTO narratives (name, description, color, ref_etf) VALUES ($1, $2, $3, $4)',
+      [n.name, n.description, n.color, n.ref_etf]
+    );
+    const narrativeId = result.lastInsertId as number;
+
+    for (const t of n.tickers) {
+      await db.execute(
+        'INSERT INTO narrative_tickers (narrative_id, ticker, name, exchange) VALUES ($1, $2, $3, $4)',
+        [narrativeId, t.ticker, t.name, t.exchange]
+      );
+    }
+
+    for (const keyword of n.keywords) {
+      await db.execute(
+        'INSERT INTO narrative_keywords (narrative_id, keyword) VALUES ($1, $2)',
+        [narrativeId, keyword]
+      );
+    }
+  }
 }
 
 export async function fetchPositions(): Promise<Position[]> {
@@ -182,4 +288,220 @@ export async function insertSwapTransactions(
 export async function deleteTransaction(id: number): Promise<void> {
   const db = await getDb();
   await db.execute('DELETE FROM transactions WHERE id = $1 OR linked_tx_id = $1', [id]);
+}
+
+export async function fetchNarratives(): Promise<Narrative[]> {
+  const db = await getDb();
+  return db.select<Narrative[]>('SELECT * FROM narratives ORDER BY id ASC');
+}
+
+export async function fetchAllNarrativeTickers(): Promise<NarrativeTicker[]> {
+  const db = await getDb();
+  return db.select<NarrativeTicker[]>('SELECT * FROM narrative_tickers ORDER BY narrative_id, id ASC');
+}
+
+export async function fetchNarrativeTickers(narrativeId: number): Promise<NarrativeTicker[]> {
+  const db = await getDb();
+  return db.select<NarrativeTicker[]>(
+    'SELECT * FROM narrative_tickers WHERE narrative_id = $1 ORDER BY id ASC',
+    [narrativeId]
+  );
+}
+
+export async function fetchNarrativeKeywords(narrativeId: number): Promise<NarrativeKeyword[]> {
+  const db = await getDb();
+  return db.select<NarrativeKeyword[]>(
+    'SELECT * FROM narrative_keywords WHERE narrative_id = $1 ORDER BY id ASC',
+    [narrativeId]
+  );
+}
+
+export async function insertNarrative(input: NarrativeInput): Promise<number> {
+  const db = await getDb();
+  const result = await db.execute(
+    'INSERT INTO narratives (name, description, color, ref_etf) VALUES ($1, $2, $3, $4)',
+    [input.name, input.description, input.color, input.ref_etf]
+  );
+  return result.lastInsertId as number;
+}
+
+export async function updateNarrative(id: number, input: NarrativeInput): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    'UPDATE narratives SET name=$1, description=$2, color=$3, ref_etf=$4 WHERE id=$5',
+    [input.name, input.description, input.color, input.ref_etf, id]
+  );
+}
+
+export async function deleteNarrative(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM narratives WHERE id = $1', [id]);
+}
+
+export async function replaceNarrativeTickers(narrativeId: number, tickers: NarrativeTickerInput[]): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM narrative_tickers WHERE narrative_id = $1', [narrativeId]);
+  for (const t of tickers) {
+    await db.execute(
+      'INSERT INTO narrative_tickers (narrative_id, ticker, name, exchange) VALUES ($1, $2, $3, $4)',
+      [narrativeId, t.ticker, t.name, t.exchange]
+    );
+  }
+}
+
+export async function replaceNarrativeKeywords(narrativeId: number, keywords: string[]): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM narrative_keywords WHERE narrative_id = $1', [narrativeId]);
+  for (const keyword of keywords) {
+    await db.execute(
+      'INSERT INTO narrative_keywords (narrative_id, keyword) VALUES ($1, $2)',
+      [narrativeId, keyword]
+    );
+  }
+}
+
+// ── Price history ─────────────────────────────────────────────────────────
+
+export async function upsertPriceHistory(
+  ticker: string,
+  rows: { date: string; close: number; volume: number }[]
+): Promise<void> {
+  const db = await getDb();
+  for (const row of rows) {
+    await db.execute(
+      `INSERT INTO price_history (ticker, date, close, volume) VALUES ($1, $2, $3, $4)
+       ON CONFLICT(ticker, date) DO UPDATE SET close=excluded.close, volume=excluded.volume`,
+      [ticker, row.date, row.close, row.volume]
+    );
+  }
+}
+
+export async function fetchStoredPriceHistory(
+  ticker: string,
+  limit = 250
+): Promise<{ date: string; close: number }[]> {
+  const db = await getDb();
+  return db.select<{ date: string; close: number }[]>(
+    `SELECT date, close FROM price_history WHERE ticker=$1 ORDER BY date ASC LIMIT $2`,
+    [ticker, limit]
+  );
+}
+
+export async function getLastPriceDate(ticker: string): Promise<string | null> {
+  const db = await getDb();
+  const rows = await db.select<{ date: string }[]>(
+    `SELECT date FROM price_history WHERE ticker=$1 ORDER BY date DESC LIMIT 1`,
+    [ticker]
+  );
+  return rows[0]?.date ?? null;
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────
+
+export async function getSetting(key: string): Promise<string | null> {
+  const db = await getDb();
+  const rows = await db.select<{ value: string }[]>(
+    'SELECT value FROM settings WHERE key=$1',
+    [key]
+  );
+  return rows[0]?.value ?? null;
+}
+
+export async function setSetting(key: string, value: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ($1, $2)
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+    [key, value]
+  );
+}
+
+// ── Sentiment history ─────────────────────────────────────────────────────
+
+export interface SentimentRecord {
+  narrative_id: number;
+  date: string;
+  volume_7d: number;
+  volume_prev: number;
+  score: number;
+  mainstream: number;
+}
+
+export async function upsertSentiment(
+  narrativeId: number,
+  date: string,
+  data: { volume7d: number; volumePrev: number; score: number; mainstream: boolean }
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO sentiment_history (narrative_id, date, volume_7d, volume_prev, score, mainstream)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT(narrative_id, date) DO UPDATE SET
+       volume_7d=excluded.volume_7d, volume_prev=excluded.volume_prev,
+       score=excluded.score, mainstream=excluded.mainstream`,
+    [narrativeId, date, data.volume7d, data.volumePrev, data.score, data.mainstream ? 1 : 0]
+  );
+}
+
+export async function fetchLatestSentiment(narrativeId: number): Promise<SentimentRecord | null> {
+  const db = await getDb();
+  const rows = await db.select<SentimentRecord[]>(
+    `SELECT * FROM sentiment_history WHERE narrative_id=$1 ORDER BY date DESC LIMIT 1`,
+    [narrativeId]
+  );
+  return rows[0] ?? null;
+}
+
+export async function getLastSentimentDate(narrativeId: number): Promise<string | null> {
+  const db = await getDb();
+  const rows = await db.select<{ date: string }[]>(
+    `SELECT date FROM sentiment_history WHERE narrative_id=$1 ORDER BY date DESC LIMIT 1`,
+    [narrativeId]
+  );
+  return rows[0]?.date ?? null;
+}
+
+export interface FundamentalsRecord {
+  id: number;
+  narrative_id: number;
+  date: string;
+  score: number;
+  recommendation_mean: number | null;
+  buy_count: number;
+  hold_count: number;
+  sell_count: number;
+}
+
+export async function upsertFundamentals(
+  narrativeId: number,
+  date: string,
+  data: { score: number; recommendationMean: number | null; buyCount: number; holdCount: number; sellCount: number }
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO fundamentals_history (narrative_id, date, score, recommendation_mean, buy_count, hold_count, sell_count)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT(narrative_id, date) DO UPDATE SET
+       score=excluded.score, recommendation_mean=excluded.recommendation_mean,
+       buy_count=excluded.buy_count, hold_count=excluded.hold_count, sell_count=excluded.sell_count`,
+    [narrativeId, date, data.score, data.recommendationMean, data.buyCount, data.holdCount, data.sellCount]
+  );
+}
+
+export async function fetchLatestFundamentals(narrativeId: number): Promise<FundamentalsRecord | null> {
+  const db = await getDb();
+  const rows = await db.select<FundamentalsRecord[]>(
+    `SELECT * FROM fundamentals_history WHERE narrative_id=$1 ORDER BY date DESC LIMIT 1`,
+    [narrativeId]
+  );
+  return rows[0] ?? null;
+}
+
+export async function getLastFundamentalsDate(narrativeId: number): Promise<string | null> {
+  const db = await getDb();
+  const rows = await db.select<{ date: string }[]>(
+    `SELECT date FROM fundamentals_history WHERE narrative_id=$1 ORDER BY date DESC LIMIT 1`,
+    [narrativeId]
+  );
+  return rows[0]?.date ?? null;
 }

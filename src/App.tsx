@@ -6,13 +6,14 @@ import { PositionForm } from './components/PositionForm/PositionForm';
 import { PortfolioChart } from './components/PortfolioChart/PortfolioChart';
 import { PositionDrawer } from './components/Drawer/PositionDrawer';
 import { ChartsView } from './components/ChartsView/ChartsView';
+import { MarketView } from './components/MarketView/MarketView';
 import { usePortfolioStore } from './store/portfolio';
 import { usePrices } from './hooks/usePrices';
 import { fetchSnapshots } from './lib/db';
 import type { PositionInput } from './types';
 import styles from './App.module.css';
 
-type Tab = 'portfolio' | 'charts';
+type Tab = 'portfolio' | 'charts' | 'market';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('portfolio');
@@ -50,15 +51,17 @@ export default function App() {
     else await addPosition(input);
   }
 
+  const TAB_LABELS: Record<Tab, string> = { portfolio: 'Portfolio', charts: 'Charts', market: 'Market' };
+
   const nav = (
     <>
-      {(['portfolio', 'charts'] as Tab[]).map((tab) => (
+      {(['portfolio', 'charts', 'market'] as Tab[]).map((tab) => (
         <button
           key={tab}
           className={`${styles.tabBtn} ${activeTab === tab ? styles.tabActive : ''}`}
           onClick={() => setActiveTab(tab)}
         >
-          {tab === 'portfolio' ? 'Portfolio' : 'Charts'}
+          {TAB_LABELS[tab]}
         </button>
       ))}
     </>
@@ -79,8 +82,10 @@ export default function App() {
             />
           </div>
         </>
-      ) : (
+      ) : activeTab === 'charts' ? (
         <ChartsView />
+      ) : (
+        <MarketView />
       )}
 
       {showForm && (

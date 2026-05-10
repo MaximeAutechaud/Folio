@@ -87,6 +87,30 @@ export async function fetchYahooHistory(ticker: string, period: string): Promise
   return points;
 }
 
+export async function fetchYahooDailyOHLCV(
+  ticker: string
+): Promise<{ date: string; close: number; volume: number }[]> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1y&interval=1d`;
+  try {
+    const raw: string = await invoke('fetch_url', { url });
+    const data = JSON.parse(raw);
+    const result = data?.chart?.result?.[0];
+    if (!result) return [];
+    const timestamps: number[] = result.timestamp ?? [];
+    const closes: (number | null)[] = result.indicators?.quote?.[0]?.close ?? [];
+    const volumes: (number | null)[] = result.indicators?.quote?.[0]?.volume ?? [];
+    const rows: { date: string; close: number; volume: number }[] = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      if (closes[i] == null) continue;
+      const date = new Date(timestamps[i] * 1000).toISOString().split('T')[0];
+      rows.push({ date, close: closes[i]!, volume: volumes[i] ?? 0 });
+    }
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
 export async function searchYahoo(query: string): Promise<YahooSuggestion[]> {
   if (!query.trim()) return [];
   const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=7&newsCount=0&listsCount=0`;

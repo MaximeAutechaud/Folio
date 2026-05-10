@@ -71,3 +71,40 @@ export interface HistoricalPoint {
   time: number;
   value: number;
 }
+
+export interface Narrative {
+  id: number;
+  name: string;
+  description: string;
+  color: string;
+  ref_etf: string | null;
+  created_at: number;
+}
+
+export interface NarrativeInput {
+  name: string;
+  description: string;
+  color: string;
+  ref_etf: string | null;
+}
+
+export interface NarrativeTicker {
+  id: number;
+  narrative_id: number;
+  ticker: string;
+  name: string;
+  exchange: string;
+  asset_type: string;
+}
+
+export interface NarrativeTickerInput {
+  ticker: string;
+  name: string;
+  exchange: string;
+}
+
+export interface NarrativeKeyword {
+  id: number;
+  narrative_id: number;
+  keyword: string;
+}
