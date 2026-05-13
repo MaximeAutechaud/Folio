@@ -7,6 +7,35 @@
   gap: 16px;
 }
 
+/* ── Sub-navigation ──────────────────────────────── */
+
+.subNav {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.subNavBtn {
+  padding: 6px 14px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.subNavBtn:hover { color: var(--text-primary); }
+.subNavActive {
+  color: var(--text-primary) !important;
+  border-color: var(--border);
+  background: var(--bg-hover);
+}
+
 .topBar {
   display: flex;
   justify-content: flex-end;

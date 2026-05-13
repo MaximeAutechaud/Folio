@@ -1,0 +1,219 @@
+.root {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.loading {
+  display: block;
+  padding: 12px 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* ── Compact bar ───────────────────────────────────── */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  flex-wrap: wrap;
+}
+.bar:hover { background: var(--bg-hover); }
+
+.barTitle {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.regimeBadge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 3px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+/* ── Gauge ─────────────────────────────────────────── */
+
+.gaugeTrack {
+  flex: 1;
+  min-width: 80px;
+  max-width: 160px;
+  height: 4px;
+  border-radius: 2px;
+  position: relative;
+  background: linear-gradient(
+    to right,
+    #f85149 0%,
+    #f0883e 25%,
+    #e3b341 40%,
+    #56d364 60%,
+    #3fb950 100%
+  );
+}
+
+.gaugeMarker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.4);
+}
+
+.scoreNum {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  min-width: 28px;
+  text-align: right;
+}
+
+/* ── Chips ─────────────────────────────────────────── */
+
+.chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.dotBull    { color: var(--green); font-size: 8px; }
+.dotBear    { color: var(--red);   font-size: 8px; }
+.dotNeutral { color: #e3b341;      font-size: 8px; }
+
+.toggle {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.spinner {
+  font-size: 12px;
+  color: var(--text-muted);
+  animation: spin 1.2s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Detail table ──────────────────────────────────── */
+
+.detail {
+  border-top: 1px solid var(--border);
+  padding: 0;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.table thead th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  background: var(--bg-primary);
+}
+
+.thExpl { width: 40%; }
+
+.row {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+  vertical-align: top;
+}
+.row:last-child { border-bottom: none; }
+.row:hover { background: var(--bg-hover); }
+
+.row td {
+  padding: 10px 14px;
+  color: var(--text-primary);
+}
+
+.indName {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+
+.indTip {
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: pre-line;
+  line-height: 1.5;
+}
+
+.tdValue {
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.tdSignal {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.sigBull    { color: var(--green); font-size: 11px; font-weight: 600; }
+.sigBear    { color: var(--red);   font-size: 11px; font-weight: 600; }
+.sigNeutral { color: #e3b341;      font-size: 11px; font-weight: 600; }
+
+.tdExpl {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  max-width: 340px;
+}
+
+.tdWeight {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ── Footnote ──────────────────────────────────────── */
+
+.footnote {
+  padding: 8px 14px;
+  font-size: 10px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  background: var(--bg-primary);
+}

@@ -9,7 +9,10 @@ import { computeCompositeScore, scoreToPhase, PHASES } from '../../lib/score';
 import type { Narrative, NarrativeTicker } from '../../types';
 import { NarrativeForm } from './NarrativeForm';
 import { NarrativeDrawer } from './NarrativeDrawer';
+import { SectorDashboard } from './SectorDashboard';
 import styles from './MarketView.module.css';
+
+type MarketSubTab = 'rotation' | 'narratives';
 
 function rsiClass(rsi: number): string {
   if (rsi >= 75) return styles.rsiHot;
@@ -31,6 +34,7 @@ function PhaseGauge({ score }: { score: number }) {
 
 export function MarketView() {
   const queryClient = useQueryClient();
+  const [subTab, setSubTab] = useState<MarketSubTab>('rotation');
   const [formNarrative, setFormNarrative] = useState<Narrative | null | undefined>(undefined);
   const [selectedNarrativeId, setSelectedNarrativeId] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -91,6 +95,24 @@ export function MarketView() {
 
   return (
     <div className={styles.root}>
+      <div className={styles.subNav}>
+        <button
+          className={`${styles.subNavBtn} ${subTab === 'rotation' ? styles.subNavActive : ''}`}
+          onClick={() => setSubTab('rotation')}
+        >
+          Rotation sectorielle
+        </button>
+        <button
+          className={`${styles.subNavBtn} ${subTab === 'narratives' ? styles.subNavActive : ''}`}
+          onClick={() => setSubTab('narratives')}
+        >
+          Narratives
+        </button>
+      </div>
+
+      {subTab === 'rotation' && <SectorDashboard />}
+
+      {subTab === 'narratives' && <>
       <div className={styles.topBar}>
         <button
           className={`${styles.newsApiBtn} ${keysConfigured > 0 ? styles.newsApiOn : ''}`}
@@ -241,6 +263,7 @@ export function MarketView() {
           />
         );
       })()}
+      </>}
     </div>
   );
 }
