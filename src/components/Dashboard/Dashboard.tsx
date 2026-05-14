@@ -3,6 +3,7 @@ import { usePortfolioStore, computeTotals, convertCurrency, resolvePositions, ty
 import { detectCurrency } from '../../lib/api/yahoo';
 import { usePeriodPnl } from '../../hooks/usePeriodPnl';
 import type { PositionWithValue, Snapshot } from '../../types';
+import { InfoTooltip } from '../InfoTooltip/InfoTooltip';
 import styles from './Dashboard.module.css';
 
 type Filter = 'all' | 'stock' | 'crypto';
@@ -162,13 +163,13 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
                   <th>Ticker</th>
                   <th>Name</th>
                   <th>Type</th>
-                  <th>CCY</th>
-                  <th className={styles.right}>Qty</th>
-                  <th className={styles.right}>Cost basis</th>
-                  <th className={styles.right}>Price ({baseCurrency})</th>
-                  <th className={styles.right}>Value ({baseCurrency})</th>
-                  <th className={styles.right}>P&amp;L</th>
-                  <th className={styles.right}>P&amp;L %</th>
+                  <th>Devise</th>
+                  <th className={styles.right}>Qté</th>
+                  <th className={styles.right}>Prix de revient</th>
+                  <th className={styles.right}>Prix ({baseCurrency})</th>
+                  <th className={styles.right}>Valeur ({baseCurrency})</th>
+                  <th className={styles.right}>G/P <InfoTooltip text="Gain ou Perte sur la position : différence entre la valeur actuelle et le montant investi." /></th>
+                  <th className={styles.right}>G/P % <InfoTooltip text="Gain ou Perte en pourcentage du montant investi." /></th>
                   <th></th>
                 </tr>
               </thead>

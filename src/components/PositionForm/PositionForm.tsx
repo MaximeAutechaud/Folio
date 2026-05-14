@@ -266,7 +266,7 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
           {form.asset_type !== 'fiat' && (
             <div className={styles.row}>
               <label className={styles.label} htmlFor="cost">
-                Cost basis (per unit, {form.currency})
+                Prix de revient (par unité, {form.currency})
               </label>
               <input
                 id="cost"

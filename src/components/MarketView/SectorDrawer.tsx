@@ -136,7 +136,7 @@ export function SectorDrawer({
                   <th>Ticker</th>
                   <th>Nom</th>
                   <th>Perf.</th>
-                  <th>vs SPY</th>
+                  <th>vs S&P 500</th>
                   <th>Prix</th>
                 </tr>
               </thead>

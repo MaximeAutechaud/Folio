@@ -1,3 +1,38 @@
+.wrapper {
+  position: relative;
+}
+
+.periodBar {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  gap: 2px;
+  z-index: 10;
+}
+
+.periodBtn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.periodBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.periodActive {
+  color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
 .chart {
   width: 100%;
   height: 260px;

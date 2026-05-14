@@ -178,11 +178,6 @@
 }
 .addTxBtn:hover { background: rgba(31, 111, 235, 0.1); }
 
-.txEmpty {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin: 0;
-}
 
 .txList {
   display: flex;
@@ -225,6 +220,14 @@
 .tx_sell     { background: rgba(239,68,68,0.15);  color: var(--red); }
 .tx_swap_in  { background: rgba(167,139,250,0.15); color: #a78bfa; }
 .tx_swap_out { background: rgba(251,191,36,0.15);  color: #fbbf24; }
+.tx_initial  { background: rgba(110,118,129,0.15); color: var(--text-muted); }
+
+.txEmptyHint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 6px 0 0 0;
+  opacity: 0.7;
+}
 
 .txQty {
   color: var(--text-primary);

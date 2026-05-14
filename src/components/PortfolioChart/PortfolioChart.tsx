@@ -1,33 +1,52 @@
-import { useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createChart, ColorType, LineStyle, AreaSeries, LineSeries } from 'lightweight-charts';
 import type { Snapshot } from '../../types';
 import styles from './PortfolioChart.module.css';
+
+type Period = '1W' | '1M' | '3M' | '1Y' | 'ALL';
+
+const PERIODS: Period[] = ['1W', '1M', '3M', '1Y', 'ALL'];
+
+const PERIOD_MS: Record<Period, number | null> = {
+  '1W':  7  * 86400 * 1000,
+  '1M':  30 * 86400 * 1000,
+  '3M':  90 * 86400 * 1000,
+  '1Y': 365 * 86400 * 1000,
+  'ALL': null,
+};
 
 interface Props {
   snapshots: Snapshot[];
 }
 
-// Bucket snapshots by interval (seconds), keeping the last value per bucket
 function downsample(snapshots: Snapshot[]): Snapshot[] {
   if (snapshots.length < 2) return snapshots;
   const span = snapshots[snapshots.length - 1].recorded_at - snapshots[0].recorded_at;
 
   let bucketSize: number;
-  if (span < 2 * 3600)        bucketSize = 5 * 60;     // < 2h  → 5 min buckets
-  else if (span < 24 * 3600)  bucketSize = 30 * 60;    // < 1d  → 30 min buckets
-  else if (span < 7 * 86400)  bucketSize = 2 * 3600;   // < 7d  → 2h buckets
-  else                         bucketSize = 86400;       // ≥ 7d  → 1 day buckets
+  if (span < 2 * 3600)        bucketSize = 5 * 60;
+  else if (span < 24 * 3600)  bucketSize = 30 * 60;
+  else if (span < 7 * 86400)  bucketSize = 2 * 3600;
+  else                         bucketSize = 86400;
 
   const buckets = new Map<number, Snapshot>();
   for (const s of snapshots) {
     const key = Math.floor(s.recorded_at / bucketSize) * bucketSize;
-    buckets.set(key, s); // last wins
+    buckets.set(key, s);
   }
-
   return Array.from(buckets.values()).sort((a, b) => a.recorded_at - b.recorded_at);
 }
 
+function filterByPeriod(snapshots: Snapshot[], period: Period): Snapshot[] {
+  const ms = PERIOD_MS[period];
+  if (ms === null) return snapshots;
+  const cutoff = (Date.now() - ms) / 1000;
+  const filtered = snapshots.filter(s => s.recorded_at >= cutoff);
+  return filtered.length >= 2 ? filtered : snapshots;
+}
+
 export function PortfolioChart({ snapshots }: Props) {
+  const [period, setPeriod] = useState<Period>('ALL');
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -82,13 +101,12 @@ export function PortfolioChart({ snapshots }: Props) {
       crosshairMarkerVisible: false,
     });
 
-    // Deduplicate then downsample
     const deduped = snapshots.reduce<Map<number, Snapshot>>((acc, s) => {
       acc.set(s.recorded_at, s);
       return acc;
     }, new Map());
     const sorted = Array.from(deduped.values()).sort((a, b) => a.recorded_at - b.recorded_at);
-    const data = downsample(sorted);
+    const data = downsample(filterByPeriod(sorted, period));
 
     type TS = import('lightweight-charts').UTCTimestamp;
     valueSeries.setData(data.map((s) => ({ time: s.recorded_at as TS, value: s.total_value })));
@@ -96,22 +114,35 @@ export function PortfolioChart({ snapshots }: Props) {
     chart.timeScale().fitContent();
 
     const observer = new ResizeObserver(() => {
-      if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth });
-      }
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
     });
     observer.observe(containerRef.current);
 
     return () => { observer.disconnect(); chart.remove(); };
-  }, [snapshots]);
+  }, [snapshots, period]);
 
   if (snapshots.length < 2) {
     return (
       <div className={styles.empty}>
-        Chart will appear after prices are fetched twice (≥ 2 snapshots).
+        Le graphique apparaîtra après le premier rafraîchissement des prix.
       </div>
     );
   }
 
-  return <div ref={containerRef} className={styles.chart} />;
+  return (
+    <div className={styles.wrapper}>
+      <div className={styles.periodBar}>
+        {PERIODS.map(p => (
+          <button
+            key={p}
+            className={`${styles.periodBtn} ${period === p ? styles.periodActive : ''}`}
+            onClick={() => setPeriod(p)}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+      <div ref={containerRef} className={styles.chart} />
+    </div>
+  );
 }

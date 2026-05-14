@@ -22,7 +22,7 @@ function Legend() {
       </span>
       <span className={styles.legendSep}>·</span>
       <span className={styles.legendItem}>
-        <span className={styles.legendSample + ' ' + styles.pos}>+12.6% vs SPY</span>
+        <span className={styles.legendSample + ' ' + styles.pos}>+12.6% vs S&P 500</span>
         <span className={styles.legendDesc}>écart vs S&P 500 — positif = surperformance</span>
       </span>
       <span className={styles.legendSep}>·</span>
@@ -77,7 +77,7 @@ function SectorCard({
             {fmtPerf(etfPerf)}
           </span>
           <span className={`${styles.perfRel} ${relPos ? styles.pos : styles.neg}`}>
-            {fmtPerf(relPerf)} vs SPY
+            {fmtPerf(relPerf)} vs S&P 500
           </span>
         </div>
 
@@ -117,7 +117,7 @@ export function SectorDashboard() {
           ))}
         </div>
         <span className={styles.hint}>
-          {isFetching ? 'Chargement…' : 'trié par perf. relative vs SPY'}
+          {isFetching ? 'Chargement…' : 'trié par perf. relative vs S&P 500'}
         </span>
       </div>
 

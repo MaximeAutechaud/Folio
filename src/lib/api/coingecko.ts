@@ -37,13 +37,24 @@ const COINGECKO_DAYS: Record<string, string> = {
   '1W': '7', '1M': '30', '3M': '90', '1Y': '365',
 };
 
-export async function fetchCryptoHistory(id: string, period: string): Promise<{ time: number; value: number }[]> {
+export interface CryptoHistoryPoint {
+  time: number;
+  value: number;
+  marketCap: number | null;
+}
+
+export async function fetchCryptoHistory(id: string, period: string): Promise<CryptoHistoryPoint[]> {
   const days = COINGECKO_DAYS[period] ?? '30';
   const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
   const raw: string = await invoke('fetch_url', { url });
   const data = JSON.parse(raw);
   const prices: [number, number][] = data?.prices ?? [];
-  return prices.map(([ts, price]) => ({ time: Math.floor(ts / 1000), value: price }));
+  const marketCaps: [number, number][] = data?.market_caps ?? [];
+  const mcapByTs = new Map(marketCaps.map(([ts, mc]) => [Math.floor(ts / 1000), mc]));
+  return prices.map(([ts, price]) => {
+    const t = Math.floor(ts / 1000);
+    return { time: t, value: price, marketCap: mcapByTs.get(t) ?? null };
+  });
 }
 
 // For known symbols → CoinGecko ID (fallback: use id directly)

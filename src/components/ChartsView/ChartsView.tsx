@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { createChart, ColorType, LineStyle, AreaSeries } from 'lightweight-charts';
+import { createChart, ColorType, LineStyle, AreaSeries, LineSeries } from 'lightweight-charts';
 import { usePortfolioStore, convertCurrency } from '../../store/portfolio';
 import { fetchYahooHistory, detectCurrency } from '../../lib/api/yahoo';
 import { fetchCryptoHistory, symbolToId } from '../../lib/api/coingecko';
+import { Select } from '../Select/Select';
+import { TickerSearch, type TickerResult } from '../TickerSearch/TickerSearch';
 import styles from './ChartsView.module.css';
 
 type Period = '1W' | '1M' | '3M' | '1Y';
@@ -24,42 +26,59 @@ function fmt(value: number, ccy: string): string {
 
 export function ChartsView() {
   const rawPositions = usePortfolioStore((s) => s.positions);
-  const baseCurrency = usePortfolioStore((s) => s.baseCurrency);
-  const eurUsd      = usePortfolioStore((s) => s.eurUsd);
+  const eurUsd = usePortfolioStore((s) => s.eurUsd);
   const positions   = rawPositions.filter((p) => p.asset_type !== 'fiat');
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [period, setPeriod]         = useState<Period>('1M');
+  const [showMcap, setShowMcap]     = useState(false);
+  const [customTicker, setCustomTicker] = useState<TickerResult | null>(null);
   const containerRef                = useRef<HTMLDivElement>(null);
 
-  const position = positions.find((p) => p.id === selectedId) ?? positions[0] ?? null;
-  const priceCcy = position ? detectCurrency(position.ticker) : 'USD';
+  const portfolioPosition = positions.find((p) => p.id === selectedId) ?? positions[0] ?? null;
+  const position = customTicker ? null : portfolioPosition;
+  const activeTicker = customTicker?.ticker ?? position?.ticker ?? null;
+  const activeAssetType = customTicker?.assetType ?? (position?.asset_type === 'crypto' ? 'crypto' : 'stock');
+  const priceCcy = activeTicker && activeAssetType === 'stock' ? detectCurrency(activeTicker) : 'USD';
+
+  function handleSearchSelect(result: TickerResult) {
+    setCustomTicker(result);
+    setSelectedId(null);
+    setShowMcap(false);
+  }
+
+  function handlePortfolioSelect(id: number) {
+    setSelectedId(id);
+    setCustomTicker(null);
+    setShowMcap(false);
+  }
 
   const { data = [], isFetching } = useQuery({
-    queryKey: ['history', position?.ticker, period],
+    queryKey: ['history', activeTicker, activeAssetType, period],
     queryFn: async () => {
-      if (!position) return [];
-      if (position.asset_type === 'crypto') {
-        return fetchCryptoHistory(symbolToId(position.ticker), period);
-      }
-      return fetchYahooHistory(position.ticker, period);
+      if (!activeTicker) return [];
+      if (activeAssetType === 'crypto') return fetchCryptoHistory(symbolToId(activeTicker), period);
+      return fetchYahooHistory(activeTicker, period);
     },
-    enabled: position != null,
+    enabled: activeTicker != null,
     staleTime: 5 * 60 * 1000,
   });
 
-  // Same conversion as Dashboard: raw price → baseCurrency
+  const isCrypto = activeAssetType === 'crypto';
+
+  // Charts show native asset price — no conversion to baseCurrency
   const convertedData = useMemo(
     () => data.map((p) => ({
       time: p.time,
-      value: convertCurrency(p.value, priceCcy, baseCurrency, eurUsd),
+      value: p.value,
+      marketCap: 'marketCap' in p ? (p.marketCap as number | null) : null,
     })),
-    [data, priceCcy, baseCurrency, eurUsd]
+    [data]
   );
 
-  // PRU converted to baseCurrency — same as Dashboard cost column
+  // PRU converted to native price currency for comparison with chart
   const entryInBase = position
-    ? convertCurrency(position.cost_basis, position.currency, baseCurrency, eurUsd)
+    ? convertCurrency(position.cost_basis, position.currency, priceCcy, eurUsd)
     : null;
 
   // Stat bar
@@ -70,7 +89,11 @@ export function ChartsView() {
   const isPositive = change != null && change >= 0;
 
   useEffect(() => {
-    if (!containerRef.current || convertedData.length < 2 || entryInBase == null) return;
+    if (!containerRef.current || convertedData.length < 2) return;
+
+    const mcapData = showMcap && isCrypto
+      ? convertedData.filter(p => p.marketCap != null).map(p => ({ time: p.time, value: p.marketCap! / 1e9 }))
+      : [];
 
     const chart = createChart(containerRef.current, {
       layout: {
@@ -82,6 +105,11 @@ export function ChartsView() {
       grid: {
         vertLines: { color: '#1f2937', style: LineStyle.Dotted },
         horzLines: { color: '#1f2937', style: LineStyle.Dotted },
+      },
+      leftPriceScale: {
+        visible: mcapData.length > 0,
+        borderColor: '#21262d',
+        scaleMargins: { top: 0.1, bottom: 0.1 },
       },
       rightPriceScale: {
         borderColor: '#21262d',
@@ -115,14 +143,32 @@ export function ChartsView() {
     type TS = import('lightweight-charts').UTCTimestamp;
     series.setData(convertedData.map((p) => ({ time: p.time as TS, value: p.value })));
 
-    series.createPriceLine({
-      price: entryInBase,
-      color: '#f59e0b',
-      lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
-      title: 'PRU',
-      axisLabelVisible: true,
-    });
+    if (entryInBase != null) {
+      series.createPriceLine({
+        price: entryInBase,
+        color: '#f59e0b',
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        title: 'PRU',
+        axisLabelVisible: true,
+      });
+    }
+
+    if (mcapData.length > 0) {
+      const mcapSeries = chart.addSeries(LineSeries, {
+        color: '#a855f7',
+        lineWidth: 1,
+        lineStyle: LineStyle.Solid,
+        priceScaleId: 'left',
+        priceFormat: {
+          type: 'custom',
+          formatter: (v: number) => `$${v >= 1000 ? (v / 1000).toFixed(1) + 'T' : v.toFixed(0) + 'B'}`,
+        },
+        crosshairMarkerVisible: false,
+        title: 'MCap',
+      });
+      mcapSeries.setData(mcapData.map(p => ({ time: p.time as TS, value: p.value })));
+    }
 
     chart.timeScale().fitContent();
 
@@ -132,26 +178,30 @@ export function ChartsView() {
     observer.observe(containerRef.current);
 
     return () => { observer.disconnect(); chart.remove(); };
-  }, [convertedData, entryInBase]);
+  }, [convertedData, entryInBase, showMcap, isCrypto]);
 
-  if (positions.length === 0) {
-    return <div className={styles.empty}>No positions to chart. Add positions first.</div>;
-  }
+  const activeLabel = customTicker
+    ? customTicker.name
+    : position
+      ? `${displayTicker(position.ticker, position.name, position.asset_type)} — ${position.name || position.ticker}`
+      : null;
 
   return (
     <div className={styles.root}>
       <div className={styles.controls}>
-        <select
-          className={styles.select}
-          value={position?.id ?? ''}
-          onChange={(e) => setSelectedId(Number(e.target.value))}
-        >
-          {positions.map((p) => (
-            <option key={p.id} value={p.id}>
-              {displayTicker(p.ticker, p.name, p.asset_type)} — {p.name || p.ticker}
-            </option>
-          ))}
-        </select>
+        <TickerSearch onSelect={handleSearchSelect} />
+        {positions.length > 0 && (
+          <Select
+            value={customTicker ? null : (portfolioPosition?.id ?? null)}
+            onChange={(v) => handlePortfolioSelect(Number(v))}
+            placeholder="Portfolio…"
+            options={positions.map((p) => ({
+              value: p.id,
+              label: displayTicker(p.ticker, p.name, p.asset_type),
+              sublabel: p.name || p.ticker,
+            }))}
+          />
+        )}
 
         <div className={styles.periods}>
           {PERIODS.map((p) => (
@@ -163,14 +213,24 @@ export function ChartsView() {
               {p}
             </button>
           ))}
+          {isCrypto && (
+            <button
+              className={`${styles.periodBtn} ${styles.mcapBtn} ${showMcap ? styles.active : ''}`}
+              onClick={() => setShowMcap(v => !v)}
+              title="Superposer le market cap"
+            >
+              MCap
+            </button>
+          )}
         </div>
       </div>
 
       {lastValue != null && change != null && changePct != null && (
         <div className={styles.statBar}>
-          <span className={styles.statPrice}>{fmt(lastValue, baseCurrency)}</span>
+          {activeLabel && <span className={styles.statTicker}>{activeLabel}</span>}
+          <span className={styles.statPrice}>{fmt(lastValue, priceCcy)}</span>
           <span className={`${styles.statChange} ${isPositive ? styles.green : styles.red}`}>
-            {isPositive ? '+' : ''}{fmt(change, baseCurrency)}
+            {isPositive ? '+' : ''}{fmt(change, priceCcy)}
           </span>
           <span className={`${styles.statPct} ${isPositive ? styles.green : styles.red}`}>
             ({isPositive ? '+' : ''}{changePct.toFixed(2)}%)
@@ -192,7 +252,7 @@ export function ChartsView() {
           style={{ visibility: convertedData.length >= 2 ? 'visible' : 'hidden' }}
         />
         {convertedData.length >= 2 && (
-          <span className={styles.ccyLabel}>{baseCurrency}</span>
+          <span className={styles.ccyLabel}>{priceCcy}</span>
         )}
       </div>
     </div>

@@ -26,6 +26,7 @@ export function useSentiment() {
 
       const today = new Date().toISOString().split('T')[0];
 
+      let callCount = 0;
       for (const n of narratives) {
         const primaryTicker = n.ref_etf || firstTickerByNarrative[n.id];
         if (!primaryTicker) continue;
@@ -33,18 +34,22 @@ export function useSentiment() {
         const last = await getLastSentimentDate(n.id);
         if (last === today) continue;
 
+        // Free tier: 5 calls/min — wait 13s between calls to stay under limit
+        if (callCount > 0) await new Promise(r => setTimeout(r, 13_000));
+        callCount++;
+
         try {
           const data = await fetchAlphaVantageSentiment(primaryTicker, apiKey);
-          await upsertSentiment(n.id, today, data);
+          if (data.volume7d > 0) await upsertSentiment(n.id, today, data);
         } catch {
-          // Non-blocking — narrative skipped if Alpha Vantage fails
+          // Non-blocking — narrative skipped if Alpha Vantage fails or rate limited
         }
       }
 
       const result: Record<number, SentimentRecord> = {};
       for (const n of narratives) {
         const record = await fetchLatestSentiment(n.id);
-        if (record) result[n.id] = record;
+        if (record && record.volume_7d > 0) result[n.id] = record;
       }
       return result;
     },

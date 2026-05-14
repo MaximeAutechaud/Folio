@@ -107,11 +107,10 @@ export function PositionDrawer({ position, onClose }: Props) {
               <div className={styles.grid}>
                 <Stat label="Prix actuel" value={currentPrice != null ? fmtCcy(currentPrice, baseCurrency) : '—'} />
                 <Stat label="Valeur actuelle" value={currentValue != null ? fmtCcy(currentValue, baseCurrency) : '—'} />
-                <Stat label="Prix d'entrée (PRU)" value={fmtCcy(entryPrice, baseCurrency)} />
+                <Stat label="Prix moyen d'achat" value={fmtCcy(entryPrice, baseCurrency)} />
                 <Stat label="Investi" value={fmtCcy(totalCost, baseCurrency)} />
                 <Stat label="Quantité" value={position.quantity.toLocaleString('en-US', { maximumSignificantDigits: 8 })} />
                 <Stat label="Devise" value={position.currency} />
-                <Stat label="Break-even" value={breakEven} />
                 <Stat label="Jours détenus" value={daysHeld < 1 ? '< 1 jour' : `${daysHeld} j`} />
                 <Stat label="Depuis" value={entryDate} span={2} />
               </div>
@@ -127,7 +126,21 @@ export function PositionDrawer({ position, onClose }: Props) {
             </div>
 
             {transactions.length === 0 ? (
-              <p className={styles.txEmpty}>Aucune transaction enregistrée.</p>
+              <div className={styles.txList}>
+                <div className={styles.txCard}>
+                  <div className={styles.txRow}>
+                    <span className={`${styles.txBadge} ${styles.tx_initial}`}>INITIAL</span>
+                    <span className={styles.txQty}>
+                      {position.quantity.toLocaleString('en-US', { maximumSignificantDigits: 6 })}
+                    </span>
+                    <span className={styles.txPrice}>
+                      @ {position.cost_basis.toLocaleString('en-US', { maximumSignificantDigits: 6 })} {position.currency}
+                    </span>
+                    <span className={styles.txDate}>position initiale</span>
+                  </div>
+                </div>
+                <p className={styles.txEmptyHint}>Ajoutez des transactions pour suivre vos achats et ventes.</p>
+              </div>
             ) : (
               <div className={styles.txList}>
                 {[...transactions].reverse().map((tx) => {

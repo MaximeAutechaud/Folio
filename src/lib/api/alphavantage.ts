@@ -39,6 +39,11 @@ export async function fetchAlphaVantageSentiment(
     const raw: string = await invoke('fetch_url', { url });
     const data = JSON.parse(raw) as AV_Response;
 
+    if (data.Note || data.Information) {
+      // Rate limit or API plan restriction — throw so caller skips upsert
+      throw new Error(`AV rate limit: ${data.Note ?? data.Information}`);
+    }
+
     if (!data.feed || data.feed.length === 0) {
       return { volume7d: 0, volumePrev: 0, score: 50, mainstream: false };
     }

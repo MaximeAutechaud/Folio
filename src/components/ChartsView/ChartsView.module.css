@@ -8,8 +8,8 @@
 .controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 8px;
 }
 
 .select {
@@ -57,10 +57,34 @@
   border-color: var(--accent);
 }
 
+.mcapBtn {
+  margin-left: 6px;
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #a855f7;
+}
+
+.mcapBtn:hover {
+  border-color: #a855f7;
+  color: #a855f7;
+}
+
+.mcapBtn.active {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: #a855f7;
+  color: #a855f7;
+}
+
 .statBar {
   display: flex;
   align-items: baseline;
   gap: 10px;
+}
+
+.statTicker {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-right: 4px;
 }
 
 .statPrice {
