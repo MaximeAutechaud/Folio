@@ -6,14 +6,17 @@ const SCHEMA_VERSION = '2';
 
 const DB_URL = 'sqlite:folio.db';
 
-let _db: Database | null = null;
+let _dbPromise: Promise<Database> | null = null;
 
 async function getDb(): Promise<Database> {
-  if (!_db) {
-    _db = await Database.load(DB_URL);
-    await runMigrations(_db);
+  if (!_dbPromise) {
+    _dbPromise = (async () => {
+      const db = await Database.load(DB_URL);
+      await runMigrations(db);
+      return db;
+    })();
   }
-  return _db;
+  return _dbPromise;
 }
 
 async function runMigrations(db: Database): Promise<void> {
