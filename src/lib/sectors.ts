@@ -13,7 +13,7 @@ export interface SectorDef {
 
 export const SECTORS: SectorDef[] = [
   {
-    id: 'vgt', name: 'Technology', etf: 'VGT', color: '#58a6ff',
+    id: 'xlk', name: 'Technology', etf: 'VGT', color: '#58a6ff',
     holdings: [
       { ticker: 'AAPL',  name: 'Apple' },
       { ticker: 'NVDA',  name: 'NVIDIA' },
@@ -103,7 +103,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'vnq', name: 'Real Estate', etf: 'VNQ', color: '#a371f7',
+    id: 'xlre', name: 'Real Estate', etf: 'VNQ', color: '#a371f7',
     holdings: [
       { ticker: 'PLD',  name: 'Prologis' },
       { ticker: 'AMT',  name: 'American Tower' },
