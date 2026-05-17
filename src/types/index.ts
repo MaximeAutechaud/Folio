@@ -78,6 +78,9 @@ export interface Narrative {
   description: string;
   color: string;
   ref_etf: string | null;
+  parent_sector: string | null;
+  active: number;
+  is_preset: number;
   created_at: number;
 }
 
@@ -86,6 +89,7 @@ export interface NarrativeInput {
   description: string;
   color: string;
   ref_etf: string | null;
+  parent_sector: string | null;
 }
 
 export interface NarrativeTicker {

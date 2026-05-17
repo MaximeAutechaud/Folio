@@ -65,7 +65,6 @@ export function PositionDrawer({ position, onClose }: Props) {
     day: '2-digit', month: 'short', year: 'numeric',
   });
 
-  const breakEven = fmtCcy(entryPrice, baseCurrency);
   const isPositive = pnl != null && pnl >= 0;
 
   return (

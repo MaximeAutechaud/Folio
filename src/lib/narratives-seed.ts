@@ -1,157 +1,283 @@
 interface SeedTicker { ticker: string; name: string; exchange: string }
-interface SeedNarrative {
+export interface SeedNarrative {
   name: string;
   description: string;
   color: string;
   ref_etf: string | null;
-  keywords: string[];
+  parent_sector: string | null;
   tickers: SeedTicker[];
 }
 
 export const NARRATIVE_SEED: SeedNarrative[] = [
+  // ── Technology ────────────────────────────────────────────────────────────
   {
-    name: 'IA Infrastructure',
-    description: 'Data centers, photonique, interconnexions optiques',
-    color: '#6366f1',
-    ref_etf: 'SMH',
-    keywords: ['photonics', 'optical interconnect', 'silicon photonics', 'coherent', 'data center optics'],
+    name: 'Semiconducteurs',
+    description: 'Puces logiques, mémoire, équipements lithographie',
+    color: '#818cf8',
+    ref_etf: 'SOXX',
+    parent_sector: 'xlk',
+    tickers: [
+      { ticker: 'NVDA', name: 'NVIDIA', exchange: 'NASDAQ' },
+      { ticker: 'AMD',  name: 'Advanced Micro Devices', exchange: 'NASDAQ' },
+      { ticker: 'AVGO', name: 'Broadcom', exchange: 'NASDAQ' },
+      { ticker: 'QCOM', name: 'Qualcomm', exchange: 'NASDAQ' },
+      { ticker: 'MU',   name: 'Micron Technology', exchange: 'NASDAQ' },
+    ],
+  },
+  {
+    name: 'Cybersécurité',
+    description: 'Protection cloud, zero-trust, endpoints',
+    color: '#06b6d4',
+    ref_etf: 'CIBR',
+    parent_sector: 'xlk',
+    tickers: [
+      { ticker: 'PANW', name: 'Palo Alto Networks', exchange: 'NASDAQ' },
+      { ticker: 'CRWD', name: 'CrowdStrike', exchange: 'NASDAQ' },
+      { ticker: 'ZS',   name: 'Zscaler', exchange: 'NASDAQ' },
+      { ticker: 'FTNT', name: 'Fortinet', exchange: 'NASDAQ' },
+    ],
+  },
+  {
+    name: 'Cloud & Software',
+    description: 'Infra cloud, SaaS entreprise',
+    color: '#3b82f6',
+    ref_etf: 'WCLD',
+    parent_sector: 'xlk',
+    tickers: [
+      { ticker: 'MSFT', name: 'Microsoft', exchange: 'NASDAQ' },
+      { ticker: 'AMZN', name: 'Amazon', exchange: 'NASDAQ' },
+      { ticker: 'GOOGL', name: 'Alphabet', exchange: 'NASDAQ' },
+      { ticker: 'SNOW', name: 'Snowflake', exchange: 'NYSE' },
+      { ticker: 'CRM',  name: 'Salesforce', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'IA Hardware',
+    description: 'Accélérateurs IA, interconnexions, photonique',
+    color: '#a855f7',
+    ref_etf: null,
+    parent_sector: 'xlk',
+    tickers: [
+      { ticker: 'NVDA', name: 'NVIDIA', exchange: 'NASDAQ' },
+      { ticker: 'AMD',  name: 'Advanced Micro Devices', exchange: 'NASDAQ' },
+      { ticker: 'AVGO', name: 'Broadcom', exchange: 'NASDAQ' },
+      { ticker: 'MRVL', name: 'Marvell Technology', exchange: 'NASDAQ' },
+      { ticker: 'COHR', name: 'Coherent Corp.', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'Robotique & Automation',
+    description: 'Robots industriels, automatisation, drones',
+    color: '#10b981',
+    ref_etf: 'ROBO',
+    parent_sector: 'xlk',
+    tickers: [
+      { ticker: 'ISRG', name: 'Intuitive Surgical', exchange: 'NASDAQ' },
+      { ticker: 'ROK',  name: 'Rockwell Automation', exchange: 'NYSE' },
+      { ticker: 'ABB',  name: 'ABB Ltd', exchange: 'NYSE' },
+      { ticker: 'FANUY', name: 'Fanuc Corp', exchange: 'OTC' },
+    ],
+  },
+  {
+    name: 'Photonique',
+    description: 'Interconnexions optiques, silicon photonics, lidar',
+    color: '#f59e0b',
+    ref_etf: null,
+    parent_sector: 'xlk',
     tickers: [
       { ticker: 'COHR', name: 'Coherent Corp.', exchange: 'NYSE' },
       { ticker: 'LITE', name: 'Lumentum Holdings', exchange: 'NASDAQ' },
       { ticker: 'MRVL', name: 'Marvell Technology', exchange: 'NASDAQ' },
+      { ticker: 'VIAV', name: 'Viavi Solutions', exchange: 'NASDAQ' },
     ],
   },
+
+  // ── Health Care ──────────────────────────────────────────────────────────
   {
-    name: 'Énergie / Nucléaire',
-    description: 'Demande électrique explosive des data centers IA',
-    color: '#f59e0b',
-    ref_etf: 'NLR',
-    keywords: ['nuclear energy AI', 'data center power', 'hyperscaler electricity', 'PPA nuclear'],
+    name: 'Biotech',
+    description: 'Thérapies géniques, ARNm, anticorps monoclonaux',
+    color: '#22c55e',
+    ref_etf: 'XBI',
+    parent_sector: 'xlv',
     tickers: [
-      { ticker: 'CEG', name: 'Constellation Energy', exchange: 'NASDAQ' },
-      { ticker: 'VST', name: 'Vistra Corp.', exchange: 'NYSE' },
-    ],
-  },
-  {
-    name: 'Refroidissement liquide',
-    description: 'Migration liquid cooling 120–150 kW/rack',
-    color: '#06b6d4',
-    ref_etf: null,
-    keywords: ['liquid cooling', 'data center thermal', 'immersion cooling', 'direct liquid cooling'],
-    tickers: [
-      { ticker: 'VRT', name: 'Vertiv Holdings', exchange: 'NYSE' },
-    ],
-  },
-  {
-    name: 'Grid / Infrastructure',
-    description: 'Modernisation du réseau électrique — 70% du réseau US a +50 ans',
-    color: '#10b981',
-    ref_etf: null,
-    keywords: ['grid modernization', 'transformer shortage', 'electrical infrastructure', 'power grid AI'],
-    tickers: [
-      { ticker: 'ETN', name: 'Eaton Corporation', exchange: 'NYSE' },
-      { ticker: 'PWR', name: 'Quanta Services', exchange: 'NYSE' },
-    ],
-  },
-  {
-    name: 'Data Center REITs',
-    description: "L'immobilier de la révolution IA — dividendes + exposition structurelle",
-    color: '#8b5cf6',
-    ref_etf: null,
-    keywords: ['data center REIT', 'colocation', 'hyperscale real estate'],
-    tickers: [
-      { ticker: 'EQIX', name: 'Equinix', exchange: 'NASDAQ' },
-    ],
-  },
-  {
-    name: 'Défense EU',
-    description: 'Réarmement européen — tendance structurelle 15–20 ans',
-    color: '#ef4444',
-    ref_etf: null,
-    keywords: ['European defense', 'NATO spending', 'rearmament', 'defense budget'],
-    tickers: [
-      { ticker: 'HO.PA', name: 'Thales', exchange: 'Euronext Paris' },
-      { ticker: 'RHM.DE', name: 'Rheinmetall', exchange: 'XETRA' },
-      { ticker: 'LDO.MI', name: 'Leonardo', exchange: 'Borsa Italiana' },
-      { ticker: 'BAES.L', name: 'BAE Systems', exchange: 'LSE' },
-    ],
-  },
-  {
-    name: 'Or & Mineurs',
-    description: 'Dé-dollarisation, achats banques centrales, inflation',
-    color: '#d97706',
-    ref_etf: 'GDX',
-    keywords: ['gold price', 'gold miners', 'central bank gold', 'de-dollarization', 'safe haven'],
-    tickers: [
-      { ticker: 'NEM', name: 'Newmont Corporation', exchange: 'NYSE' },
-      { ticker: 'AEM', name: 'Agnico Eagle Mines', exchange: 'NYSE' },
-      { ticker: 'GDX', name: 'VanEck Gold Miners ETF', exchange: 'NYSE Arca' },
-    ],
-  },
-  {
-    name: 'Semiconducteurs EU',
-    description: 'STM, Infineon — transition IA data center + automotive recovery',
-    color: '#3b82f6',
-    ref_etf: 'EXV3.DE',
-    keywords: ['European semiconductors', 'AI chips', 'silicon carbide', 'power semiconductors'],
-    tickers: [
-      { ticker: 'STMPA', name: 'STMicroelectronics', exchange: 'Euronext Paris' },
-      { ticker: 'IFX.DE', name: 'Infineon Technologies', exchange: 'XETRA' },
-      { ticker: 'NOKIA.HE', name: 'Nokia Oyj', exchange: 'Helsinki' },
+      { ticker: 'MRNA',  name: 'Moderna', exchange: 'NASDAQ' },
+      { ticker: 'REGN',  name: 'Regeneron', exchange: 'NASDAQ' },
+      { ticker: 'GILD',  name: 'Gilead Sciences', exchange: 'NASDAQ' },
+      { ticker: 'VRTX',  name: 'Vertex Pharmaceuticals', exchange: 'NASDAQ' },
+      { ticker: 'BIIB',  name: 'Biogen', exchange: 'NASDAQ' },
     ],
   },
   {
     name: 'GLP-1 / Obésité',
-    description: 'Révolution médicaments obésité et diabète',
+    description: 'Médicaments obésité et diabète — LLY, NVO',
     color: '#ec4899',
     ref_etf: null,
-    keywords: ['GLP-1', 'obesity drug', 'Ozempic', 'weight loss drug', 'semaglutide'],
+    parent_sector: 'xlv',
     tickers: [
       { ticker: 'LLY', name: 'Eli Lilly', exchange: 'NYSE' },
       { ticker: 'NVO', name: 'Novo Nordisk', exchange: 'NYSE' },
     ],
   },
   {
-    name: 'Cybersécurité',
-    description: 'Protection infrastructure IA et cloud',
+    name: 'MedTech',
+    description: 'Dispositifs médicaux, imagerie, implants',
     color: '#14b8a6',
-    ref_etf: 'CIBR',
-    keywords: ['cybersecurity', 'AI security', 'cloud security', 'zero trust'],
+    ref_etf: 'IHI',
+    parent_sector: 'xlv',
     tickers: [
-      { ticker: 'PANW', name: 'Palo Alto Networks', exchange: 'NASDAQ' },
-      { ticker: 'CRWD', name: 'CrowdStrike', exchange: 'NASDAQ' },
+      { ticker: 'MDT',  name: 'Medtronic', exchange: 'NYSE' },
+      { ticker: 'ABT',  name: 'Abbott Laboratories', exchange: 'NYSE' },
+      { ticker: 'BSX',  name: 'Boston Scientific', exchange: 'NYSE' },
+      { ticker: 'SYK',  name: 'Stryker', exchange: 'NYSE' },
+      { ticker: 'EW',   name: 'Edwards Lifesciences', exchange: 'NYSE' },
     ],
   },
+
+  // ── Energy ───────────────────────────────────────────────────────────────
   {
-    name: 'Post-Quantum Cryptography',
-    description: "Migration PQC inévitable — 50% probabilité Q-Day d'ici 2034",
-    color: '#a855f7',
-    ref_etf: null,
-    keywords: ['post-quantum cryptography', 'quantum computing', 'PQC migration', 'NIST standards'],
-    tickers: [
-      { ticker: 'IBM', name: 'IBM', exchange: 'NYSE' },
-      { ticker: 'IONQ', name: 'IonQ', exchange: 'NYSE' },
-    ],
-  },
-  {
-    name: 'HBM Memory / IA',
-    description: 'Mémoire haute bande passante pour GPU IA',
+    name: 'Oil & Gas E&P',
+    description: 'Exploration & production pétrole et gaz',
     color: '#f97316',
-    ref_etf: null,
-    keywords: ['HBM memory', 'high bandwidth memory', 'AI memory', 'GPU memory'],
+    ref_etf: 'XOP',
+    parent_sector: 'xle',
     tickers: [
-      { ticker: 'MU', name: 'Micron Technology', exchange: 'NASDAQ' },
+      { ticker: 'XOM', name: 'ExxonMobil', exchange: 'NYSE' },
+      { ticker: 'CVX', name: 'Chevron', exchange: 'NYSE' },
+      { ticker: 'COP', name: 'ConocoPhillips', exchange: 'NYSE' },
+      { ticker: 'EOG', name: 'EOG Resources', exchange: 'NYSE' },
     ],
   },
   {
-    name: 'Eau / Ressources',
-    description: 'Infrastructure eau et services environnementaux',
-    color: '#0ea5e9',
-    ref_etf: null,
-    keywords: ['water infrastructure', 'water technology', 'environmental services'],
+    name: 'Nucléaire',
+    description: 'Énergie nucléaire — demande électrique IA et data centers',
+    color: '#eab308',
+    ref_etf: 'NLR',
+    parent_sector: 'xle',
     tickers: [
-      { ticker: 'XYL', name: 'Xylem', exchange: 'NYSE' },
-      { ticker: 'VIE.PA', name: 'Veolia Environnement', exchange: 'Euronext Paris' },
+      { ticker: 'CEG', name: 'Constellation Energy', exchange: 'NASDAQ' },
+      { ticker: 'VST', name: 'Vistra Corp.', exchange: 'NYSE' },
+      { ticker: 'CCJ', name: 'Cameco Corp.', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'Énergies renouvelables',
+    description: 'Solaire, éolien, stockage énergie',
+    color: '#4ade80',
+    ref_etf: 'ICLN',
+    parent_sector: 'xle',
+    tickers: [
+      { ticker: 'NEE',  name: 'NextEra Energy', exchange: 'NYSE' },
+      { ticker: 'ENPH', name: 'Enphase Energy', exchange: 'NASDAQ' },
+      { ticker: 'RUN',  name: 'Sunrun', exchange: 'NASDAQ' },
+      { ticker: 'FSLR', name: 'First Solar', exchange: 'NASDAQ' },
+    ],
+  },
+
+  // ── Industrials ──────────────────────────────────────────────────────────
+  {
+    name: 'Défense US',
+    description: 'Contractors défense américains — budget en hausse',
+    color: '#64748b',
+    ref_etf: 'ITA',
+    parent_sector: 'xli',
+    tickers: [
+      { ticker: 'LMT', name: 'Lockheed Martin', exchange: 'NYSE' },
+      { ticker: 'RTX', name: 'RTX Corp.', exchange: 'NYSE' },
+      { ticker: 'NOC', name: 'Northrop Grumman', exchange: 'NYSE' },
+      { ticker: 'GD',  name: 'General Dynamics', exchange: 'NYSE' },
+      { ticker: 'HII', name: 'Huntington Ingalls', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'Grid & Infrastructure',
+    description: 'Modernisation réseau électrique US — 70% du réseau a +50 ans',
+    color: '#94a3b8',
+    ref_etf: null,
+    parent_sector: 'xli',
+    tickers: [
+      { ticker: 'ETN', name: 'Eaton Corporation', exchange: 'NYSE' },
+      { ticker: 'PWR', name: 'Quanta Services', exchange: 'NYSE' },
+      { ticker: 'VRT', name: 'Vertiv Holdings', exchange: 'NYSE' },
+      { ticker: 'GEV', name: 'GE Vernova', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'Défense EU',
+    description: 'Réarmement européen — tendance structurelle 15–20 ans',
+    color: '#475569',
+    ref_etf: null,
+    parent_sector: 'xli',
+    tickers: [
+      { ticker: 'HO.PA',   name: 'Thales', exchange: 'Euronext Paris' },
+      { ticker: 'RHM.DE',  name: 'Rheinmetall', exchange: 'XETRA' },
+      { ticker: 'BAES.L',  name: 'BAE Systems', exchange: 'LSE' },
+      { ticker: 'LDO.MI',  name: 'Leonardo', exchange: 'Borsa Italiana' },
+    ],
+  },
+
+  // ── Materials ─────────────────────────────────────────────────────────────
+  {
+    name: 'Or & Minières',
+    description: 'Dé-dollarisation, banques centrales, inflation',
+    color: '#fbbf24',
+    ref_etf: 'GDX',
+    parent_sector: 'xlb',
+    tickers: [
+      { ticker: 'NEM',  name: 'Newmont Corporation', exchange: 'NYSE' },
+      { ticker: 'AEM',  name: 'Agnico Eagle Mines', exchange: 'NYSE' },
+      { ticker: 'GOLD', name: 'Barrick Gold', exchange: 'NYSE' },
+      { ticker: 'WPM',  name: 'Wheaton Precious Metals', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'Cuivre',
+    description: 'Transition énergétique, data centers, véhicules électriques',
+    color: '#fb923c',
+    ref_etf: 'COPX',
+    parent_sector: 'xlb',
+    tickers: [
+      { ticker: 'FCX',  name: 'Freeport-McMoRan', exchange: 'NYSE' },
+      { ticker: 'SCCO', name: 'Southern Copper', exchange: 'NYSE' },
+      { ticker: 'TECK', name: 'Teck Resources', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'Terres rares',
+    description: 'Matériaux critiques — batteries, aimants permanents',
+    color: '#a78bfa',
+    ref_etf: 'REMX',
+    parent_sector: 'xlb',
+    tickers: [
+      { ticker: 'MP',    name: 'MP Materials', exchange: 'NYSE' },
+      { ticker: 'LYSDY', name: 'Lynas Rare Earths', exchange: 'OTC' },
+    ],
+  },
+
+  // ── Financials ────────────────────────────────────────────────────────────
+  {
+    name: 'Banques US',
+    description: 'Grandes banques — taux, crédit, trading',
+    color: '#38bdf8',
+    ref_etf: 'KBE',
+    parent_sector: 'xlf',
+    tickers: [
+      { ticker: 'JPM', name: 'JPMorgan Chase', exchange: 'NYSE' },
+      { ticker: 'BAC', name: 'Bank of America', exchange: 'NYSE' },
+      { ticker: 'WFC', name: 'Wells Fargo', exchange: 'NYSE' },
+      { ticker: 'GS',  name: 'Goldman Sachs', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'Fintech',
+    description: 'Paiements digitaux, crypto, néobanques',
+    color: '#818cf8',
+    ref_etf: null,
+    parent_sector: 'xlf',
+    tickers: [
+      { ticker: 'SQ',   name: 'Block Inc.', exchange: 'NYSE' },
+      { ticker: 'PYPL', name: 'PayPal', exchange: 'NASDAQ' },
+      { ticker: 'COIN', name: 'Coinbase', exchange: 'NASDAQ' },
+      { ticker: 'HOOD', name: 'Robinhood Markets', exchange: 'NASDAQ' },
     ],
   },
 ];

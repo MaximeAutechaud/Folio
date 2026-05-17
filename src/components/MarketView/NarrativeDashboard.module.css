@@ -1,0 +1,370 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 4px 24px;
+}
+
+/* ── Toolbar ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.periods {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.periodBtn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.periodBtn:hover { color: var(--text-primary); }
+.periodActive {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.sectorSelect {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.sectorSelect:focus { outline: none; border-color: var(--accent); }
+
+.hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.libBtn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.libBtn:hover { color: var(--text-primary); border-color: var(--text-muted); }
+.libBtnActive { color: var(--accent); border-color: var(--accent); background: var(--accent-subtle); }
+
+.addBtn {
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.addBtn:hover { background: var(--accent); color: #fff; }
+
+/* ── Library panel ── */
+.library {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.libraryHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.libCloseBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  line-height: 1;
+}
+.libCloseBtn:hover { color: var(--text-primary); }
+
+.libraryHint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+
+.libraryList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.libGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.libGroupLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+
+.libItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.libItem:hover { background: var(--bg-tertiary); }
+
+.libDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.libName {
+  font-size: 12px;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.libEtf {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.libCheck {
+  cursor: pointer;
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Legend ── */
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+.legendItem { display: flex; align-items: center; gap: 4px; }
+.legendSample { font-weight: 600; }
+.legendDesc { color: var(--text-muted); }
+.legendSep { color: var(--border); }
+
+/* ── Grid ── */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+}
+
+.empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 40px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ── Card ── */
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  position: relative;
+}
+.card:hover { border-color: var(--text-muted); }
+.cardSelected { border-color: var(--accent); }
+
+.colorBar {
+  width: 3px;
+  flex-shrink: 0;
+}
+
+.cardContent {
+  flex: 1;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cardTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rank {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sourceBadge {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+
+.sourceBadgeBasket {
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.lowConf {
+  font-size: 11px;
+  color: #e3b341;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+/* ── Perf row ── */
+.perfRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.perfAbs {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.perfRel {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.pos { color: var(--green); }
+.neg { color: var(--red); }
+
+/* ── RS Trend ── */
+.rsTrend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rsLabel {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.rsDot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+  line-height: 1.2;
+}
+
+.rsSpan {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.rsDotPos { color: var(--green); }
+.rsDotNeg { color: var(--red); }
+.rsDotNull { color: var(--text-muted); }
+
+/* ── Card bottom ── */
+.cardBottom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.momBadge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+.momUp      { color: var(--green);    background: color-mix(in srgb, var(--green) 15%, transparent); }
+.momDown    { color: var(--red);      background: color-mix(in srgb, var(--red) 15%, transparent); }
+.momNeutral { color: var(--text-muted); background: var(--bg-tertiary); }
+
+.sectorTag {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-left: auto;
+}

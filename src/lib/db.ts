@@ -2,6 +2,8 @@ import Database from '@tauri-apps/plugin-sql';
 import type { Position, PositionInput, Snapshot, Transaction, TransactionInput, Narrative, NarrativeInput, NarrativeTicker, NarrativeTickerInput, NarrativeKeyword } from '../types';
 import { NARRATIVE_SEED } from './narratives-seed';
 
+const SCHEMA_VERSION = '2';
+
 const DB_URL = 'sqlite:folio.db';
 
 let _db: Database | null = null;
@@ -30,7 +32,6 @@ async function runMigrations(db: Database): Promise<void> {
     )
   `);
 
-  // Add currency column to existing DBs that predate this migration
   const cols = await db.select<{ name: string }[]>(
     `SELECT name FROM pragma_table_info('positions') WHERE name='currency'`
   );
@@ -46,9 +47,7 @@ async function runMigrations(db: Database): Promise<void> {
       recorded_at INTEGER NOT NULL DEFAULT (unixepoch())
     )
   `);
-  await db.execute(
-    `CREATE INDEX IF NOT EXISTS idx_snapshots_recorded_at ON snapshots(recorded_at)`
-  );
+  await db.execute(`CREATE INDEX IF NOT EXISTS idx_snapshots_recorded_at ON snapshots(recorded_at)`);
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS transactions (
@@ -68,18 +67,45 @@ async function runMigrations(db: Database): Promise<void> {
   await db.execute(`CREATE INDEX IF NOT EXISTS idx_tx_position ON transactions(position_id)`);
 
   await db.execute(`
-    CREATE TABLE IF NOT EXISTS narratives (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      name        TEXT    NOT NULL,
-      description TEXT    NOT NULL DEFAULT '',
-      color       TEXT    NOT NULL DEFAULT '#6366f1',
-      ref_etf     TEXT,
-      created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  await migrateToV2(db);
+}
+
+async function migrateToV2(db: Database): Promise<void> {
+  const rows = await db.select<{ value: string }[]>(
+    `SELECT value FROM settings WHERE key='schema_version'`
+  );
+  if (rows[0]?.value === SCHEMA_VERSION) return;
+
+  // Drop legacy narrative tables (order matters for FK constraints)
+  await db.execute('DROP TABLE IF EXISTS fundamentals_history');
+  await db.execute('DROP TABLE IF EXISTS sentiment_history');
+  await db.execute('DROP TABLE IF EXISTS price_history');
+  await db.execute('DROP TABLE IF EXISTS narrative_keywords');
+  await db.execute('DROP TABLE IF EXISTS narrative_tickers');
+  await db.execute('DROP TABLE IF EXISTS narratives');
+
+  await db.execute(`
+    CREATE TABLE narratives (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      name          TEXT    NOT NULL,
+      description   TEXT    NOT NULL DEFAULT '',
+      color         TEXT    NOT NULL DEFAULT '#6366f1',
+      ref_etf       TEXT,
+      parent_sector TEXT,
+      active        INTEGER NOT NULL DEFAULT 1,
+      is_preset     INTEGER NOT NULL DEFAULT 0,
+      created_at    INTEGER NOT NULL DEFAULT (unixepoch())
     )
   `);
 
   await db.execute(`
-    CREATE TABLE IF NOT EXISTS narrative_tickers (
+    CREATE TABLE narrative_tickers (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       narrative_id INTEGER NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
       ticker       TEXT    NOT NULL,
@@ -88,91 +114,42 @@ async function runMigrations(db: Database): Promise<void> {
       asset_type   TEXT    NOT NULL DEFAULT 'stock'
     )
   `);
-  await db.execute(`CREATE INDEX IF NOT EXISTS idx_ntickers_narrative ON narrative_tickers(narrative_id)`);
+  await db.execute(`CREATE INDEX idx_ntickers_narrative ON narrative_tickers(narrative_id)`);
 
   await db.execute(`
-    CREATE TABLE IF NOT EXISTS narrative_keywords (
+    CREATE TABLE narrative_keywords (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       narrative_id INTEGER NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
       keyword      TEXT    NOT NULL
     )
   `);
 
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS price_history (
-      id      INTEGER PRIMARY KEY AUTOINCREMENT,
-      ticker  TEXT    NOT NULL,
-      date    TEXT    NOT NULL,
-      close   REAL    NOT NULL,
-      volume  REAL    NOT NULL DEFAULT 0,
-      UNIQUE(ticker, date)
-    )
-  `);
-  await db.execute(`CREATE INDEX IF NOT EXISTS idx_ph_ticker_date ON price_history(ticker, date)`);
+  await seedNarratives(db);
 
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS settings (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
-
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS sentiment_history (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      narrative_id INTEGER NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
-      date         TEXT    NOT NULL,
-      volume_7d    INTEGER NOT NULL DEFAULT 0,
-      volume_prev  INTEGER NOT NULL DEFAULT 0,
-      score        REAL    NOT NULL DEFAULT 0,
-      mainstream   INTEGER NOT NULL DEFAULT 0,
-      UNIQUE(narrative_id, date)
-    )
-  `);
-
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS fundamentals_history (
-      id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-      narrative_id        INTEGER NOT NULL REFERENCES narratives(id) ON DELETE CASCADE,
-      date                TEXT    NOT NULL,
-      score               REAL    NOT NULL DEFAULT 0,
-      recommendation_mean REAL,
-      buy_count           INTEGER NOT NULL DEFAULT 0,
-      hold_count          INTEGER NOT NULL DEFAULT 0,
-      sell_count          INTEGER NOT NULL DEFAULT 0,
-      UNIQUE(narrative_id, date)
-    )
-  `);
-
-  await seedNarrativesIfEmpty(db);
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', $1)
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+    [SCHEMA_VERSION]
+  );
 }
 
-async function seedNarrativesIfEmpty(db: Database): Promise<void> {
-  const count = await db.select<{ n: number }[]>('SELECT COUNT(*) as n FROM narratives');
-  if (count[0].n > 0) return;
-
+async function seedNarratives(db: Database): Promise<void> {
   for (const n of NARRATIVE_SEED) {
     const result = await db.execute(
-      'INSERT INTO narratives (name, description, color, ref_etf) VALUES ($1, $2, $3, $4)',
-      [n.name, n.description, n.color, n.ref_etf]
+      `INSERT INTO narratives (name, description, color, ref_etf, parent_sector, active, is_preset)
+       VALUES ($1, $2, $3, $4, $5, 1, 1)`,
+      [n.name, n.description, n.color, n.ref_etf, n.parent_sector]
     );
     const narrativeId = result.lastInsertId as number;
-
     for (const t of n.tickers) {
       await db.execute(
         'INSERT INTO narrative_tickers (narrative_id, ticker, name, exchange) VALUES ($1, $2, $3, $4)',
         [narrativeId, t.ticker, t.name, t.exchange]
       );
     }
-
-    for (const keyword of n.keywords) {
-      await db.execute(
-        'INSERT INTO narrative_keywords (narrative_id, keyword) VALUES ($1, $2)',
-        [narrativeId, keyword]
-      );
-    }
   }
 }
+
 
 export async function fetchPositions(): Promise<Position[]> {
   const db = await getDb();
@@ -290,9 +267,10 @@ export async function deleteTransaction(id: number): Promise<void> {
   await db.execute('DELETE FROM transactions WHERE id = $1 OR linked_tx_id = $1', [id]);
 }
 
-export async function fetchNarratives(): Promise<Narrative[]> {
+export async function fetchNarratives(activeOnly = false): Promise<Narrative[]> {
   const db = await getDb();
-  return db.select<Narrative[]>('SELECT * FROM narratives ORDER BY id ASC');
+  const where = activeOnly ? 'WHERE active = 1' : '';
+  return db.select<Narrative[]>(`SELECT * FROM narratives ${where} ORDER BY is_preset DESC, id ASC`);
 }
 
 export async function fetchAllNarrativeTickers(): Promise<NarrativeTicker[]> {
@@ -319,8 +297,9 @@ export async function fetchNarrativeKeywords(narrativeId: number): Promise<Narra
 export async function insertNarrative(input: NarrativeInput): Promise<number> {
   const db = await getDb();
   const result = await db.execute(
-    'INSERT INTO narratives (name, description, color, ref_etf) VALUES ($1, $2, $3, $4)',
-    [input.name, input.description, input.color, input.ref_etf]
+    `INSERT INTO narratives (name, description, color, ref_etf, parent_sector, active, is_preset)
+     VALUES ($1, $2, $3, $4, $5, 1, 0)`,
+    [input.name, input.description, input.color, input.ref_etf, input.parent_sector]
   );
   return result.lastInsertId as number;
 }
@@ -328,9 +307,14 @@ export async function insertNarrative(input: NarrativeInput): Promise<number> {
 export async function updateNarrative(id: number, input: NarrativeInput): Promise<void> {
   const db = await getDb();
   await db.execute(
-    'UPDATE narratives SET name=$1, description=$2, color=$3, ref_etf=$4 WHERE id=$5',
-    [input.name, input.description, input.color, input.ref_etf, id]
+    'UPDATE narratives SET name=$1, description=$2, color=$3, ref_etf=$4, parent_sector=$5 WHERE id=$6',
+    [input.name, input.description, input.color, input.ref_etf, input.parent_sector, id]
   );
+}
+
+export async function toggleNarrativeActive(id: number, active: boolean): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE narratives SET active=$1 WHERE id=$2', [active ? 1 : 0, id]);
 }
 
 export async function deleteNarrative(id: number): Promise<void> {

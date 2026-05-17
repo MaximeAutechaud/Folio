@@ -3,9 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import type { Narrative, NarrativeInput, NarrativeTickerInput } from '../../types';
 import {
   insertNarrative, updateNarrative,
-  fetchNarrativeTickers, fetchNarrativeKeywords,
-  replaceNarrativeTickers, replaceNarrativeKeywords,
+  fetchNarrativeTickers,
+  replaceNarrativeTickers,
 } from '../../lib/db';
+import { SECTORS } from '../../lib/sectors';
 import { searchYahoo, type YahooSuggestion } from '../../lib/api/yahoo';
 import styles from './NarrativeForm.module.css';
 
@@ -28,10 +29,9 @@ export function NarrativeForm({ narrative, onClose, onSaved }: Props) {
   const [description, setDescription] = useState(narrative?.description ?? '');
   const [color, setColor] = useState(narrative?.color ?? '#6366f1');
   const [refEtf, setRefEtf] = useState(narrative?.ref_etf ?? '');
+  const [parentSector, setParentSector] = useState(narrative?.parent_sector ?? '');
 
   const [tickers, setTickers] = useState<NarrativeTickerInput[]>([]);
-  const [keywords, setKeywords] = useState<string[]>([]);
-  const [keywordInput, setKeywordInput] = useState('');
 
   const [tickerSearch, setTickerSearch] = useState('');
   const [suggestions, setSuggestions] = useState<YahooSuggestion[]>([]);
@@ -47,19 +47,12 @@ export function NarrativeForm({ narrative, onClose, onSaved }: Props) {
     enabled: editMode,
   });
 
-  const { data: existingKeywords = [], isLoading: loadingKeywords } = useQuery({
-    queryKey: ['narrative-keywords-edit', narrative?.id],
-    queryFn: () => fetchNarrativeKeywords(narrative!.id),
-    enabled: editMode,
-  });
-
   useEffect(() => {
     if (initialized.current) return;
-    if (editMode && (loadingTickers || loadingKeywords)) return;
+    if (editMode && loadingTickers) return;
     setTickers(existingTickers.map(t => ({ ticker: t.ticker, name: t.name, exchange: t.exchange })));
-    setKeywords(existingKeywords.map(k => k.keyword));
     initialized.current = true;
-  }, [loadingTickers, loadingKeywords, existingTickers, existingKeywords, editMode]);
+  }, [loadingTickers, existingTickers, editMode]);
 
   useEffect(() => () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -84,13 +77,6 @@ export function NarrativeForm({ narrative, onClose, onSaved }: Props) {
     setShowSuggestions(false);
   }
 
-  function addKeyword() {
-    const kw = keywordInput.trim();
-    if (!kw || keywords.includes(kw)) return;
-    setKeywords(prev => [...prev, kw]);
-    setKeywordInput('');
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
@@ -101,6 +87,7 @@ export function NarrativeForm({ narrative, onClose, onSaved }: Props) {
         description: description.trim(),
         color,
         ref_etf: refEtf.trim() || null,
+        parent_sector: parentSector || null,
       };
       let id = narrative?.id;
       if (editMode) {
@@ -109,7 +96,6 @@ export function NarrativeForm({ narrative, onClose, onSaved }: Props) {
         id = await insertNarrative(input);
       }
       await replaceNarrativeTickers(id!, tickers);
-      await replaceNarrativeKeywords(id!, keywords);
       onSaved();
     } finally {
       setSaving(false);
@@ -154,22 +140,36 @@ export function NarrativeForm({ narrative, onClose, onSaved }: Props) {
                 className={styles.input}
                 value={refEtf}
                 onChange={e => setRefEtf(e.target.value.toUpperCase())}
-                placeholder="SMH, GDX, CIBR..."
+                placeholder="SOXX, GDX, CIBR..."
               />
             </div>
             <div className={styles.row}>
-              <label className={styles.label}>Couleur</label>
-              <div className={styles.colorRow}>
-                {PRESET_COLORS.map(c => (
-                  <button
-                    key={c}
-                    type="button"
-                    className={`${styles.colorDot} ${color === c ? styles.colorSelected : ''}`}
-                    style={{ background: c }}
-                    onClick={() => setColor(c)}
-                  />
+              <label className={styles.label}>Secteur parent (optionnel)</label>
+              <select
+                className={styles.input}
+                value={parentSector}
+                onChange={e => setParentSector(e.target.value)}
+              >
+                <option value="">— Aucun —</option>
+                {SECTORS.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
-              </div>
+              </select>
+            </div>
+          </div>
+
+          <div className={styles.row}>
+            <label className={styles.label}>Couleur</label>
+            <div className={styles.colorRow}>
+              {PRESET_COLORS.map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  className={`${styles.colorDot} ${color === c ? styles.colorSelected : ''}`}
+                  style={{ background: c }}
+                  onClick={() => setColor(c)}
+                />
+              ))}
             </div>
           </div>
 
@@ -211,34 +211,6 @@ export function NarrativeForm({ narrative, onClose, onSaved }: Props) {
                   ))}
                 </ul>
               )}
-            </div>
-          </div>
-
-          <div className={styles.section}>
-            <span className={styles.sectionLabel}>Keywords sentiment</span>
-            {keywords.length > 0 && (
-              <div className={styles.keywordList}>
-                {keywords.map(kw => (
-                  <span key={kw} className={styles.keyword}>
-                    {kw}
-                    <button
-                      type="button"
-                      className={styles.keywordRemove}
-                      onClick={() => setKeywords(prev => prev.filter(k => k !== kw))}
-                    >×</button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className={styles.keywordInput}>
-              <input
-                className={styles.input}
-                value={keywordInput}
-                onChange={e => setKeywordInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addKeyword(); } }}
-                placeholder='"photonics", "optical interconnect"…'
-              />
-              <button type="button" className={styles.addBtn} onClick={addKeyword}>+</button>
             </div>
           </div>
 
