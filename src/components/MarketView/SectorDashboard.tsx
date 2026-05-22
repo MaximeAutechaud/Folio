@@ -34,6 +34,40 @@ function Legend() {
   );
 }
 
+// ── Sparkline ─────────────────────────────────────────────────────────────────
+
+function Sparkline({ history, positive }: { history: { time: number; value: number }[]; positive: boolean }) {
+  if (history.length < 2) return null;
+
+  const values = history.map(p => p.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const W = 72; const H = 28; const pad = 2;
+
+  const pts = values
+    .map((v, i) => {
+      const x = pad + (i / (values.length - 1)) * (W - pad * 2);
+      const y = H - pad - ((v - min) / range) * (H - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+
+  return (
+    <svg width={W} height={H} style={{ display: 'block', flexShrink: 0 }}>
+      <polyline
+        points={pts}
+        fill="none"
+        stroke={positive ? '#3fb950' : '#f85149'}
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        opacity="0.85"
+      />
+    </svg>
+  );
+}
+
 // ── Sector card ──────────────────────────────────────────────────────────────
 
 function MomentumBadge({ value }: { value: SectorPerf['momentum'] }) {
@@ -55,7 +89,7 @@ function SectorCard({
   selected: boolean;
   onClick: () => void;
 }) {
-  const { sector, etfPerf, relPerf, momentum } = data;
+  const { sector, etfPerf, relPerf, momentum, history } = data;
   const perfPos = (etfPerf ?? 0) >= 0;
   const relPos = (relPerf ?? 0) >= 0;
 
@@ -83,6 +117,7 @@ function SectorCard({
 
         <div className={styles.cardBottom}>
           <MomentumBadge value={momentum} />
+          <Sparkline history={history} positive={(etfPerf ?? 0) >= 0} />
         </div>
       </div>
     </div>

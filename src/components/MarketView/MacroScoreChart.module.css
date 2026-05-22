@@ -1,0 +1,99 @@
+.root {
+  border-top: 1px solid var(--border);
+  padding: 10px 0 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 8px;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-right: 4px;
+}
+
+/* ── Regime legend ─────────────────────────────────── */
+
+.legend {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.legendDash {
+  display: inline-block;
+  width: 14px;
+  height: 1px;
+  border-radius: 1px;
+  opacity: 0.8;
+}
+
+/* ── Period selector ───────────────────────────────── */
+
+.periodBar {
+  display: flex;
+  gap: 2px;
+}
+
+.periodBtn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  transition: color 0.1s, border-color 0.1s;
+}
+.periodBtn:hover { color: var(--text-primary); }
+
+.active {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--bg-primary);
+}
+
+/* ── Chart ─────────────────────────────────────────── */
+
+.chartContainer {
+  width: 100%;
+}
+
+/* ── States ────────────────────────────────────────── */
+
+.empty {
+  padding: 24px 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+
+.spinner {
+  font-size: 12px;
+  color: var(--text-muted);
+  animation: spin 1.2s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

@@ -8,6 +8,7 @@ export interface SectorPerf {
   etfPerf: number | null;
   relPerf: number | null;
   momentum: 'accelerating' | 'neutral' | 'decelerating';
+  history: { time: number; value: number }[];
 }
 
 export interface HoldingPerf {
@@ -75,6 +76,7 @@ export function useSectorPerfs(period: '1W' | '1M' | '3M') {
           etfPerf: etfPeriodPerf,
           relPerf: relPeriodPerf,
           momentum,
+          history: hist,
         };
       }).sort((a, b) => (b.relPerf ?? -999) - (a.relPerf ?? -999));
     },

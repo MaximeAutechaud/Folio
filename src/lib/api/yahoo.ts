@@ -69,6 +69,7 @@ const YAHOO_RANGE: Record<string, { range: string; interval: string }> = {
   '1M': { range: '1mo', interval: '1d' },
   '3M': { range: '3mo', interval: '1d' },
   '1Y': { range: '1y',  interval: '1wk' },
+  '2Y': { range: '2y',  interval: '1wk' },
 };
 
 export async function fetchYahooHistory(ticker: string, period: string): Promise<{ time: number; value: number }[]> {

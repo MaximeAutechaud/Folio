@@ -15,24 +15,44 @@ function fmtPerf(n: number | null): string {
   return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
 }
 
-// ── RS Trend ─────────────────────────────────────────────────────────────────
+const SECTOR_ICONS: Record<string, string> = {
+  xlk:  '💻',
+  xlv:  '🏥',
+  xlf:  '🏦',
+  xly:  '🛍️',
+  xli:  '⚙️',
+  xlc:  '📡',
+  xle:  '🔋',
+  xlp:  '🛒',
+  xlb:  '🪨',
+  xlre: '🏢',
+  xlu:  '💡',
+  ita:  '🚀',
+  blok: '₿',
+};
 
-function RsTrend({ trend }: { trend: NarrativePerf['rsTrend'] }) {
-  const labels = ['3M', '1M', '1W'];
+// ── Sparkline ─────────────────────────────────────────────────────────────────
+
+function Sparkline({ history, positive }: { history: { time: number; value: number }[]; positive: boolean }) {
+  if (history.length < 2) return null;
+  const values = history.map(p => p.value);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const W = 72; const H = 28; const pad = 2;
+  const pts = values
+    .map((v, i) => {
+      const x = pad + (i / (values.length - 1)) * (W - pad * 2);
+      const y = H - pad - ((v - min) / range) * (H - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
   return (
-    <div className={styles.rsTrend}>
-      <span className={styles.rsLabel}>RS</span>
-      {trend.map((v, i) => (
-        <span
-          key={i}
-          className={`${styles.rsDot} ${v == null ? styles.rsDotNull : v >= 0 ? styles.rsDotPos : styles.rsDotNeg}`}
-          title={`${labels[i]}: ${fmtPerf(v)} vs S&P 500`}
-        >
-          {v == null ? '·' : (v >= 0 ? '+' : '') + v.toFixed(1) + '%'}
-          <span className={styles.rsSpan}>{labels[i]}</span>
-        </span>
-      ))}
-    </div>
+    <svg width={W} height={H} style={{ display: 'block', flexShrink: 0 }}>
+      <polyline points={pts} fill="none"
+        stroke={positive ? '#3fb950' : '#f85149'}
+        strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" opacity="0.85" />
+    </svg>
   );
 }
 
@@ -54,7 +74,7 @@ function NarrativeCard({
   selected: boolean;
   onClick: () => void;
 }) {
-  const { narrative, basketPerf, relPerf, momentum, rsTrend, source, lowConfidence } = data;
+  const { narrative, basketPerf, relPerf, momentum, history, source, lowConfidence } = data;
   const perfPos = (basketPerf ?? 0) >= 0;
   const relPos  = (relPerf ?? 0) >= 0;
 
@@ -69,12 +89,20 @@ function NarrativeCard({
         <div className={styles.cardTop}>
           <span className={styles.rank}>#{rank}</span>
           <span className={styles.name}>{narrative.name}</span>
+          {narrative.parent_sector && (() => {
+            const sector = SECTORS.find(s => s.id === narrative.parent_sector);
+            return (
+              <span className={styles.sectorIcon} data-tooltip={sector?.name ?? narrative.parent_sector}>
+                {SECTOR_ICONS[narrative.parent_sector!] ?? '📊'}
+              </span>
+            );
+          })()}
           {source.type === 'etf'
             ? <span className={styles.sourceBadge}>{source.label}</span>
             : <span className={`${styles.sourceBadge} ${styles.sourceBadgeBasket}`}>Panier {source.count}T</span>
           }
           {lowConfidence && (
-            <span className={styles.lowConf} title="Moins de 5 tickers — signal momentum peu fiable">⚠</span>
+            <span className={styles.lowConf} data-tooltip="Moins de 5 tickers — signal momentum peu fiable">⚠</span>
           )}
         </div>
 
@@ -87,15 +115,9 @@ function NarrativeCard({
           </span>
         </div>
 
-        <RsTrend trend={rsTrend} />
-
         <div className={styles.cardBottom}>
           <MomentumBadge value={momentum} />
-          {narrative.parent_sector && (
-            <span className={styles.sectorTag}>
-              {SECTORS.find(s => s.id === narrative.parent_sector)?.name ?? narrative.parent_sector}
-            </span>
-          )}
+          <Sparkline history={history} positive={perfPos} />
         </div>
 
       </div>
@@ -274,8 +296,8 @@ export function NarrativeDashboard() {
         </span>
         <span className={styles.legendSep}>·</span>
         <span className={styles.legendItem}>
-          <span className={styles.legendSample}>RS 3M · 1M · 1W</span>
-          <span className={styles.legendDesc}>tendance de la surperf. relative</span>
+          <span className={styles.legendSample}>〰</span>
+          <span className={styles.legendDesc}>trajectoire prix sur la période</span>
         </span>
       </div>
 
@@ -300,6 +322,7 @@ export function NarrativeDashboard() {
         <NarrativeDrawer
           narrative={selectedPerf.narrative}
           tickers={selectedPerf.tickers}
+          rsTrend={selectedPerf.rsTrend}
           initialPeriod={period}
           onEdit={() => setFormNarrative(selectedPerf.narrative)}
           onDelete={() => handleDelete(selectedPerf.narrative)}

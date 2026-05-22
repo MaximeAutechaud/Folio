@@ -33,13 +33,14 @@ interface HoldingRow {
 interface Props {
   narrative: Narrative;
   tickers: NarrativeTicker[];
+  rsTrend: [number | null, number | null, number | null];
   initialPeriod: '1W' | '1M' | '3M';
   onEdit: () => void;
   onDelete: () => void;
   onClose: () => void;
 }
 
-export function NarrativeDrawer({ narrative, tickers, initialPeriod, onEdit, onDelete, onClose }: Props) {
+export function NarrativeDrawer({ narrative, tickers, rsTrend, initialPeriod, onEdit, onDelete, onClose }: Props) {
   const [period, setPeriod] = useState<Period>(initialPeriod);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -176,6 +177,20 @@ export function NarrativeDrawer({ narrative, tickers, initialPeriod, onEdit, onD
             <span className={`${styles.statValue} ${isPerfPos ? styles.pos : styles.neg}`}>
               {fmtPerf(chartPerf)}
             </span>
+          </div>
+          <div className={styles.stat}>
+            <span className={styles.statLabel}>RS vs S&P 500</span>
+            <div className={styles.rsTrend}>
+              {(['3M', '1M', '1W'] as const).map((label, i) => {
+                const v = rsTrend[i];
+                return (
+                  <span key={label} className={`${styles.rsItem} ${v == null ? '' : v >= 0 ? styles.pos : styles.neg}`}>
+                    <span className={styles.rsTimeLabel}>{label}</span>
+                    {v != null ? fmtPerf(v) : '—'}
+                  </span>
+                );
+              })}
+            </div>
           </div>
         </div>
 

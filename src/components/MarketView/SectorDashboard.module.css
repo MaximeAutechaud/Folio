@@ -181,6 +181,7 @@
 .cardBottom {
   display: flex;
   align-items: center;
+  justify-content: space-between;
 }
 
 /* ── Momentum badge ────────────────────────────────── */
@@ -196,53 +197,3 @@
 .momDown    { background: rgba(248, 81, 73, 0.15);  color: var(--red); }
 .momNeutral { background: var(--bg-hover); color: var(--text-muted); }
 
-/* ── Tooltips (macro strip) ────────────────────────── */
-
-.tipWrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  cursor: help;
-}
-
-.tip {
-  display: none;
-  position: absolute;
-  top: calc(100% + 7px);
-  background: #1c2128;
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  padding: 9px 12px;
-  font-size: 11px;
-  line-height: 1.55;
-  color: var(--text-primary);
-  white-space: pre-line;
-  width: 250px;
-  z-index: 300;
-  font-family: var(--font-mono);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
-  pointer-events: none;
-  text-align: left;
-  font-weight: 400;
-}
-
-/* aligne le tooltip par rapport au bord de l'élément déclencheur */
-.tipLeft   { left: 0; }
-.tipCenter { left: 50%; transform: translateX(-50%); }
-.tipRight  { right: 0; }
-
-.tipWrap:hover .tip { display: block; }
-
-/* macro labels cliquables */
-.macroLabel {
-  color: var(--text-muted);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  border-bottom: 1px dashed transparent;
-  transition: border-color 0.15s, color 0.15s;
-}
-.tipWrap:hover .macroLabel {
-  color: var(--text-primary);
-  border-bottom-color: var(--text-muted);
-}

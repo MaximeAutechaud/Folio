@@ -219,7 +219,6 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   display: flex;
-  overflow: hidden;
   cursor: pointer;
   transition: border-color 0.15s;
   position: relative;
@@ -230,6 +229,7 @@
 .colorBar {
   width: 3px;
   flex-shrink: 0;
+  border-radius: 8px 0 0 8px;
 }
 
 .cardContent {
@@ -283,6 +283,30 @@
   color: #e3b341;
   flex-shrink: 0;
   cursor: help;
+  position: relative;
+}
+
+.lowConf::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  right: 0;
+  background: #1c2128;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+
+.lowConf:hover::after {
+  opacity: 1;
 }
 
 /* ── Perf row ── */
@@ -346,8 +370,8 @@
 .cardBottom {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
-  flex-wrap: wrap;
 }
 
 .momBadge {
@@ -360,11 +384,33 @@
 .momDown    { color: var(--red);      background: color-mix(in srgb, var(--red) 15%, transparent); }
 .momNeutral { color: var(--text-muted); background: var(--bg-tertiary); }
 
-.sectorTag {
-  font-size: 10px;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
-  border-radius: 3px;
-  padding: 1px 5px;
-  margin-left: auto;
+.sectorIcon {
+  position: relative;
+  font-size: 13px;
+  line-height: 1;
+  cursor: default;
+  flex-shrink: 0;
+}
+
+.sectorIcon::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  right: 0;
+  background: #1c2128;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+
+.sectorIcon:hover::after {
+  opacity: 1;
 }

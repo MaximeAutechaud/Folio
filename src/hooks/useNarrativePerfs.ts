@@ -12,6 +12,7 @@ export interface NarrativePerf {
   relPerf: number | null;
   momentum: NarrativeMomentum;
   rsTrend: [number | null, number | null, number | null]; // [3M, 1M, 1W] vs SPY
+  history: Point[]; // historique prix/panier sur la période sélectionnée — pour la sparkline
   source: { type: 'etf'; label: string } | { type: 'basket'; count: number };
   lowConfidence: boolean;
 }
@@ -110,6 +111,14 @@ function computePerf(
 
   const lowConfidence = source.type === 'basket' && source.count < 5;
 
+  const history: Point[] = narrative.ref_etf
+    ? sliceByDays(historyMap[narrative.ref_etf] ?? [], daysBack)
+    : computeBasketHistory(
+        tickers
+          .map(t => sliceByDays(historyMap[t.ticker] ?? [], daysBack))
+          .filter((h): h is Point[] => h.length >= 2)
+      );
+
   return {
     narrative,
     tickers,
@@ -117,6 +126,7 @@ function computePerf(
     relPerf,
     momentum,
     rsTrend,
+    history,
     source,
     lowConfidence,
   };

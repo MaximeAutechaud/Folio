@@ -186,6 +186,31 @@
 .pos { color: var(--green); }
 .neg { color: var(--red); }
 
+/* ── RS Trend ── */
+
+.rsTrend {
+  display: flex;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.rsItem {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.rsTimeLabel {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 /* ── Holdings ── */
 
 .holdingsSection {

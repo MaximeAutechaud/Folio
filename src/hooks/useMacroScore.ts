@@ -14,6 +14,7 @@ export interface MacroIndicator {
   weight: number;  // poids dans le score global (0-1)
   explanation: string; // lecture dynamique selon la valeur actuelle
   tip: string;     // explication pédagogique fixe (tooltip)
+  contextOnly?: boolean; // affiché mais hors score pondéré
 }
 
 export interface MacroScoreData {
@@ -48,9 +49,15 @@ function toSignal(s: number): Signal {
   return s > 65 ? 'bullish' : s < 35 ? 'bearish' : 'neutral';
 }
 
+// Variation en basis points sur la dernière semaine (~5 séances) depuis l'historique 1M (1d)
+function weekDeltaBp(h: { time: number; value: number }[]): number | null {
+  if (h.length < 6) return null;
+  return Math.round((h[h.length - 1].value - h[h.length - 6].value) * 100);
+}
+
 // ── Tickers fetchés ───────────────────────────────────────────────────────────
 
-const TICKERS = ['^VIX', 'DX-Y.NYB', '^TNX', '^IRX', 'HYG', 'GLD', 'HG=F', 'SPY', 'IWM'];
+const TICKERS = ['^VIX', 'DX-Y.NYB', '^TNX', '^TYX', '^IRX', 'HYG', 'GLD', 'HG=F', 'SPY', 'IWM'];
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
@@ -69,6 +76,7 @@ export function useMacroScore() {
       // Valeurs courantes
       const vix      = prices['^VIX']      ?? null;
       const tnx      = prices['^TNX']      ?? null;
+      const tyx      = prices['^TYX']      ?? null;
       const irx      = prices['^IRX']      ?? null;
       const dxy      = prices['DX-Y.NYB']  ?? null;
 
@@ -83,6 +91,11 @@ export function useMacroScore() {
       // Dérivés
       const yieldCurve  = tnx != null && irx != null ? tnx - irx : null;
       const iwmVsSpy    = iwm1M != null && spy1M != null ? iwm1M - spy1M : null;
+
+      // Taux obligataires — variations hebdo (bp) et spread 30Y/10Y
+      const tnxWeekBp   = weekDeltaBp(hist['^TNX']);
+      const tyxWeekBp   = weekDeltaBp(hist['^TYX']);
+      const spread30_10 = tnx != null && tyx != null ? tyx - tnx : null;
 
       // ── Scores individuels (0–100) ──────────────────────────────────────────
 
@@ -223,6 +236,74 @@ export function useMacroScore() {
             'SPDR Gold ETF (GLD) variation 1 mois.\nL\'or monte dans deux cas : peur\n(récession, crise) et inflation.\n\n' +
             'Or ↑ fort → fuite vers la sécurité\nOr stable → pas d\'anxiété notable\nOr ↓ → appétit pour le risque\n\n' +
             'Note : l\'or peut monter sur inflation\nmême en marché actions haussier.',
+        },
+        // ── Indicateurs contextuels taux (hors score pondéré) ──────────────────
+        {
+          id: 'tnx-level', chip: '10Y', label: 'Taux 10Y US',
+          value: tnx != null
+            ? `${tnx.toFixed(2)}%${tnxWeekBp != null ? `  ${tnxWeekBp >= 0 ? '+' : ''}${tnxWeekBp}bp/sem` : ''}`
+            : '—',
+          score: 50,
+          signal: (
+            tnx == null ? 'neutral' :
+            (tnx > 4.5 || (tnxWeekBp != null && tnxWeekBp > 25)) ? 'bearish' :
+            tnx < 3.5 ? 'bullish' : 'neutral'
+          ) as Signal,
+          weight: 0,
+          contextOnly: true,
+          explanation: (() => {
+            if (tnx == null) return '—';
+            const lvl =
+              tnx > 5   ? `Niveau très élevé (${tnx.toFixed(2)}%) — pression structurelle sur VNQ (immobilier) et XLU (utilities). XLF (financières) avantagé par les spreads élargis.` :
+              tnx > 4.5 ? `Niveau élevé (${tnx.toFixed(2)}%) — headwinds pour VNQ et VGT (growth tech), tailwind pour XLF.` :
+              tnx > 3.5 ? `Niveau modéré (${tnx.toFixed(2)}%) — impact différencié selon la duration des actifs.` :
+                          `Niveau bas (${tnx.toFixed(2)}%) — environnement favorable pour l'immobilier (VNQ), les utilities et le growth tech.`;
+            const spk =
+              tnxWeekBp != null && tnxWeekBp >= 15  ? ` Spike de +${tnxWeekBp}bp cette semaine — rotation accélérée probable vers les secteurs value/cycliques au détriment du growth et de l'immobilier.` :
+              tnxWeekBp != null && tnxWeekBp <= -15 ? ` Détente de ${Math.abs(tnxWeekBp)}bp cette semaine — soulagement pour les secteurs sensibles aux taux (VNQ, XLU, VGT).` :
+              '';
+            return lvl + spk;
+          })(),
+          tip:
+            'Taux des obligations du Trésor US à 10 ans.\nBenchmark mondial du coût du capital.\n\n' +
+            'Impact sur la rotation sectorielle :\n↑ Taux → headwinds VNQ, XLU, VGT\n↑ Taux → tailwind XLF (financières)\n\n' +
+            '< 3.5% → favorable au growth\n4.5–5% → pression secteurs sensibles\n> 5%   → stress généralisé\n\n' +
+            'Distinct du "10Y−3M" (forme de courbe) :\nce chiffre mesure le niveau absolu.',
+        },
+        {
+          id: 'tyx-level', chip: '30Y', label: 'Taux 30Y US',
+          value: (() => {
+            if (tyx == null) return '—';
+            const delta = tyxWeekBp != null ? `  ${tyxWeekBp >= 0 ? '+' : ''}${tyxWeekBp}bp/sem` : '';
+            const sprd  = spread30_10 != null ? `  ·  spread 30/10 +${Math.round(spread30_10 * 100)}bp` : '';
+            return `${tyx.toFixed(2)}%${delta}${sprd}`;
+          })(),
+          score: 50,
+          signal: (
+            tyx == null ? 'neutral' :
+            (tyx > 5.0 || (tyxWeekBp != null && tyxWeekBp > 25)) ? 'bearish' :
+            tyx < 4.0 ? 'bullish' : 'neutral'
+          ) as Signal,
+          weight: 0,
+          contextOnly: true,
+          explanation: (() => {
+            if (tyx == null) return '—';
+            const sprd =
+              spread30_10 == null ? '' :
+              spread30_10 < 0     ? ' Inversion 30Y/10Y — très inhabituel, signal de distorsion majeure sur la dette longue.' :
+              spread30_10 > 0.5   ? ` Prime de terme élevée (+${Math.round(spread30_10 * 100)}bp) — pentification anormale de la longue courbe. Les marchés anticipent inflation persistante ou dégradent leur confiance dans la trajectoire de la dette US.` :
+                                    ` Prime de terme normale (+${Math.round(spread30_10 * 100)}bp vs 10Y).`;
+            const spk =
+              tyxWeekBp != null && tyxWeekBp >= 15  ? ` Spike de +${tyxWeekBp}bp sur la semaine — les investisseurs exigent une prime plus élevée sur la dette longue, signal négatif pour les actifs à longue duration.` :
+              tyxWeekBp != null && tyxWeekBp <= -15 ? ` Détente de ${Math.abs(tyxWeekBp)}bp sur la semaine.` :
+              '';
+            return `30Y à ${tyx.toFixed(2)}%.${sprd}${spk}`;
+          })(),
+          tip:
+            'Taux des obligations du Trésor US à 30 ans.\nMesure la prime de terme et les anticipations\nd\'inflation à long terme.\n\n' +
+            'Spread 30Y−10Y > +50bp → pentification\nanormale : défiance sur la dette longue US\nou anticipations inflationnistes persistantes.\n\n' +
+            'Spread < 0 → inversion rare, distorsion\nde marché sur les primes de terme.\n\n' +
+            'Un spike 30Y sans spike 10Y signale une\ndéfiance spécifique sur la dette ultra-longue.',
         },
       ];
 
