@@ -1,0 +1,87 @@
+.strip {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  height: 36px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  overflow-x: auto;
+  scrollbar-width: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.strip::-webkit-scrollbar { display: none; }
+
+.label {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid;
+  flex-shrink: 0;
+}
+
+.scoreNum {
+  font-size: 13px;
+}
+
+.badgeDot {
+  opacity: 0.5;
+}
+
+.divider {
+  color: var(--border);
+  margin: 0 12px;
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  cursor: default;
+}
+
+.item + .item::before {
+  content: '·';
+  color: var(--text-muted);
+  opacity: 0.4;
+  margin: 0 8px;
+}
+
+.chip {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.spin {
+  margin-left: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  display: inline-block;
+  animation: spin 1.2s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}

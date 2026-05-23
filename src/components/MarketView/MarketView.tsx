@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SectorDashboard } from './SectorDashboard';
 import { NarrativeDashboard } from './NarrativeDashboard';
+import { MacroPulse } from './MacroPulse';
 import styles from './MarketView.module.css';
 
 type MarketSubTab = 'rotation' | 'narratives';
@@ -10,6 +11,8 @@ export function MarketView() {
 
   return (
     <div className={styles.root}>
+      <MacroPulse />
+
       <div className={styles.subNav}>
         <button
           className={`${styles.subNavBtn} ${subTab === 'rotation' ? styles.subNavActive : ''}`}
