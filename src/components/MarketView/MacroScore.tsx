@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMacroScore } from '../../hooks/useMacroScore';
-import type { Signal, Regime } from '../../hooks/useMacroScore';
+import type { Signal, Regime, MacroScoreData } from '../../hooks/useMacroScore';
 import { MacroScoreChart } from './MacroScoreChart';
 import styles from './MacroScore.module.css';
 
@@ -38,6 +38,15 @@ function SignalLabel({ signal }: { signal: Signal }) {
   );
 }
 
+function TrendArrow({ trend, scorePrev, score }: { trend: MacroScoreData['trend']; scorePrev: number | null; score: number }) {
+  if (trend === 'flat') return <span className={styles.trendFlat}>→</span>;
+  const delta = scorePrev != null ? score - scorePrev : 0;
+  const label = (delta >= 0 ? '+' : '') + delta;
+  return trend === 'up'
+    ? <span className={styles.trendUp}>↑ {label}</span>
+    : <span className={styles.trendDown}>↓ {label}</span>;
+}
+
 function ScoreGauge({ score }: { score: number }) {
   return (
     <div className={styles.gaugeTrack}>
@@ -62,7 +71,7 @@ export function MacroScore() {
     );
   }
 
-  const { score, regime, indicators } = data;
+  const { score, scorePrev, trend, regime, indicators } = data;
   const rc = REGIME_CONFIG[regime];
   const scoredIndicators  = indicators.filter(i => !i.contextOnly);
   const contextIndicators = indicators.filter(i => i.contextOnly);
@@ -85,6 +94,7 @@ export function MacroScore() {
         <span className={styles.scoreNum} style={{ color: rc.color }}>
           {score}
         </span>
+        <TrendArrow trend={trend} scorePrev={scorePrev} score={score} />
 
         <div className={styles.chips}>
           {indicators.map(ind => (

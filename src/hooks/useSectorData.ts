@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchYahooHistory } from '../lib/api/yahoo';
 import { SECTORS, type SectorDef } from '../lib/sectors';
+import { calcRsi } from '../lib/indicators';
 
 export interface SectorPerf {
   sector: SectorDef;
@@ -8,6 +9,7 @@ export interface SectorPerf {
   etfPerf: number | null;
   relPerf: number | null;
   momentum: 'accelerating' | 'neutral' | 'decelerating';
+  rsi: number | null;
   history: { time: number; value: number }[];
 }
 
@@ -33,24 +35,30 @@ export function useSectorPerfs(period: '1W' | '1M' | '3M') {
     queryFn: async () => {
       const allTickers = ['SPY', ...SECTORS.map(s => s.etf)];
       const needWeekly = period !== '1W';
+      const need3M = period !== '3M';
 
-      const periodHistories = await Promise.all(
-        allTickers.map(t => fetchYahooHistory(t, period))
-      );
+      const [periodHistories, weeklyHistories, rsiHistories] = await Promise.all([
+        Promise.all(allTickers.map(t => fetchYahooHistory(t, period))),
+        needWeekly
+          ? Promise.all(allTickers.map(t => fetchYahooHistory(t, '1W')))
+          : Promise.resolve([] as { time: number; value: number }[][]),
+        need3M
+          ? Promise.all(allTickers.map(t => fetchYahooHistory(t, '3M')))
+          : Promise.resolve([] as { time: number; value: number }[][]),
+      ]);
 
-      const weeklyHistories: { time: number; value: number }[][] = needWeekly
-        ? await Promise.all(allTickers.map(t => fetchYahooHistory(t, '1W')))
-        : periodHistories;
+      const resolvedWeekly = needWeekly ? weeklyHistories : periodHistories;
+      const resolvedRsi    = need3M    ? rsiHistories    : periodHistories;
 
       const spyPeriodPerf = calcPerf(periodHistories[0]);
-      const spyWeekPerf = calcPerf(weeklyHistories[0]);
+      const spyWeekPerf = calcPerf(resolvedWeekly[0]);
       const periodWeeks = period === '1W' ? 1 : period === '1M' ? 4 : 13;
 
       return SECTORS.map((sector, i) => {
         const idx = i + 1;
         const hist = periodHistories[idx];
         const etfPeriodPerf = calcPerf(hist);
-        const etfWeekPerf = calcPerf(weeklyHistories[idx]);
+        const etfWeekPerf = calcPerf(resolvedWeekly[idx]);
 
         const relPeriodPerf =
           etfPeriodPerf != null && spyPeriodPerf != null
@@ -70,12 +78,16 @@ export function useSectorPerfs(period: '1W' | '1M' | '3M') {
           else if (relWeekPerf < avgWeeklyRelPerf - 0.3) momentum = 'decelerating';
         }
 
+        const rsiPrices = resolvedRsi[idx]?.map(p => p.value) ?? [];
+        const rsi = calcRsi(rsiPrices);
+
         return {
           sector,
           currentPrice: hist[hist.length - 1]?.value ?? null,
           etfPerf: etfPeriodPerf,
           relPerf: relPeriodPerf,
           momentum,
+          rsi,
           history: hist,
         };
       }).sort((a, b) => (b.relPerf ?? -999) - (a.relPerf ?? -999));

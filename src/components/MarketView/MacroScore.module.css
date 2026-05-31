@@ -83,6 +83,26 @@
   text-align: right;
 }
 
+.trendUp {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: #3fb950;
+  min-width: 36px;
+}
+
+.trendDown {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: #f85149;
+  min-width: 36px;
+}
+
+.trendFlat {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 36px;
+}
+
 /* ── Chips ─────────────────────────────────────────── */
 
 .chips {

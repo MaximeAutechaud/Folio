@@ -70,12 +70,41 @@ function Sparkline({ history, positive }: { history: { time: number; value: numb
 
 // ── Sector card ──────────────────────────────────────────────────────────────
 
+function RsiBadge({ rsi }: { rsi: number | null }) {
+  if (rsi == null) return null;
+  const cls =
+    rsi < 30 ? styles.rsiOversold :
+    rsi < 45 ? styles.rsiLow :
+    rsi > 70 ? styles.rsiOverbought :
+    rsi > 55 ? styles.rsiHigh :
+    styles.rsiNeutral;
+  const tip =
+    rsi < 30 ? 'Survendu — potentiel rebond' :
+    rsi < 45 ? 'RSI bas — zone d\'entrée favorable' :
+    rsi > 70 ? 'Suracheté — momentum à ne pas chasser' :
+    rsi > 55 ? 'RSI élevé — surveiller un essoufflement' :
+    'RSI neutre';
+  return (
+    <span className={`${styles.rsiBadge} ${cls}`} data-tooltip={tip}>
+      RSI {rsi}
+    </span>
+  );
+}
+
 function MomentumBadge({ value }: { value: SectorPerf['momentum'] }) {
   const label =
     value === 'accelerating' ? '↑↑ accélère' : value === 'decelerating' ? '↓↓ ralentit' : '→ stable';
   const cls =
     value === 'accelerating' ? styles.momUp : value === 'decelerating' ? styles.momDown : styles.momNeutral;
   return <span className={`${styles.momBadge} ${cls}`}>{label}</span>;
+}
+
+function distFromHigh(history: { time: number; value: number }[]): number | null {
+  if (history.length < 2) return null;
+  const high = Math.max(...history.map(p => p.value));
+  const current = history[history.length - 1].value;
+  if (!high) return null;
+  return ((current - high) / high) * 100;
 }
 
 function SectorCard({
@@ -89,9 +118,10 @@ function SectorCard({
   selected: boolean;
   onClick: () => void;
 }) {
-  const { sector, etfPerf, relPerf, momentum, history } = data;
+  const { sector, etfPerf, relPerf, momentum, rsi, history } = data;
   const perfPos = (etfPerf ?? 0) >= 0;
   const relPos = (relPerf ?? 0) >= 0;
+  const dist = distFromHigh(history);
 
   return (
     <div
@@ -104,6 +134,14 @@ function SectorCard({
           <span className={styles.rank}>#{rank}</span>
           <span className={styles.sectorName}>{sector.name}</span>
           <span className={styles.etfBadge}>{sector.etf}</span>
+          {dist != null && (
+            <span
+              className={dist >= -1 ? styles.distAtHigh : styles.distFromHigh}
+              data-tooltip={`${dist >= -1 ? 'Proche du' : 'Distance du'} plus haut sur la période`}
+            >
+              {dist >= -1 ? '▲ top' : `${dist.toFixed(1)}%`}
+            </span>
+          )}
         </div>
 
         <div className={styles.perfRow}>
@@ -117,6 +155,7 @@ function SectorCard({
 
         <div className={styles.cardBottom}>
           <MomentumBadge value={momentum} />
+          <RsiBadge rsi={rsi} />
           <Sparkline history={history} positive={(etfPerf ?? 0) >= 0} />
         </div>
       </div>

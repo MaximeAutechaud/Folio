@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchNarratives, fetchAllNarrativeTickers } from '../lib/db';
 import { fetchYahooHistory } from '../lib/api/yahoo';
+import { calcRsi } from '../lib/indicators';
 import type { Narrative, NarrativeTicker } from '../types';
 
 export type NarrativeMomentum = 'accelerating' | 'neutral' | 'decelerating';
@@ -11,6 +12,7 @@ export interface NarrativePerf {
   basketPerf: number | null;
   relPerf: number | null;
   momentum: NarrativeMomentum;
+  rsi: number | null;
   rsTrend: [number | null, number | null, number | null]; // [3M, 1M, 1W] vs SPY
   history: Point[]; // historique prix/panier sur la période sélectionnée — pour la sparkline
   source: { type: 'etf'; label: string } | { type: 'basket'; count: number };
@@ -111,6 +113,20 @@ function computePerf(
 
   const lowConfidence = source.type === 'basket' && source.count < 5;
 
+  // RSI 14 depuis l'ETF de référence, ou moyenne des RSI du basket
+  let rsi: number | null = null;
+  if (narrative.ref_etf) {
+    const prices = (historyMap[narrative.ref_etf] ?? []).map(p => p.value);
+    rsi = calcRsi(prices);
+  } else {
+    const rsiValues = tickers
+      .map(t => calcRsi((historyMap[t.ticker] ?? []).map(p => p.value)))
+      .filter((r): r is number => r != null);
+    rsi = rsiValues.length > 0
+      ? Math.round(rsiValues.reduce((s, r) => s + r, 0) / rsiValues.length)
+      : null;
+  }
+
   const history: Point[] = narrative.ref_etf
     ? sliceByDays(historyMap[narrative.ref_etf] ?? [], daysBack)
     : computeBasketHistory(
@@ -125,6 +141,7 @@ function computePerf(
     basketPerf: basketPeriodPerf,
     relPerf,
     momentum,
+    rsi,
     rsTrend,
     history,
     source,

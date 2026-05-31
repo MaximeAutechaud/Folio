@@ -19,6 +19,8 @@ export interface MacroIndicator {
 
 export interface MacroScoreData {
   score: number;
+  scorePrev: number | null;
+  trend: 'up' | 'down' | 'flat';
   regime: Regime;
   indicators: MacroIndicator[];
 }
@@ -53,6 +55,36 @@ function toSignal(s: number): Signal {
 function weekDeltaBp(h: { time: number; value: number }[]): number | null {
   if (h.length < 6) return null;
   return Math.round((h[h.length - 1].value - h[h.length - 6].value) * 100);
+}
+
+// Recalcule le score pondéré depuis un snapshot d'historiques (slicé à t-N)
+function calcScore(hist: Record<string, { time: number; value: number }[]>): number {
+  const prices: Record<string, number | null> = {};
+  for (const [t, h] of Object.entries(hist)) {
+    prices[t] = h[h.length - 1]?.value ?? null;
+  }
+  const vix      = prices['^VIX'];
+  const tnx      = prices['^TNX'];
+  const irx      = prices['^IRX'];
+  const hyg1M    = calcPerf(hist['HYG']);
+  const gld1M    = calcPerf(hist['GLD']);
+  const copper1M = calcPerf(hist['HG=F']);
+  const dxy1M    = calcPerf(hist['DX-Y.NYB']);
+  const spy1M    = calcPerf(hist['SPY']);
+  const iwm1M    = calcPerf(hist['IWM']);
+  const yieldCurve  = tnx != null && irx != null ? tnx - irx : null;
+  const iwmVsSpy    = iwm1M != null && spy1M != null ? iwm1M - spy1M : null;
+
+  const W = { vix: 0.25, curve: 0.20, hyg: 0.15, iwm: 0.15, dxy: 0.10, copper: 0.10, gold: 0.05 };
+  return Math.round(
+    (vix      != null ? norm(vix, 35, 15) * 100       : 50) * W.vix    +
+    (yieldCurve != null ? norm(yieldCurve, -1, 1) * 100 : 50) * W.curve +
+    (hyg1M    != null ? norm(hyg1M, -3, 3) * 100       : 50) * W.hyg   +
+    (iwmVsSpy != null ? norm(iwmVsSpy, -3, 3) * 100    : 50) * W.iwm   +
+    (dxy1M    != null ? norm(dxy1M, 3, -3) * 100        : 50) * W.dxy   +
+    (copper1M != null ? norm(copper1M, -5, 5) * 100     : 50) * W.copper +
+    (gld1M    != null ? norm(gld1M, 5, -3) * 100        : 50) * W.gold
+  );
 }
 
 // ── Tickers fetchés ───────────────────────────────────────────────────────────
@@ -127,6 +159,18 @@ export function useMacroScore() {
         copperScore * W.copper +
         gldScore    * W.gold
       );
+
+      // Score t-1W : on slice chaque historique en retirant les 5 dernières séances
+      const WEEK_BARS = 5;
+      const hasEnoughHistory = Object.values(hist).every(h => h.length > WEEK_BARS);
+      const scorePrev = hasEnoughHistory
+        ? calcScore(Object.fromEntries(Object.entries(hist).map(([t, h]) => [t, h.slice(0, -WEEK_BARS)])))
+        : null;
+      const trend: MacroScoreData['trend'] =
+        scorePrev == null         ? 'flat' :
+        score - scorePrev >= 3   ? 'up'   :
+        score - scorePrev <= -3  ? 'down' :
+        'flat';
 
       const regime: Regime =
         score >= 75 ? 'risk-on'     :
@@ -307,7 +351,7 @@ export function useMacroScore() {
         },
       ];
 
-      return { score, regime, indicators };
+      return { score, scorePrev, trend, regime, indicators };
     },
     staleTime: 5 * 60 * 1000,
     refetchInterval: 5 * 60 * 1000,

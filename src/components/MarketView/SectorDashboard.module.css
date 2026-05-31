@@ -178,6 +178,42 @@
 .pos { color: var(--green); }
 .neg { color: var(--red); }
 
+.distFromHigh,
+.distAtHigh {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  margin-left: auto;
+  cursor: default;
+  position: relative;
+}
+
+.distFromHigh { color: var(--text-muted); }
+.distAtHigh   { color: var(--green); }
+
+.distFromHigh::after,
+.distAtHigh::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  right: 0;
+  background: #1c2128;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+
+.distFromHigh:hover::after,
+.distAtHigh:hover::after {
+  opacity: 1;
+}
+
 .cardBottom {
   display: flex;
   align-items: center;
@@ -196,4 +232,43 @@
 .momUp      { background: rgba(63, 185, 80, 0.15);  color: var(--green); }
 .momDown    { background: rgba(248, 81, 73, 0.15);  color: var(--red); }
 .momNeutral { background: var(--bg-hover); color: var(--text-muted); }
+
+.rsiBadge {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  padding: 2px 5px;
+  border-radius: 3px;
+  cursor: default;
+  position: relative;
+}
+
+.rsiBadge::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1c2128;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  color: var(--text-primary);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+
+.rsiBadge:hover::after { opacity: 1; }
+
+.rsiOversold   { background: rgba(63, 185, 80, 0.2);  color: #3fb950; }
+.rsiLow        { background: rgba(63, 185, 80, 0.1);  color: #7ee787; }
+.rsiNeutral    { background: var(--bg-hover); color: var(--text-muted); }
+.rsiHigh       { background: rgba(227, 179, 65, 0.15); color: #e3b341; }
+.rsiOverbought { background: rgba(248, 81, 73, 0.15);  color: #f85149; }
 

@@ -56,7 +56,58 @@ function Sparkline({ history, positive }: { history: { time: number; value: numb
   );
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function distFromHigh(history: { time: number; value: number }[]): number | null {
+  if (history.length < 2) return null;
+  const high = Math.max(...history.map(p => p.value));
+  const current = history[history.length - 1].value;
+  if (!high) return null;
+  return ((current - high) / high) * 100;
+}
+
+// ── RS Trend mini ─────────────────────────────────────────────────────────────
+
+function RsTrendMini({ rsTrend }: { rsTrend: NarrativePerf['rsTrend'] }) {
+  return (
+    <div className={styles.rsTrendMini}>
+      {(['3M', '1M', '1W'] as const).map((label, i) => {
+        const v = rsTrend[i];
+        const arrow = v == null ? '·' : v >= 0.5 ? '↑' : v <= -0.5 ? '↓' : '→';
+        const cls = v == null ? styles.rsMuted : v >= 0.5 ? styles.rsPos : v <= -0.5 ? styles.rsNeg : styles.rsMuted;
+        return (
+          <span key={label} className={styles.rsItem}>
+            <span className={styles.rsLabel}>{label}</span>
+            <span className={cls}>{arrow}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Momentum badge ────────────────────────────────────────────────────────────
+
+function RsiBadge({ rsi }: { rsi: number | null }) {
+  if (rsi == null) return null;
+  const cls =
+    rsi < 30 ? styles.rsiOversold :
+    rsi < 45 ? styles.rsiLow :
+    rsi > 70 ? styles.rsiOverbought :
+    rsi > 55 ? styles.rsiHigh :
+    styles.rsiNeutral;
+  const tip =
+    rsi < 30 ? 'Survendu — potentiel rebond' :
+    rsi < 45 ? 'RSI bas — zone d\'entrée favorable' :
+    rsi > 70 ? 'Suracheté — momentum à ne pas chasser' :
+    rsi > 55 ? 'RSI élevé — surveiller un essoufflement' :
+    'RSI neutre';
+  return (
+    <span className={`${styles.rsiBadge} ${cls}`} data-tooltip={tip}>
+      RSI {rsi}
+    </span>
+  );
+}
 
 function MomentumBadge({ value }: { value: NarrativePerf['momentum'] }) {
   const label = value === 'accelerating' ? '↑↑ accélère' : value === 'decelerating' ? '↓↓ ralentit' : '→ stable';
@@ -74,9 +125,10 @@ function NarrativeCard({
   selected: boolean;
   onClick: () => void;
 }) {
-  const { narrative, basketPerf, relPerf, momentum, history, source, lowConfidence } = data;
+  const { narrative, basketPerf, relPerf, momentum, rsi, rsTrend, history, source, lowConfidence } = data;
   const perfPos = (basketPerf ?? 0) >= 0;
   const relPos  = (relPerf ?? 0) >= 0;
+  const dist = distFromHigh(history);
 
   return (
     <div
@@ -104,6 +156,14 @@ function NarrativeCard({
           {lowConfidence && (
             <span className={styles.lowConf} data-tooltip="Moins de 5 tickers — signal momentum peu fiable">⚠</span>
           )}
+          {dist != null && (
+            <span
+              className={dist >= -1 ? styles.distAtHigh : styles.distFromHigh}
+              data-tooltip={`${dist >= -1 ? 'Proche du' : 'Distance du'} plus haut sur la période`}
+            >
+              {dist >= -1 ? '▲ top' : `${dist.toFixed(1)}%`}
+            </span>
+          )}
         </div>
 
         <div className={styles.perfRow}>
@@ -117,8 +177,10 @@ function NarrativeCard({
 
         <div className={styles.cardBottom}>
           <MomentumBadge value={momentum} />
+          <RsiBadge rsi={rsi} />
           <Sparkline history={history} positive={perfPos} />
         </div>
+        <RsTrendMini rsTrend={rsTrend} />
 
       </div>
     </div>
