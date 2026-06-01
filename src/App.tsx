@@ -7,8 +7,10 @@ import { PortfolioChart } from './components/PortfolioChart/PortfolioChart';
 import { PositionDrawer } from './components/Drawer/PositionDrawer';
 import { ChartsView } from './components/ChartsView/ChartsView';
 import { MarketView } from './components/MarketView/MarketView';
+import { AlertPanel } from './components/AlertPanel/AlertPanel';
 import { usePortfolioStore } from './store/portfolio';
 import { usePrices } from './hooks/usePrices';
+import { useAlertEngine, useUnacknowledgedCount } from './hooks/useAlertEngine';
 import { fetchSnapshots } from './lib/db';
 import type { PositionInput } from './types';
 import styles from './App.module.css';
@@ -21,6 +23,8 @@ export default function App() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [drawerPositionId, setDrawerPositionId] = useState<number | null>(null);
 
+  const [alertOpen, setAlertOpen] = useState(false);
+
   const positions = usePortfolioStore((s) => s.positions);
   const loadPositions = usePortfolioStore((s) => s.loadPositions);
   const addPosition = usePortfolioStore((s) => s.addPosition);
@@ -30,6 +34,9 @@ export default function App() {
   useEffect(() => { loadPositions(); }, []);
 
   usePrices();
+  useAlertEngine();
+
+  const { data: unackCount = 0 } = useUnacknowledgedCount();
 
   const { data: snapshots = [] } = useQuery({
     queryKey: ['snapshots'],
@@ -67,8 +74,18 @@ export default function App() {
     </>
   );
 
+  const actions = (
+    <button className={styles.bellBtn} onClick={() => setAlertOpen(v => !v)}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      {unackCount > 0 && <span className={styles.badge}>{unackCount > 99 ? '99+' : unackCount}</span>}
+    </button>
+  );
+
   return (
-    <Layout nav={nav}>
+    <Layout nav={nav} actions={actions}>
       {activeTab === 'portfolio' ? (
         <>
           <PortfolioChart snapshots={snapshots} />
@@ -103,6 +120,8 @@ export default function App() {
           onClose={() => setDrawerPositionId(null)}
         />
       )}
+
+      <AlertPanel open={alertOpen} onClose={() => setAlertOpen(false)} />
     </Layout>
   );
 }

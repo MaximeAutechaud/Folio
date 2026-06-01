@@ -112,3 +112,36 @@ export interface NarrativeKeyword {
   narrative_id: number;
   keyword: string;
 }
+
+export type AlertType = 'rsi_overbought' | 'rsi_oversold' | 'macro_regime_change' | 'price_target' | 'stop_loss';
+export type AlertScope = 'sector' | 'narrative' | 'macro' | 'ticker';
+
+export interface AlertRule {
+  id: number;
+  type: AlertType;
+  scope: AlertScope;
+  scope_id: string;
+  label: string;
+  threshold: string | null;
+  is_active: number;
+  created_at: number;
+  snoozed_until: number | null;
+}
+
+export interface AlertRuleInput {
+  type: AlertType;
+  scope: AlertScope;
+  scope_id: string;
+  label: string;
+  threshold: string | null;
+}
+
+export interface AlertEvent {
+  id: number;
+  rule_id: number;
+  triggered_at: number;
+  consecutive_days: number;
+  value_at_trigger: string;
+  message: string;
+  acknowledged: number;
+}

@@ -1,8 +1,8 @@
 import Database from '@tauri-apps/plugin-sql';
-import type { Position, PositionInput, Snapshot, Transaction, TransactionInput, Narrative, NarrativeInput, NarrativeTicker, NarrativeTickerInput, NarrativeKeyword } from '../types';
+import type { Position, PositionInput, Snapshot, Transaction, TransactionInput, Narrative, NarrativeInput, NarrativeTicker, NarrativeTickerInput, NarrativeKeyword, AlertRule, AlertRuleInput, AlertEvent } from '../types';
 import { NARRATIVE_SEED } from './narratives-seed';
 
-const SCHEMA_VERSION = '2';
+const SCHEMA_VERSION = '3';
 
 const DB_URL = 'sqlite:folio.db';
 
@@ -77,13 +77,14 @@ async function runMigrations(db: Database): Promise<void> {
   `);
 
   await migrateToV2(db);
+  await migrateToV3(db);
 }
 
 async function migrateToV2(db: Database): Promise<void> {
   const rows = await db.select<{ value: string }[]>(
     `SELECT value FROM settings WHERE key='schema_version'`
   );
-  if (rows[0]?.value === SCHEMA_VERSION) return;
+  if (parseInt(rows[0]?.value ?? '0') >= 2) return;
 
   // Drop legacy narrative tables (order matters for FK constraints)
   await db.execute('DROP TABLE IF EXISTS fundamentals_history');
@@ -128,6 +129,46 @@ async function migrateToV2(db: Database): Promise<void> {
   `);
 
   await seedNarratives(db);
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '2')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
+async function migrateToV3(db: Database): Promise<void> {
+  const rows = await db.select<{ value: string }[]>(
+    `SELECT value FROM settings WHERE key='schema_version'`
+  );
+  if (parseInt(rows[0]?.value ?? '0') >= 3) return;
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS alert_rules (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      type          TEXT    NOT NULL,
+      scope         TEXT    NOT NULL,
+      scope_id      TEXT    NOT NULL DEFAULT '',
+      label         TEXT    NOT NULL,
+      threshold     TEXT,
+      is_active     INTEGER NOT NULL DEFAULT 1,
+      created_at    INTEGER NOT NULL DEFAULT (unixepoch()),
+      snoozed_until INTEGER
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS alert_events (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      rule_id          INTEGER NOT NULL REFERENCES alert_rules(id) ON DELETE CASCADE,
+      triggered_at     INTEGER NOT NULL DEFAULT (unixepoch()),
+      consecutive_days INTEGER NOT NULL DEFAULT 1,
+      value_at_trigger TEXT    NOT NULL DEFAULT '',
+      message          TEXT    NOT NULL,
+      acknowledged     INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+  await db.execute(`CREATE INDEX IF NOT EXISTS idx_alert_events_rule ON alert_events(rule_id)`);
+  await db.execute(`CREATE INDEX IF NOT EXISTS idx_alert_events_ack  ON alert_events(acknowledged)`);
 
   await db.execute(
     `INSERT INTO settings (key, value) VALUES ('schema_version', $1)
@@ -491,4 +532,103 @@ export async function getLastFundamentalsDate(narrativeId: number): Promise<stri
     [narrativeId]
   );
   return rows[0]?.date ?? null;
+}
+
+// ── Alert rules ───────────────────────────────────────────────────────────────
+
+export async function fetchAlertRules(): Promise<AlertRule[]> {
+  const db = await getDb();
+  return db.select<AlertRule[]>('SELECT * FROM alert_rules ORDER BY created_at DESC');
+}
+
+export async function insertAlertRule(input: AlertRuleInput): Promise<number> {
+  const db = await getDb();
+  const result = await db.execute(
+    `INSERT INTO alert_rules (type, scope, scope_id, label, threshold)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [input.type, input.scope, input.scope_id, input.label, input.threshold]
+  );
+  return result.lastInsertId as number;
+}
+
+export async function deleteAlertRule(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM alert_rules WHERE id = $1', [id]);
+}
+
+export async function toggleAlertRule(id: number, active: boolean): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE alert_rules SET is_active=$1 WHERE id=$2', [active ? 1 : 0, id]);
+}
+
+export async function snoozeAlertRule(id: number, hours: number): Promise<void> {
+  const db = await getDb();
+  const until = Math.floor(Date.now() / 1000) + hours * 3600;
+  await db.execute('UPDATE alert_rules SET snoozed_until=$1 WHERE id=$2', [until, id]);
+}
+
+// ── Alert events ──────────────────────────────────────────────────────────────
+
+export async function fetchAlertEvents(limit = 50): Promise<AlertEvent[]> {
+  const db = await getDb();
+  return db.select<AlertEvent[]>(
+    `SELECT e.*, r.label as rule_label
+     FROM alert_events e
+     JOIN alert_rules r ON r.id = e.rule_id
+     WHERE e.consecutive_days > 0
+     ORDER BY e.triggered_at DESC LIMIT $1`,
+    [limit]
+  );
+}
+
+export async function fetchUnacknowledgedCount(): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ count: number }[]>(
+    `SELECT COUNT(*) as count FROM alert_events
+     WHERE acknowledged = 0 AND consecutive_days > 0`
+  );
+  return rows[0]?.count ?? 0;
+}
+
+export async function insertAlertEvent(
+  ruleId: number,
+  consecutiveDays: number,
+  valueAtTrigger: string,
+  message: string
+): Promise<number> {
+  const db = await getDb();
+  const result = await db.execute(
+    `INSERT INTO alert_events (rule_id, consecutive_days, value_at_trigger, message)
+     VALUES ($1, $2, $3, $4)`,
+    [ruleId, consecutiveDays, valueAtTrigger, message]
+  );
+  return result.lastInsertId as number;
+}
+
+export async function insertBaselineAlertEvent(ruleId: number, valueAtTrigger: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO alert_events (rule_id, triggered_at, consecutive_days, value_at_trigger, message, acknowledged)
+     VALUES ($1, $2, 0, $3, 'baseline', 1)`,
+    [ruleId, Math.floor(Date.now() / 1000), valueAtTrigger]
+  );
+}
+
+export async function getLastAlertEvent(ruleId: number): Promise<AlertEvent | null> {
+  const db = await getDb();
+  const rows = await db.select<AlertEvent[]>(
+    `SELECT * FROM alert_events WHERE rule_id=$1 ORDER BY triggered_at DESC LIMIT 1`,
+    [ruleId]
+  );
+  return rows[0] ?? null;
+}
+
+export async function acknowledgeAlertEvent(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE alert_events SET acknowledged=1 WHERE id=$1', [id]);
+}
+
+export async function acknowledgeAllAlertEvents(): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE alert_events SET acknowledged=1 WHERE acknowledged=0');
 }
