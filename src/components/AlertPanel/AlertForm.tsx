@@ -7,6 +7,7 @@ import styles from './AlertForm.module.css';
 
 interface Props {
   onClose: () => void;
+  prefillTicker?: string;
 }
 
 type RsiSubScope = 'sector' | 'narrative';
@@ -24,15 +25,16 @@ const DEFAULT_THRESHOLD: Partial<Record<AlertType, string>> = {
   rsi_oversold:   '30',
 };
 
-export function AlertForm({ onClose }: Props) {
+export function AlertForm({ onClose, prefillTicker }: Props) {
   const queryClient = useQueryClient();
 
-  const [type, setType] = useState<AlertType>('rsi_overbought');
+  const initialType: AlertType = prefillTicker ? 'price_target' : 'rsi_overbought';
+  const [type, setType] = useState<AlertType>(initialType);
   const [rsiSubScope, setRsiSubScope] = useState<RsiSubScope>('sector');
   const [sectorId, setSectorId] = useState(SECTORS[0].id);
   const [narrativeId, setNarrativeId] = useState('');
-  const [ticker, setTicker] = useState('');
-  const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD['rsi_overbought'] ?? '');
+  const [ticker, setTicker] = useState(prefillTicker ? prefillTicker.toUpperCase() : '');
+  const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD[initialType] ?? '');
   const [saving, setSaving] = useState(false);
 
   const { data: narratives = [] } = useQuery({

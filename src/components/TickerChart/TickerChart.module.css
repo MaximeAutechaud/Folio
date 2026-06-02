@@ -1,0 +1,165 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 10px;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.statBar {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.statLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.statPrice {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.statChange,
+.statPct {
+  font-size: 14px;
+}
+
+.statPeriod {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 2px;
+}
+
+.green { color: var(--green); }
+.red   { color: var(--red); }
+
+.periods {
+  display: flex;
+  gap: 2px;
+}
+
+.periodBtn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.periodBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.periodBtn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.mcapBtn {
+  margin-left: 6px;
+  color: #a855f7;
+  border-color: rgba(168, 85, 247, 0.3);
+}
+
+.mcapBtn:hover {
+  border-color: #a855f7;
+  color: #a855f7;
+}
+
+.mcapBtn.active {
+  background: rgba(168, 85, 247, 0.15);
+  border-color: #a855f7;
+  color: #a855f7;
+}
+
+/* ── Charts wrapper ───────────────────────────────────────────────────────── */
+
+.chartsWrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  z-index: 1;
+}
+
+/* ── Price chart ──────────────────────────────────────────────────────────── */
+
+.priceWrap {
+  flex: 3;
+  min-height: 0;
+  position: relative;
+}
+
+.priceChart {
+  width: 100%;
+  height: 100%;
+}
+
+.ccyLabel {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+/* ── RSI divider ──────────────────────────────────────────────────────────── */
+
+.rsiDivider {
+  height: 20px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.rsiLabel {
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #d29922;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+/* ── RSI chart ────────────────────────────────────────────────────────────── */
+
+.rsiChart {
+  flex: 1;
+  min-height: 80px;
+  width: 100%;
+}

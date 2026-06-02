@@ -145,3 +145,20 @@ export interface AlertEvent {
   message: string;
   acknowledged: number;
 }
+
+export interface WatchlistCategory {
+  id: number;
+  name: string;
+  color: string;
+  sort_order: number;
+  created_at: number;
+}
+
+export interface WatchlistItem {
+  id: number;
+  ticker: string;
+  name: string;
+  asset_type: 'stock' | 'crypto';
+  category_id: number | null;
+  added_at: number;
+}

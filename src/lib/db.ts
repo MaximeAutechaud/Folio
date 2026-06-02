@@ -1,8 +1,8 @@
 import Database from '@tauri-apps/plugin-sql';
-import type { Position, PositionInput, Snapshot, Transaction, TransactionInput, Narrative, NarrativeInput, NarrativeTicker, NarrativeTickerInput, NarrativeKeyword, AlertRule, AlertRuleInput, AlertEvent } from '../types';
+import type { Position, PositionInput, Snapshot, Transaction, TransactionInput, Narrative, NarrativeInput, NarrativeTicker, NarrativeTickerInput, NarrativeKeyword, AlertRule, AlertRuleInput, AlertEvent, WatchlistItem, WatchlistCategory } from '../types';
 import { NARRATIVE_SEED } from './narratives-seed';
 
-const SCHEMA_VERSION = '3';
+const SCHEMA_VERSION = '5';
 
 const DB_URL = 'sqlite:folio.db';
 
@@ -78,6 +78,8 @@ async function runMigrations(db: Database): Promise<void> {
 
   await migrateToV2(db);
   await migrateToV3(db);
+  await migrateToV4(db);
+  await migrateToV5(db);
 }
 
 async function migrateToV2(db: Database): Promise<void> {
@@ -169,6 +171,61 @@ async function migrateToV3(db: Database): Promise<void> {
   `);
   await db.execute(`CREATE INDEX IF NOT EXISTS idx_alert_events_rule ON alert_events(rule_id)`);
   await db.execute(`CREATE INDEX IF NOT EXISTS idx_alert_events_ack  ON alert_events(acknowledged)`);
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', $1)
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+    [SCHEMA_VERSION]
+  );
+}
+
+async function migrateToV4(db: Database): Promise<void> {
+  const rows = await db.select<{ value: string }[]>(
+    `SELECT value FROM settings WHERE key='schema_version'`
+  );
+  if (parseInt(rows[0]?.value ?? '0') >= 4) return;
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS watchlist (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker     TEXT    NOT NULL UNIQUE,
+      name       TEXT    NOT NULL DEFAULT '',
+      asset_type TEXT    NOT NULL DEFAULT 'stock',
+      added_at   INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `);
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', $1)
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+    [SCHEMA_VERSION]
+  );
+}
+
+async function migrateToV5(db: Database): Promise<void> {
+  const rows = await db.select<{ value: string }[]>(
+    `SELECT value FROM settings WHERE key='schema_version'`
+  );
+  if (parseInt(rows[0]?.value ?? '0') >= 5) return;
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS watchlist_categories (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT    NOT NULL,
+      color      TEXT    NOT NULL DEFAULT '#6e7681',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `);
+
+  const col = await db.select<{ name: string }[]>(
+    `SELECT name FROM pragma_table_info('watchlist') WHERE name='category_id'`
+  );
+  if (col.length === 0) {
+    await db.execute(
+      `ALTER TABLE watchlist ADD COLUMN category_id INTEGER REFERENCES watchlist_categories(id) ON DELETE SET NULL`
+    );
+  }
 
   await db.execute(
     `INSERT INTO settings (key, value) VALUES ('schema_version', $1)
@@ -631,4 +688,57 @@ export async function acknowledgeAlertEvent(id: number): Promise<void> {
 export async function acknowledgeAllAlertEvents(): Promise<void> {
   const db = await getDb();
   await db.execute('UPDATE alert_events SET acknowledged=1 WHERE acknowledged=0');
+}
+
+// ── Watchlist ─────────────────────────────────────────────────────────────────
+
+export async function fetchWatchlist(): Promise<WatchlistItem[]> {
+  const db = await getDb();
+  return db.select<WatchlistItem[]>('SELECT * FROM watchlist ORDER BY added_at DESC');
+}
+
+export async function addWatchlistItem(item: { ticker: string; name: string; asset_type: string; category_id?: number | null }): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    'INSERT OR IGNORE INTO watchlist (ticker, name, asset_type, category_id) VALUES ($1, $2, $3, $4)',
+    [item.ticker, item.name, item.asset_type, item.category_id ?? null]
+  );
+}
+
+export async function removeWatchlistItem(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM watchlist WHERE id = $1', [id]);
+}
+
+export async function assignWatchlistCategory(itemId: number, categoryId: number | null): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE watchlist SET category_id=$1 WHERE id=$2', [categoryId, itemId]);
+}
+
+// ── Watchlist categories ──────────────────────────────────────────────────────
+
+export async function fetchWatchlistCategories(): Promise<WatchlistCategory[]> {
+  const db = await getDb();
+  return db.select<WatchlistCategory[]>('SELECT * FROM watchlist_categories ORDER BY sort_order ASC, created_at ASC');
+}
+
+export async function insertWatchlistCategory(name: string, color: string): Promise<number> {
+  const db = await getDb();
+  const max = await db.select<{ m: number }[]>('SELECT COALESCE(MAX(sort_order),0) as m FROM watchlist_categories');
+  const order = (max[0]?.m ?? 0) + 1;
+  const result = await db.execute(
+    'INSERT INTO watchlist_categories (name, color, sort_order) VALUES ($1, $2, $3)',
+    [name, color, order]
+  );
+  return result.lastInsertId as number;
+}
+
+export async function renameWatchlistCategory(id: number, name: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE watchlist_categories SET name=$1 WHERE id=$2', [name, id]);
+}
+
+export async function deleteWatchlistCategory(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM watchlist_categories WHERE id=$1', [id]);
 }
