@@ -4,6 +4,7 @@ import { createChart, ColorType, AreaSeries, type UTCTimestamp } from 'lightweig
 import { SECTORS } from '../../lib/sectors';
 import { useSectorHoldings } from '../../hooks/useSectorData';
 import { fetchYahooHistory } from '../../lib/api/yahoo';
+import type { SectorScore, SectorSignal } from '../../lib/scoring';
 import styles from './SectorDrawer.module.css';
 
 type Period = '1W' | '1M' | '3M' | '1Y';
@@ -22,13 +23,91 @@ function fmtPerf(n: number | null): string {
   return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
 }
 
+// ── Score breakdown ───────────────────────────────────────────────────────────
+
+function ScoreBar({ value }: { value: number }) {
+  const fill = Math.max(0, Math.min(100, value));
+  return (
+    <div className={styles.scoreBarTrack}>
+      <div className={styles.scoreBarFill} style={{ width: `${fill}%` }} />
+    </div>
+  );
+}
+
+const SIGNAL_CONFIG: Record<NonNullable<SectorSignal>, { icon: string; label: string; cls: string }> = {
+  reversal:     { icon: '↗', label: 'Retournement détecté — secteur qui repart après une sous-perf 3M',   cls: 'signalReversal'     },
+  exhaustion:   { icon: '↘', label: 'Potentiel essoufflement — forte 3M, RS qui décroche, RSI élevé',    cls: 'signalExhaustion'   },
+  accelerating: { icon: '↑', label: 'Accélération en cours — RS qui s\'emballe, RSI encore sain',         cls: 'signalAccelerating' },
+  dip:          { icon: '◎', label: 'Dip dans tendance — RS toujours positive, pullback = opportunité',   cls: 'signalDip'          },
+};
+
+function SignalBadge({ signal }: { signal: SectorSignal }) {
+  if (!signal) return null;
+  const { icon, label, cls } = SIGNAL_CONFIG[signal];
+  return (
+    <div className={`${styles.signalBadge} ${styles[cls]}`}>
+      {icon} {label}
+    </div>
+  );
+}
+
+function ScoreBreakdown({ score }: { score: SectorScore }) {
+  const labelCls =
+    score.label === 'hot'     ? styles.scoreTotalHot  :
+    score.label === 'warming' ? styles.scoreTotalWarm :
+    score.label === 'cooling' ? styles.scoreTotalCool :
+    styles.scoreTotalNeutral;
+
+  const labelText =
+    score.label === 'hot'     ? 'Chaud'      :
+    score.label === 'warming' ? 'En chauffe' :
+    score.label === 'cooling' ? 'Refroidit'  :
+    'Neutre';
+
+  const rows: { label: string; value: number; weight: string }[] = [
+    { label: 'RS Slope',  value: score.rsSlope,    weight: '×40%' },
+    { label: 'RSI Entry', value: score.rsiEntry,   weight: '×25%' },
+    { label: 'Dip',       value: score.drawdown,   weight: '×20%' },
+    { label: 'Macro',     value: score.macroAlign, weight: '×15%' },
+  ];
+
+  return (
+    <div className={styles.scoreSection}>
+      <div className={styles.scoreSectionHeader}>
+        <span className={styles.scoreSectionTitle}>Score opportunité</span>
+        <span className={`${styles.scoreTotal} ${labelCls}`}>
+          {score.total}/100 — {labelText}
+        </span>
+      </div>
+      {rows.map(r => (
+        <div key={r.label} className={styles.scoreRow}>
+          <span className={styles.scoreRowLabel}>{r.label}</span>
+          <ScoreBar value={r.value} />
+          <span className={styles.scoreRowValue}>{r.value}</span>
+          <span className={styles.scoreRowWeight}>{r.weight}</span>
+        </div>
+      ))}
+      {score.ma50Above != null && (
+        <div className={`${styles.ma50Badge} ${score.ma50Above ? styles.ma50Above : styles.ma50Below}`}>
+          {score.ma50Above
+            ? '▲ Prix au-dessus MA 50j — tendance court terme intacte'
+            : '▼ Prix sous MA 50j — prudence sur les entrées'}
+        </div>
+      )}
+      <SignalBadge signal={score.signal} />
+    </div>
+  );
+}
+
 export function SectorDrawer({
   sectorId,
   initialPeriod,
+  score,
   onClose,
 }: {
   sectorId: string;
   initialPeriod: '1W' | '1M' | '3M';
+  score?: SectorScore;
   onClose: () => void;
 }) {
   const sector = SECTORS.find(s => s.id === sectorId)!;
@@ -124,6 +203,8 @@ export function SectorDrawer({
             </span>
           </div>
         </div>
+
+        {score && <ScoreBreakdown score={score} />}
 
         <div className={styles.holdingsSection}>
           <span className={styles.holdingsTitle}>Top Holdings</span>

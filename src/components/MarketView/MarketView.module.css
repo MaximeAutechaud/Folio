@@ -28,6 +28,9 @@
   font-family: var(--font-mono);
   cursor: pointer;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
 .subNavBtn:hover { color: var(--text-primary); }
 .subNavActive {
@@ -35,6 +38,26 @@
   border-color: var(--border);
   background: var(--bg-hover);
 }
+
+.tabIndex {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  opacity: 0.5;
+  min-width: 12px;
+}
+.subNavActive .tabIndex { opacity: 0.8; }
+
+.tabHint {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+.subNavBtn:hover .tabHint,
+.subNavActive .tabHint { opacity: 0.6; }
 
 .topBar {
   display: flex;

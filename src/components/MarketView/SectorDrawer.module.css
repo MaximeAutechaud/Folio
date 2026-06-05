@@ -216,3 +216,145 @@
   padding-left: 12px !important;
   white-space: nowrap;
 }
+
+/* ── Score breakdown ───────────────────────────────── */
+
+.scoreSection {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.scoreSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.scoreSectionTitle {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.scoreTotal {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.scoreTotalHot     { color: #3fb950; }
+.scoreTotalWarm    { color: #e3b341; }
+.scoreTotalNeutral { color: var(--text-muted); }
+.scoreTotalCool    { color: #f85149; }
+
+.scoreRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scoreRowLabel {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  width: 72px;
+  flex-shrink: 0;
+}
+
+.scoreBarTrack {
+  flex: 1;
+  height: 4px;
+  background: var(--bg-hover);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.scoreBarFill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.scoreRowValue {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-primary);
+  width: 24px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.scoreRowWeight {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  width: 34px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.ma50Badge {
+  margin-top: 2px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 5px 9px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+}
+
+.ma50Above {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.07);
+  border-color: rgba(63, 185, 80, 0.18);
+}
+
+.ma50Below {
+  color: #f0883e;
+  background: rgba(240, 136, 62, 0.07);
+  border-color: rgba(240, 136, 62, 0.2);
+}
+
+.signalBadge {
+  margin-top: 2px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 5px 9px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  line-height: 1.4;
+}
+
+.signalReversal {
+  color: #79c0ff;
+  background: rgba(121, 192, 255, 0.08);
+  border-color: rgba(121, 192, 255, 0.2);
+}
+
+.signalExhaustion {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.08);
+  border-color: rgba(248, 81, 73, 0.2);
+}
+
+.signalAccelerating {
+  color: #3fb950;
+  background: rgba(63, 185, 80, 0.08);
+  border-color: rgba(63, 185, 80, 0.2);
+}
+
+.signalDip {
+  color: #e3b341;
+  background: rgba(227, 179, 65, 0.08);
+  border-color: rgba(227, 179, 65, 0.2);
+}

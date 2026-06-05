@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useSectorPerfs, type SectorPerf } from '../../hooks/useSectorData';
-import { MacroScore } from './MacroScore';
+import { useMacroScore } from '../../hooks/useMacroScore';
+import { calcSectorScore, type SectorScore, type SectorSignal } from '../../lib/scoring';
 import { SectorDrawer } from './SectorDrawer';
 import styles from './SectorDashboard.module.css';
 
@@ -23,12 +24,12 @@ function Legend() {
       <span className={styles.legendSep}>·</span>
       <span className={styles.legendItem}>
         <span className={styles.legendSample + ' ' + styles.pos}>+12.6% vs S&P 500</span>
-        <span className={styles.legendDesc}>écart vs S&P 500 — positif = surperformance</span>
+        <span className={styles.legendDesc}>écart vs S&P 500</span>
       </span>
       <span className={styles.legendSep}>·</span>
       <span className={styles.legendItem}>
-        <span className={styles.legendSample}>↑↑ / → / ↓↓</span>
-        <span className={styles.legendDesc}>momentum : rythme relatif cette semaine vs période</span>
+        <span className={`${styles.legendSample} ${styles.scoreBadgeHot}`}>74</span>
+        <span className={styles.legendDesc}>score opportunité (RS slope · RSI · dip · macro)</span>
       </span>
     </div>
   );
@@ -68,7 +69,7 @@ function Sparkline({ history, positive }: { history: { time: number; value: numb
   );
 }
 
-// ── Sector card ──────────────────────────────────────────────────────────────
+// ── Badges ───────────────────────────────────────────────────────────────────
 
 function RsiBadge({ rsi }: { rsi: number | null }) {
   if (rsi == null) return null;
@@ -99,6 +100,52 @@ function MomentumBadge({ value }: { value: SectorPerf['momentum'] }) {
   return <span className={`${styles.momBadge} ${cls}`}>{label}</span>;
 }
 
+const SIGNAL_LABEL: Record<NonNullable<SectorSignal>, string> = {
+  reversal:     '↗ Retournement détecté',
+  exhaustion:   '↘ Potentiel essoufflement',
+  accelerating: '↑ Accélération en cours',
+  dip:          '◎ Dip dans tendance',
+};
+
+function ScoreBadge({ score }: { score: SectorScore }) {
+  const cls =
+    score.label === 'hot'     ? styles.scoreBadgeHot  :
+    score.label === 'warming' ? styles.scoreBadgeWarm :
+    score.label === 'cooling' ? styles.scoreBadgeCool :
+    styles.scoreBadgeNeutral;
+
+  const signalLine = score.signal ? SIGNAL_LABEL[score.signal] : '';
+
+  const ma50Line =
+    score.ma50Above === true  ? 'MA50  ▲ au-dessus' :
+    score.ma50Above === false ? 'MA50  ▼ en-dessous' :
+    '';
+
+  const tip = [
+    signalLine,
+    signalLine ? '──────────────────' : '',
+    `RS Slope   ${score.rsSlope}/100  ×40%`,
+    `RSI Entry  ${score.rsiEntry}/100  ×25%`,
+    `Dip        ${score.drawdown}/100  ×20%`,
+    `Macro      ${score.macroAlign}/100  ×15%`,
+    ma50Line ? '──────────────────' : '',
+    ma50Line,
+  ].filter(Boolean).join('\n');
+
+  const prefix =
+    score.label === 'hot'     ? '◆ ' :
+    score.label === 'warming' ? '◈ ' :
+    '';
+
+  return (
+    <span className={`${styles.scoreBadge} ${cls}`} data-tooltip={tip}>
+      {prefix}{score.total}
+    </span>
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function distFromHigh(history: { time: number; value: number }[]): number | null {
   if (history.length < 2) return null;
   const high = Math.max(...history.map(p => p.value));
@@ -107,15 +154,19 @@ function distFromHigh(history: { time: number; value: number }[]): number | null
   return ((current - high) / high) * 100;
 }
 
+// ── Sector card ──────────────────────────────────────────────────────────────
+
 function SectorCard({
   data,
   rank,
   selected,
+  score,
   onClick,
 }: {
   data: SectorPerf;
   rank: number;
   selected: boolean;
+  score: SectorScore;
   onClick: () => void;
 }) {
   const { sector, etfPerf, relPerf, momentum, rsi, history } = data;
@@ -123,9 +174,14 @@ function SectorCard({
   const relPos = (relPerf ?? 0) >= 0;
   const dist = distFromHigh(history);
 
+  const glowClass =
+    score.label === 'hot'     ? styles.cardHot     :
+    score.label === 'warming' ? styles.cardWarming  :
+    '';
+
   return (
     <div
-      className={`${styles.card} ${selected ? styles.cardSelected : ''}`}
+      className={`${styles.card} ${selected ? styles.cardSelected : ''} ${glowClass}`}
       onClick={onClick}
     >
       <div className={styles.colorBar} style={{ background: sector.color }} />
@@ -156,6 +212,7 @@ function SectorCard({
         <div className={styles.cardBottom}>
           <MomentumBadge value={momentum} />
           <RsiBadge rsi={rsi} />
+          <ScoreBadge score={score} />
           <Sparkline history={history} positive={(etfPerf ?? 0) >= 0} />
         </div>
       </div>
@@ -169,6 +226,28 @@ export function SectorDashboard() {
   const [period, setPeriod] = useState<Period>('1M');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { data: sectors = [], isFetching } = useSectorPerfs(period);
+  const { data: macroData } = useMacroScore();
+
+  const sectorsWithScores = useMemo(() => {
+    const macroScore = macroData?.score ?? 50;
+    const macroTrend = macroData?.trend ?? 'flat';
+    return sectors.map(s => ({
+      ...s,
+      score: calcSectorScore({
+        relPerf1W:    s.relPerf1W,
+        relPerf1M:    s.relPerf1M,
+        relPerf3M:    s.relPerf3M,
+        rsi:          s.rsi,
+        drawdown3M:   s.drawdown3M,
+        ma50Above:    s.ma50Above,
+        macroProfile: s.sector.macroProfile,
+        macroScore,
+        macroTrend,
+      }),
+    }));
+  }, [sectors, macroData]);
+
+  const selectedData = sectorsWithScores.find(s => s.sector.id === selectedId);
 
   function handleCardClick(id: string) {
     setSelectedId(prev => (prev === id ? null : id));
@@ -176,8 +255,6 @@ export function SectorDashboard() {
 
   return (
     <div className={styles.root}>
-      <MacroScore />
-
       <div className={styles.toolbar}>
         <div className={styles.periods}>
           {(['1W', '1M', '3M'] as Period[]).map(p => (
@@ -198,21 +275,23 @@ export function SectorDashboard() {
       <Legend />
 
       <div className={styles.grid}>
-        {sectors.map((s, i) => (
+        {sectorsWithScores.map((s, i) => (
           <SectorCard
             key={s.sector.id}
             data={s}
             rank={i + 1}
             selected={selectedId === s.sector.id}
+            score={s.score}
             onClick={() => handleCardClick(s.sector.id)}
           />
         ))}
       </div>
 
-      {selectedId && (
+      {selectedId && selectedData && (
         <SectorDrawer
           sectorId={selectedId}
           initialPeriod={period}
+          score={selectedData.score}
           onClose={() => setSelectedId(null)}
         />
       )}

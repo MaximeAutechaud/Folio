@@ -3,17 +3,20 @@ export interface Holding {
   name: string;
 }
 
+export type MacroProfile = 'risk_on' | 'defensive' | 'neutral';
+
 export interface SectorDef {
   id: string;
   name: string;
   etf: string;
   color: string;
   holdings: Holding[];
+  macroProfile: MacroProfile;
 }
 
 export const SECTORS: SectorDef[] = [
   {
-    id: 'xlk', name: 'Technology', etf: 'VGT', color: '#58a6ff',
+    id: 'xlk', name: 'Technology', etf: 'VGT', color: '#58a6ff', macroProfile: 'risk_on',
     holdings: [
       { ticker: 'AAPL',  name: 'Apple' },
       { ticker: 'NVDA',  name: 'NVIDIA' },
@@ -23,7 +26,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'xlv', name: 'Health Care', etf: 'XLV', color: '#3fb950',
+    id: 'xlv', name: 'Health Care', etf: 'XLV', color: '#3fb950', macroProfile: 'defensive',
     holdings: [
       { ticker: 'LLY',  name: 'Eli Lilly' },
       { ticker: 'UNH',  name: 'UnitedHealth' },
@@ -33,7 +36,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'xlf', name: 'Financials', etf: 'XLF', color: '#f0883e',
+    id: 'xlf', name: 'Financials', etf: 'XLF', color: '#f0883e', macroProfile: 'neutral',
     holdings: [
       { ticker: 'BRK-B', name: 'Berkshire' },
       { ticker: 'JPM',   name: 'JPMorgan' },
@@ -43,7 +46,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'xly', name: 'Cons. Discretionary', etf: 'XLY', color: '#d2a8ff',
+    id: 'xly', name: 'Cons. Discretionary', etf: 'XLY', color: '#d2a8ff', macroProfile: 'risk_on',
     holdings: [
       { ticker: 'AMZN', name: 'Amazon' },
       { ticker: 'TSLA', name: 'Tesla' },
@@ -53,7 +56,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'xli', name: 'Industrials', etf: 'XLI', color: '#79c0ff',
+    id: 'xli', name: 'Industrials', etf: 'XLI', color: '#79c0ff', macroProfile: 'risk_on',
     holdings: [
       { ticker: 'GE',  name: 'GE Aerospace' },
       { ticker: 'RTX', name: 'RTX Corp' },
@@ -63,7 +66,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'xlc', name: 'Comm. Services', etf: 'XLC', color: '#f78166',
+    id: 'xlc', name: 'Comm. Services', etf: 'XLC', color: '#f78166', macroProfile: 'risk_on',
     holdings: [
       { ticker: 'META',  name: 'Meta' },
       { ticker: 'GOOGL', name: 'Alphabet' },
@@ -73,7 +76,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'xle', name: 'Energy', etf: 'XLE', color: '#ffa657',
+    id: 'xle', name: 'Energy', etf: 'XLE', color: '#ffa657', macroProfile: 'neutral',
     holdings: [
       { ticker: 'XOM', name: 'ExxonMobil' },
       { ticker: 'CVX', name: 'Chevron' },
@@ -83,7 +86,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'xlp', name: 'Cons. Staples', etf: 'XLP', color: '#56d364',
+    id: 'xlp', name: 'Cons. Staples', etf: 'XLP', color: '#56d364', macroProfile: 'defensive',
     holdings: [
       { ticker: 'COST', name: 'Costco' },
       { ticker: 'WMT',  name: 'Walmart' },
@@ -93,7 +96,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'xlb', name: 'Materials', etf: 'XLB', color: '#e3b341',
+    id: 'xlb', name: 'Materials', etf: 'XLB', color: '#e3b341', macroProfile: 'risk_on',
     holdings: [
       { ticker: 'LIN', name: 'Linde' },
       { ticker: 'SHW', name: 'Sherwin-Williams' },
@@ -103,7 +106,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'xlre', name: 'Real Estate', etf: 'VNQ', color: '#a371f7',
+    id: 'xlre', name: 'Real Estate', etf: 'VNQ', color: '#a371f7', macroProfile: 'defensive',
     holdings: [
       { ticker: 'PLD',  name: 'Prologis' },
       { ticker: 'AMT',  name: 'American Tower' },
@@ -113,7 +116,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'xlu', name: 'Utilities', etf: 'XLU', color: '#7ee787',
+    id: 'xlu', name: 'Utilities', etf: 'XLU', color: '#7ee787', macroProfile: 'defensive',
     holdings: [
       { ticker: 'NEE', name: 'NextEra Energy' },
       { ticker: 'SO',  name: 'Southern Co.' },
@@ -123,7 +126,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'ita', name: 'Défense & Aérospatial', etf: 'ITA', color: '#94a3b8',
+    id: 'ita', name: 'Défense & Aérospatial', etf: 'ITA', color: '#94a3b8', macroProfile: 'defensive',
     holdings: [
       { ticker: 'RTX',  name: 'RTX Corp' },
       { ticker: 'LMT',  name: 'Lockheed Martin' },
@@ -133,7 +136,7 @@ export const SECTORS: SectorDef[] = [
     ],
   },
   {
-    id: 'blok', name: 'Blockchain & Crypto', etf: 'BLOK', color: '#f59e0b',
+    id: 'blok', name: 'Blockchain & Crypto', etf: 'BLOK', color: '#f59e0b', macroProfile: 'risk_on',
     holdings: [
       { ticker: 'COIN', name: 'Coinbase' },
       { ticker: 'MSTR', name: 'MicroStrategy' },

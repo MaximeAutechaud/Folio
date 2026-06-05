@@ -93,6 +93,38 @@
   gap: 10px;
 }
 
+/* ── Glow animations ────────────────────────────────── */
+
+@keyframes pulse-hot {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(63, 185, 80, 0.4),
+      0 0 10px rgba(63, 185, 80, 0.15),
+      0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(63, 185, 80, 0.65),
+      0 0 20px rgba(63, 185, 80, 0.28),
+      0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+}
+
+@keyframes pulse-warm {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(227, 179, 65, 0.3),
+      0 0 7px rgba(227, 179, 65, 0.1),
+      0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(227, 179, 65, 0.5),
+      0 0 14px rgba(227, 179, 65, 0.2),
+      0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+}
+
 /* ── Sector card ───────────────────────────────────── */
 
 .card {
@@ -106,6 +138,18 @@
 }
 .card:hover { border-color: #30363d; transform: translateY(-1px); }
 .cardSelected { border-color: var(--accent) !important; }
+
+.cardHot {
+  border-color: rgba(63, 185, 80, 0.35);
+  animation: pulse-hot 2.5s ease-in-out infinite;
+}
+.cardHot:hover { border-color: rgba(63, 185, 80, 0.55); }
+
+.cardWarming {
+  border-color: rgba(227, 179, 65, 0.25);
+  animation: pulse-warm 3.5s ease-in-out infinite;
+}
+.cardWarming:hover { border-color: rgba(227, 179, 65, 0.45); }
 
 .colorBar {
   width: 4px;
@@ -271,4 +315,45 @@
 .rsiNeutral    { background: var(--bg-hover); color: var(--text-muted); }
 .rsiHigh       { background: rgba(227, 179, 65, 0.15); color: #e3b341; }
 .rsiOverbought { background: rgba(248, 81, 73, 0.15);  color: #f85149; }
+
+/* ── Score badge ───────────────────────────────────── */
+
+.scoreBadge {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: default;
+  position: relative;
+  flex-shrink: 0;
+  letter-spacing: -0.2px;
+}
+
+.scoreBadge::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  background: #1c2128;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 7px 10px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  color: var(--text-primary);
+  white-space: pre;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 20;
+  min-width: 190px;
+}
+.scoreBadge:hover::after { opacity: 1; }
+
+.scoreBadgeHot     { background: rgba(63, 185, 80, 0.2);   color: #3fb950; }
+.scoreBadgeWarm    { background: rgba(227, 179, 65, 0.18); color: #e3b341; }
+.scoreBadgeNeutral { background: var(--bg-hover);           color: var(--text-muted); }
+.scoreBadgeCool    { background: rgba(248, 81, 73, 0.1);   color: #f85149; }
 
