@@ -1,40 +1,33 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchYahooPrices, fetchYahooHistory } from '../lib/api/yahoo';
+import { norm, calcMacroScore, regimeFromScore, MACRO_WEIGHTS } from '../lib/macroScore';
+import type { MacroInputs } from '../lib/macroScore';
 
+export type { Regime } from '../lib/macroScore';
 export type Signal = 'bullish' | 'neutral' | 'bearish';
-export type Regime = 'risk-on' | 'favorable' | 'neutral' | 'unfavorable' | 'risk-off';
 
 export interface MacroIndicator {
   id: string;
-  label: string;   // affiché dans le tableau détail
-  chip: string;    // affiché dans la barre compacte
+  label: string;
+  chip: string;
   value: string;
-  score: number;   // 0-100
+  score: number;
   signal: Signal;
-  weight: number;  // poids dans le score global (0-1)
-  explanation: string; // lecture dynamique selon la valeur actuelle
-  tip: string;     // explication pédagogique fixe (tooltip)
-  contextOnly?: boolean; // affiché mais hors score pondéré
+  weight: number;
+  explanation: string;
+  tip: string;
+  contextOnly?: boolean;
 }
 
 export interface MacroScoreData {
   score: number;
   scorePrev: number | null;
   trend: 'up' | 'down' | 'flat';
-  regime: Regime;
+  regime: ReturnType<typeof regimeFromScore>;
   indicators: MacroIndicator[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function clamp01(x: number): number {
-  return Math.max(0, Math.min(1, x));
-}
-
-// Normalise x entre low (→ 0) et high (→ 1)
-function norm(x: number, low: number, high: number): number {
-  return clamp01((x - low) / (high - low));
-}
 
 function calcPerf(h: { time: number; value: number }[]): number | null {
   if (h.length < 2) return null;
@@ -51,40 +44,28 @@ function toSignal(s: number): Signal {
   return s > 65 ? 'bullish' : s < 35 ? 'bearish' : 'neutral';
 }
 
-// Variation en basis points sur la dernière semaine (~5 séances) depuis l'historique 1M (1d)
 function weekDeltaBp(h: { time: number; value: number }[]): number | null {
   if (h.length < 6) return null;
   return Math.round((h[h.length - 1].value - h[h.length - 6].value) * 100);
 }
 
-// Recalcule le score pondéré depuis un snapshot d'historiques (slicé à t-N)
-function calcScore(hist: Record<string, { time: number; value: number }[]>): number {
-  const prices: Record<string, number | null> = {};
-  for (const [t, h] of Object.entries(hist)) {
-    prices[t] = h[h.length - 1]?.value ?? null;
-  }
-  const vix      = prices['^VIX'];
-  const tnx      = prices['^TNX'];
-  const irx      = prices['^IRX'];
-  const hyg1M    = calcPerf(hist['HYG']);
-  const gld1M    = calcPerf(hist['GLD']);
-  const copper1M = calcPerf(hist['HG=F']);
-  const dxy1M    = calcPerf(hist['DX-Y.NYB']);
-  const spy1M    = calcPerf(hist['SPY']);
-  const iwm1M    = calcPerf(hist['IWM']);
-  const yieldCurve  = tnx != null && irx != null ? tnx - irx : null;
-  const iwmVsSpy    = iwm1M != null && spy1M != null ? iwm1M - spy1M : null;
-
-  const W = { vix: 0.25, curve: 0.20, hyg: 0.15, iwm: 0.15, dxy: 0.10, copper: 0.10, gold: 0.05 };
-  return Math.round(
-    (vix      != null ? norm(vix, 35, 15) * 100       : 50) * W.vix    +
-    (yieldCurve != null ? norm(yieldCurve, -1, 1) * 100 : 50) * W.curve +
-    (hyg1M    != null ? norm(hyg1M, -3, 3) * 100       : 50) * W.hyg   +
-    (iwmVsSpy != null ? norm(iwmVsSpy, -3, 3) * 100    : 50) * W.iwm   +
-    (dxy1M    != null ? norm(dxy1M, 3, -3) * 100        : 50) * W.dxy   +
-    (copper1M != null ? norm(copper1M, -5, 5) * 100     : 50) * W.copper +
-    (gld1M    != null ? norm(gld1M, 5, -3) * 100        : 50) * W.gold
-  );
+// Adapter: derives MacroInputs from a snapshot of histories (used for t-1W slice)
+function calcScoreFromHist(hist: Record<string, { time: number; value: number }[]>): number {
+  const last = (t: string): number | null => hist[t]?.[hist[t].length - 1]?.value ?? null;
+  const tnx = last('^TNX');
+  const irx = last('^IRX');
+  const spy1M = calcPerf(hist['SPY']);
+  const iwm1M = calcPerf(hist['IWM']);
+  const inputs: MacroInputs = {
+    vix:        last('^VIX'),
+    yieldCurve: tnx != null && irx != null ? tnx - irx : null,
+    hyg1M:      calcPerf(hist['HYG']),
+    gld1M:      calcPerf(hist['GLD']),
+    copper1M:   calcPerf(hist['HG=F']),
+    dxy1M:      calcPerf(hist['DX-Y.NYB']),
+    iwmVsSpy:   iwm1M != null && spy1M != null ? iwm1M - spy1M : null,
+  };
+  return calcMacroScore(inputs);
 }
 
 // ── Tickers fetchés ───────────────────────────────────────────────────────────
@@ -105,14 +86,12 @@ export function useMacroScore() {
       const hist: Record<string, { time: number; value: number }[]> = {};
       TICKERS.forEach((t, i) => { hist[t] = histories[i]; });
 
-      // Valeurs courantes
-      const vix      = prices['^VIX']      ?? null;
-      const tnx      = prices['^TNX']      ?? null;
-      const tyx      = prices['^TYX']      ?? null;
-      const irx      = prices['^IRX']      ?? null;
-      const dxy      = prices['DX-Y.NYB']  ?? null;
+      const vix  = prices['^VIX']     ?? null;
+      const tnx  = prices['^TNX']     ?? null;
+      const tyx  = prices['^TYX']     ?? null;
+      const irx  = prices['^IRX']     ?? null;
+      const dxy  = prices['DX-Y.NYB'] ?? null;
 
-      // Perfs 1M
       const hyg1M    = calcPerf(hist['HYG']);
       const gld1M    = calcPerf(hist['GLD']);
       const copper1M = calcPerf(hist['HG=F']);
@@ -120,64 +99,40 @@ export function useMacroScore() {
       const spy1M    = calcPerf(hist['SPY']);
       const iwm1M    = calcPerf(hist['IWM']);
 
-      // Dérivés
-      const yieldCurve  = tnx != null && irx != null ? tnx - irx : null;
-      const iwmVsSpy    = iwm1M != null && spy1M != null ? iwm1M - spy1M : null;
+      const yieldCurve = tnx != null && irx != null ? tnx - irx : null;
+      const iwmVsSpy   = iwm1M != null && spy1M != null ? iwm1M - spy1M : null;
 
-      // Taux obligataires — variations hebdo (bp) et spread 30Y/10Y
       const tnxWeekBp   = weekDeltaBp(hist['^TNX']);
       const tyxWeekBp   = weekDeltaBp(hist['^TYX']);
       const spread30_10 = tnx != null && tyx != null ? tyx - tnx : null;
 
-      // ── Scores individuels (0–100) ──────────────────────────────────────────
+      // ── Score global ────────────────────────────────────────────────────────
 
-      // VIX : < 15 → 100, > 35 → 0
-      const vixScore     = vix      != null ? norm(vix, 35, 15) * 100       : 50;
-      // Courbe : > +1% → 100, < -1% → 0
-      const curveScore   = yieldCurve != null ? norm(yieldCurve, -1, 1) * 100 : 50;
-      // HYG 1M : > +3% → 100, < -3% → 0
-      const hygScore     = hyg1M    != null ? norm(hyg1M, -3, 3) * 100       : 50;
-      // Or 1M : inversé — or qui monte = peur → score bas
-      const gldScore     = gld1M    != null ? norm(gld1M, 5, -3) * 100        : 50;
-      // Cuivre 1M : > +5% → 100, < -5% → 0
-      const copperScore  = copper1M != null ? norm(copper1M, -5, 5) * 100     : 50;
-      // IWM vs SPY : > +3% → 100, < -3% → 0
-      const iwmScore     = iwmVsSpy != null ? norm(iwmVsSpy, -3, 3) * 100     : 50;
-      // DXY 1M : inversé — dollar qui monte = défavorable
-      const dxyScore     = dxy1M    != null ? norm(dxy1M, 3, -3) * 100        : 50;
+      const score = calcMacroScore({ vix, yieldCurve, hyg1M, gld1M, copper1M, iwmVsSpy, dxy1M });
 
-      // ── Score global pondéré ────────────────────────────────────────────────
-
-      const W = { vix: 0.25, curve: 0.20, hyg: 0.15, iwm: 0.15, dxy: 0.10, copper: 0.10, gold: 0.05 };
-
-      const score = Math.round(
-        vixScore    * W.vix   +
-        curveScore  * W.curve +
-        hygScore    * W.hyg   +
-        iwmScore    * W.iwm   +
-        dxyScore    * W.dxy   +
-        copperScore * W.copper +
-        gldScore    * W.gold
-      );
-
-      // Score t-1W : on slice chaque historique en retirant les 5 dernières séances
       const WEEK_BARS = 5;
       const hasEnoughHistory = Object.values(hist).every(h => h.length > WEEK_BARS);
       const scorePrev = hasEnoughHistory
-        ? calcScore(Object.fromEntries(Object.entries(hist).map(([t, h]) => [t, h.slice(0, -WEEK_BARS)])))
+        ? calcScoreFromHist(Object.fromEntries(Object.entries(hist).map(([t, h]) => [t, h.slice(0, -WEEK_BARS)])))
         : null;
       const trend: MacroScoreData['trend'] =
-        scorePrev == null         ? 'flat' :
-        score - scorePrev >= 3   ? 'up'   :
-        score - scorePrev <= -3  ? 'down' :
+        scorePrev == null        ? 'flat' :
+        score - scorePrev >= 3  ? 'up'   :
+        score - scorePrev <= -3 ? 'down' :
         'flat';
 
-      const regime: Regime =
-        score >= 75 ? 'risk-on'     :
-        score >= 55 ? 'favorable'   :
-        score >= 40 ? 'neutral'     :
-        score >= 25 ? 'unfavorable' :
-        'risk-off';
+      const regime = regimeFromScore(score);
+
+      // ── Scores individuels pour l'affichage ─────────────────────────────────
+
+      const W = MACRO_WEIGHTS;
+      const vixScore    = vix        != null ? norm(vix,        35, 15) * 100 : 50;
+      const curveScore  = yieldCurve != null ? norm(yieldCurve, -1,  1) * 100 : 50;
+      const hygScore    = hyg1M      != null ? norm(hyg1M,      -3,  3) * 100 : 50;
+      const gldScore    = gld1M      != null ? norm(gld1M,       5, -3) * 100 : 50;
+      const copperScore = copper1M   != null ? norm(copper1M,   -5,  5) * 100 : 50;
+      const iwmScore    = iwmVsSpy   != null ? norm(iwmVsSpy,   -3,  3) * 100 : 50;
+      const dxyScore    = dxy1M      != null ? norm(dxy1M,       3, -3) * 100 : 50;
 
       // ── Indicateurs détaillés ───────────────────────────────────────────────
 
@@ -187,12 +142,12 @@ export function useMacroScore() {
           value: vix != null ? vix.toFixed(1) : '—',
           score: Math.round(vixScore), signal: toSignal(vixScore), weight: W.vix,
           explanation:
-            vix == null       ? '—' :
-            vix < 15          ? 'Volatilité très faible — marché serein, environnement très favorable au rally.' :
-            vix < 20          ? 'Volatilité faible — calme habituel, pas de signal d\'inquiétude.' :
-            vix < 25          ? 'Volatilité modérée — légère nervosité, surveiller sans paniquer.' :
-            vix < 30          ? 'Volatilité élevée — stress notable, investisseurs en mode défensif.' :
-                                'Volatilité extrême — panique de marché, retournements brusques probables.',
+            vix == null ? '—' :
+            vix < 15    ? 'Volatilité très faible — marché serein, environnement très favorable au rally.' :
+            vix < 20    ? 'Volatilité faible — calme habituel, pas de signal d\'inquiétude.' :
+            vix < 25    ? 'Volatilité modérée — légère nervosité, surveiller sans paniquer.' :
+            vix < 30    ? 'Volatilité élevée — stress notable, investisseurs en mode défensif.' :
+                          'Volatilité extrême — panique de marché, retournements brusques probables.',
           tip:
             'CBOE Volatility Index\nMesure la volatilité implicite attendue\nsur les 30 prochains jours.\n\n' +
             '< 15   → très calme, favorable\n15–20 → normal\n20–30 → stress croissant\n> 30   → panique',
@@ -202,11 +157,11 @@ export function useMacroScore() {
           value: yieldCurve != null ? fmtPct(yieldCurve) : '—',
           score: Math.round(curveScore), signal: toSignal(curveScore), weight: W.curve,
           explanation:
-            yieldCurve == null    ? '—' :
-            yieldCurve > 0.5      ? 'Courbe normale et pentue — banques incitées à prêter, pas de signal récessionniste.' :
-            yieldCurve > 0        ? 'Courbe légèrement positive — proche de la neutralité, à surveiller.' :
-            yieldCurve > -0.5     ? 'Courbe légèrement inversée — signal d\'alerte, récession possible dans 12–18 mois.' :
-                                    'Courbe fortement inversée — signal historique de récession à venir.',
+            yieldCurve == null  ? '—' :
+            yieldCurve > 0.5    ? 'Courbe normale et pentue — banques incitées à prêter, pas de signal récessionniste.' :
+            yieldCurve > 0      ? 'Courbe légèrement positive — proche de la neutralité, à surveiller.' :
+            yieldCurve > -0.5   ? 'Courbe légèrement inversée — signal d\'alerte, récession possible dans 12–18 mois.' :
+                                  'Courbe fortement inversée — signal historique de récession à venir.',
           tip:
             'Spread taux 10 ans − 3 mois.\nUne courbe inversée (valeur négative) a\nprécédé chaque récession US depuis 1970.\n\n' +
             '> +0.5% → courbe saine\n0 à +0.5% → prudence\n< 0     → signal d\'alerte\n< -0.5% → alerte forte',
@@ -281,7 +236,6 @@ export function useMacroScore() {
             'Or ↑ fort → fuite vers la sécurité\nOr stable → pas d\'anxiété notable\nOr ↓ → appétit pour le risque\n\n' +
             'Note : l\'or peut monter sur inflation\nmême en marché actions haussier.',
         },
-        // ── Indicateurs contextuels taux (hors score pondéré) ──────────────────
         {
           id: 'tnx-level', chip: '10Y', label: 'Taux 10Y US',
           value: tnx != null

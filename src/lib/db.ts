@@ -80,6 +80,21 @@ async function runMigrations(db: Database): Promise<void> {
   await migrateToV3(db);
   await migrateToV4(db);
   await migrateToV5(db);
+  await purgeOldSnapshots(db);
+}
+
+// Keep full resolution for the last 7 days; keep 1 snapshot/hour beyond that.
+async function purgeOldSnapshots(db: Database): Promise<void> {
+  const cutoff = Math.floor(Date.now() / 1000) - 7 * 86400;
+  await db.execute(`
+    DELETE FROM snapshots
+    WHERE recorded_at < $1
+      AND id NOT IN (
+        SELECT MIN(id) FROM snapshots
+        WHERE recorded_at < $1
+        GROUP BY (recorded_at / 3600)
+      )
+  `, [cutoff]);
 }
 
 async function migrateToV2(db: Database): Promise<void> {
@@ -173,17 +188,23 @@ async function migrateToV3(db: Database): Promise<void> {
   await db.execute(`CREATE INDEX IF NOT EXISTS idx_alert_events_ack  ON alert_events(acknowledged)`);
 
   await db.execute(
-    `INSERT INTO settings (key, value) VALUES ('schema_version', $1)
-     ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-    [SCHEMA_VERSION]
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '3')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   );
 }
 
-async function migrateToV4(db: Database): Promise<void> {
-  const rows = await db.select<{ value: string }[]>(
-    `SELECT value FROM settings WHERE key='schema_version'`
+async function tableExists(db: Database, name: string): Promise<boolean> {
+  const rows = await db.select<{ name: string }[]>(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name=$1`,
+    [name]
   );
-  if (parseInt(rows[0]?.value ?? '0') >= 4) return;
+  return rows.length > 0;
+}
+
+async function migrateToV4(db: Database): Promise<void> {
+  // Guard on actual table existence (not schema_version): a past bug stamped
+  // fresh DBs as v5 before the watchlist tables existed — this self-repairs them
+  if (await tableExists(db, 'watchlist')) return;
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS watchlist (
@@ -196,17 +217,13 @@ async function migrateToV4(db: Database): Promise<void> {
   `);
 
   await db.execute(
-    `INSERT INTO settings (key, value) VALUES ('schema_version', $1)
-     ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-    [SCHEMA_VERSION]
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '4')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   );
 }
 
 async function migrateToV5(db: Database): Promise<void> {
-  const rows = await db.select<{ value: string }[]>(
-    `SELECT value FROM settings WHERE key='schema_version'`
-  );
-  if (parseInt(rows[0]?.value ?? '0') >= 5) return;
+  if (await tableExists(db, 'watchlist_categories')) return;
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS watchlist_categories (
@@ -445,42 +462,6 @@ export async function replaceNarrativeKeywords(narrativeId: number, keywords: st
   }
 }
 
-// ── Price history ─────────────────────────────────────────────────────────
-
-export async function upsertPriceHistory(
-  ticker: string,
-  rows: { date: string; close: number; volume: number }[]
-): Promise<void> {
-  const db = await getDb();
-  for (const row of rows) {
-    await db.execute(
-      `INSERT INTO price_history (ticker, date, close, volume) VALUES ($1, $2, $3, $4)
-       ON CONFLICT(ticker, date) DO UPDATE SET close=excluded.close, volume=excluded.volume`,
-      [ticker, row.date, row.close, row.volume]
-    );
-  }
-}
-
-export async function fetchStoredPriceHistory(
-  ticker: string,
-  limit = 250
-): Promise<{ date: string; close: number }[]> {
-  const db = await getDb();
-  return db.select<{ date: string; close: number }[]>(
-    `SELECT date, close FROM price_history WHERE ticker=$1 ORDER BY date ASC LIMIT $2`,
-    [ticker, limit]
-  );
-}
-
-export async function getLastPriceDate(ticker: string): Promise<string | null> {
-  const db = await getDb();
-  const rows = await db.select<{ date: string }[]>(
-    `SELECT date FROM price_history WHERE ticker=$1 ORDER BY date DESC LIMIT 1`,
-    [ticker]
-  );
-  return rows[0]?.date ?? null;
-}
-
 // ── Settings ──────────────────────────────────────────────────────────────
 
 export async function getSetting(key: string): Promise<string | null> {
@@ -499,96 +480,6 @@ export async function setSetting(key: string, value: string): Promise<void> {
      ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
     [key, value]
   );
-}
-
-// ── Sentiment history ─────────────────────────────────────────────────────
-
-export interface SentimentRecord {
-  narrative_id: number;
-  date: string;
-  volume_7d: number;
-  volume_prev: number;
-  score: number;
-  mainstream: number;
-}
-
-export async function upsertSentiment(
-  narrativeId: number,
-  date: string,
-  data: { volume7d: number; volumePrev: number; score: number; mainstream: boolean }
-): Promise<void> {
-  const db = await getDb();
-  await db.execute(
-    `INSERT INTO sentiment_history (narrative_id, date, volume_7d, volume_prev, score, mainstream)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT(narrative_id, date) DO UPDATE SET
-       volume_7d=excluded.volume_7d, volume_prev=excluded.volume_prev,
-       score=excluded.score, mainstream=excluded.mainstream`,
-    [narrativeId, date, data.volume7d, data.volumePrev, data.score, data.mainstream ? 1 : 0]
-  );
-}
-
-export async function fetchLatestSentiment(narrativeId: number): Promise<SentimentRecord | null> {
-  const db = await getDb();
-  const rows = await db.select<SentimentRecord[]>(
-    `SELECT * FROM sentiment_history WHERE narrative_id=$1 ORDER BY date DESC LIMIT 1`,
-    [narrativeId]
-  );
-  return rows[0] ?? null;
-}
-
-export async function getLastSentimentDate(narrativeId: number): Promise<string | null> {
-  const db = await getDb();
-  const rows = await db.select<{ date: string }[]>(
-    `SELECT date FROM sentiment_history WHERE narrative_id=$1 ORDER BY date DESC LIMIT 1`,
-    [narrativeId]
-  );
-  return rows[0]?.date ?? null;
-}
-
-export interface FundamentalsRecord {
-  id: number;
-  narrative_id: number;
-  date: string;
-  score: number;
-  recommendation_mean: number | null;
-  buy_count: number;
-  hold_count: number;
-  sell_count: number;
-}
-
-export async function upsertFundamentals(
-  narrativeId: number,
-  date: string,
-  data: { score: number; recommendationMean: number | null; buyCount: number; holdCount: number; sellCount: number }
-): Promise<void> {
-  const db = await getDb();
-  await db.execute(
-    `INSERT INTO fundamentals_history (narrative_id, date, score, recommendation_mean, buy_count, hold_count, sell_count)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT(narrative_id, date) DO UPDATE SET
-       score=excluded.score, recommendation_mean=excluded.recommendation_mean,
-       buy_count=excluded.buy_count, hold_count=excluded.hold_count, sell_count=excluded.sell_count`,
-    [narrativeId, date, data.score, data.recommendationMean, data.buyCount, data.holdCount, data.sellCount]
-  );
-}
-
-export async function fetchLatestFundamentals(narrativeId: number): Promise<FundamentalsRecord | null> {
-  const db = await getDb();
-  const rows = await db.select<FundamentalsRecord[]>(
-    `SELECT * FROM fundamentals_history WHERE narrative_id=$1 ORDER BY date DESC LIMIT 1`,
-    [narrativeId]
-  );
-  return rows[0] ?? null;
-}
-
-export async function getLastFundamentalsDate(narrativeId: number): Promise<string | null> {
-  const db = await getDb();
-  const rows = await db.select<{ date: string }[]>(
-    `SELECT date FROM fundamentals_history WHERE narrative_id=$1 ORDER BY date DESC LIMIT 1`,
-    [narrativeId]
-  );
-  return rows[0]?.date ?? null;
 }
 
 // ── Alert rules ───────────────────────────────────────────────────────────────
