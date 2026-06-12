@@ -37,6 +37,9 @@ export interface Position {
   currency: string;
   quantity: number;
   cost_basis: number;
+  stop_price: number | null;
+  target_price: number | null;
+  target_price_2: number | null;
   created_at: number;
 }
 
@@ -47,6 +50,9 @@ export interface PositionInput {
   currency: string;
   quantity: number;
   cost_basis: number;
+  stop_price?: number | null;
+  target_price?: number | null;
+  target_price_2?: number | null;
 }
 
 export interface Snapshot {
@@ -126,6 +132,8 @@ export interface AlertRule {
   is_active: number;
   created_at: number;
   snoozed_until: number | null;
+  is_system: number;
+  slot: string | null;
 }
 
 export interface AlertRuleInput {

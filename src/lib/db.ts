@@ -80,6 +80,30 @@ async function runMigrations(db: Database): Promise<void> {
   await migrateToV3(db);
   await migrateToV4(db);
   await migrateToV5(db);
+  await migrateToV6(db);
+
+  // alert_rules: is_system + slot (Phase 1 extension)
+  const isSystemCol = await db.select<{ name: string }[]>(
+    `SELECT name FROM pragma_table_info('alert_rules') WHERE name='is_system'`
+  );
+  if (isSystemCol.length === 0) {
+    await db.execute(`ALTER TABLE alert_rules ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0`);
+  }
+  const slotCol = await db.select<{ name: string }[]>(
+    `SELECT name FROM pragma_table_info('alert_rules') WHERE name='slot'`
+  );
+  if (slotCol.length === 0) {
+    await db.execute(`ALTER TABLE alert_rules ADD COLUMN slot TEXT`);
+  }
+
+  // positions: second take-profit target (Phase 1 extension)
+  const tp2Col = await db.select<{ name: string }[]>(
+    `SELECT name FROM pragma_table_info('positions') WHERE name='target_price_2'`
+  );
+  if (tp2Col.length === 0) {
+    await db.execute(`ALTER TABLE positions ADD COLUMN target_price_2 REAL`);
+  }
+
   await purgeOldSnapshots(db);
 }
 
@@ -251,6 +275,21 @@ async function migrateToV5(db: Database): Promise<void> {
   );
 }
 
+async function migrateToV6(db: Database): Promise<void> {
+  const col = await db.select<{ name: string }[]>(
+    `SELECT name FROM pragma_table_info('positions') WHERE name='stop_price'`
+  );
+  if (col.length > 0) return;
+
+  await db.execute(`ALTER TABLE positions ADD COLUMN stop_price REAL`);
+  await db.execute(`ALTER TABLE positions ADD COLUMN target_price REAL`);
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '6')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
 async function seedNarratives(db: Database): Promise<void> {
   for (const n of NARRATIVE_SEED) {
     const result = await db.execute(
@@ -277,9 +316,9 @@ export async function fetchPositions(): Promise<Position[]> {
 export async function insertPosition(input: PositionInput): Promise<number> {
   const db = await getDb();
   const result = await db.execute(
-    `INSERT INTO positions (ticker, name, asset_type, currency, quantity, cost_basis)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [input.ticker.toUpperCase(), input.name, input.asset_type, input.currency, input.quantity, input.cost_basis]
+    `INSERT INTO positions (ticker, name, asset_type, currency, quantity, cost_basis, stop_price, target_price, target_price_2)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [input.ticker.toUpperCase(), input.name, input.asset_type, input.currency, input.quantity, input.cost_basis, input.stop_price ?? null, input.target_price ?? null, input.target_price_2 ?? null]
   );
   return result.lastInsertId as number;
 }
@@ -287,8 +326,8 @@ export async function insertPosition(input: PositionInput): Promise<number> {
 export async function updatePosition(id: number, input: PositionInput): Promise<void> {
   const db = await getDb();
   await db.execute(
-    `UPDATE positions SET ticker=$1, name=$2, asset_type=$3, currency=$4, quantity=$5, cost_basis=$6 WHERE id=$7`,
-    [input.ticker.toUpperCase(), input.name, input.asset_type, input.currency, input.quantity, input.cost_basis, id]
+    `UPDATE positions SET ticker=$1, name=$2, asset_type=$3, currency=$4, quantity=$5, cost_basis=$6, stop_price=$7, target_price=$8, target_price_2=$9 WHERE id=$10`,
+    [input.ticker.toUpperCase(), input.name, input.asset_type, input.currency, input.quantity, input.cost_basis, input.stop_price ?? null, input.target_price ?? null, input.target_price_2 ?? null, id]
   );
 }
 
@@ -502,6 +541,77 @@ export async function insertAlertRule(input: AlertRuleInput): Promise<number> {
 export async function deleteAlertRule(id: number): Promise<void> {
   const db = await getDb();
   await db.execute('DELETE FROM alert_rules WHERE id = $1', [id]);
+}
+
+export async function upsertStopAlertRule(ticker: string, stopPrice: number): Promise<void> {
+  const db = await getDb();
+  const existing = await db.select<{ id: number }[]>(
+    `SELECT id FROM alert_rules WHERE type='stop_loss' AND scope='ticker' AND scope_id=$1`,
+    [ticker]
+  );
+  if (existing.length > 0) {
+    await db.execute(
+      `UPDATE alert_rules SET threshold=$1, is_active=1, is_system=1, slot='stop' WHERE id=$2`,
+      [String(stopPrice), existing[0].id]
+    );
+  } else {
+    await db.execute(
+      `INSERT INTO alert_rules (type, scope, scope_id, label, threshold, is_system, slot)
+       VALUES ('stop_loss', 'ticker', $1, $2, $3, 1, 'stop')`,
+      [ticker, `Stop — ${ticker}`, String(stopPrice)]
+    );
+  }
+}
+
+export async function removeStopAlertRule(ticker: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `DELETE FROM alert_rules WHERE type='stop_loss' AND scope='ticker' AND scope_id=$1`,
+    [ticker]
+  );
+}
+
+export async function upsertTargetAlertRules(
+  ticker: string,
+  tp1: number | null,
+  tp2: number | null
+): Promise<void> {
+  const db = await getDb();
+
+  for (const [slot, price] of [['tp1', tp1], ['tp2', tp2]] as [string, number | null][]) {
+    if (price == null) {
+      await db.execute(
+        `DELETE FROM alert_rules WHERE type='price_target' AND scope='ticker' AND scope_id=$1 AND slot=$2`,
+        [ticker, slot]
+      );
+      continue;
+    }
+    const existing = await db.select<{ id: number }[]>(
+      `SELECT id FROM alert_rules WHERE type='price_target' AND scope='ticker' AND scope_id=$1 AND slot=$2`,
+      [ticker, slot]
+    );
+    const label = `${slot === 'tp1' ? 'TP1' : 'TP2'} — ${ticker}`;
+    if (existing.length > 0) {
+      await db.execute(
+        `UPDATE alert_rules SET threshold=$1, is_active=1, is_system=1, label=$2 WHERE id=$3`,
+        [String(price), label, existing[0].id]
+      );
+    } else {
+      await db.execute(
+        `INSERT INTO alert_rules (type, scope, scope_id, label, threshold, is_system, slot)
+         VALUES ('price_target', 'ticker', $1, $2, $3, 1, $4)`,
+        [ticker, label, String(price), slot]
+      );
+    }
+  }
+}
+
+export async function removeTargetAlertRules(ticker: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `DELETE FROM alert_rules WHERE type='price_target' AND scope='ticker' AND scope_id=$1 AND is_system=1`,
+    [ticker]
+  );
 }
 
 export async function toggleAlertRule(id: number, active: boolean): Promise<void> {

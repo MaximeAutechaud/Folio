@@ -269,3 +269,31 @@
   color: var(--text-muted);
   padding: 0 4px;
 }
+
+.noStopBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  color: #d4a017;
+  padding: 2px 4px;
+  cursor: default;
+  position: relative;
+}
+.noStopBadge[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  right: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+.noStopBadge[data-tooltip]:hover::after { opacity: 1; }

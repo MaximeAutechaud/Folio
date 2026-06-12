@@ -47,7 +47,17 @@ export default function App() {
 
   const editingPosition = editingId != null ? positions.find((p) => p.id === editingId) : null;
   const editingInitial: PositionInput | undefined = editingPosition
-    ? { ticker: editingPosition.ticker, name: editingPosition.name, asset_type: editingPosition.asset_type, currency: editingPosition.currency, quantity: editingPosition.quantity, cost_basis: editingPosition.cost_basis }
+    ? {
+        ticker: editingPosition.ticker,
+        name: editingPosition.name,
+        asset_type: editingPosition.asset_type,
+        currency: editingPosition.currency,
+        quantity: editingPosition.quantity,
+        cost_basis: editingPosition.cost_basis,
+        stop_price: editingPosition.stop_price,
+        target_price: editingPosition.target_price,
+        target_price_2: editingPosition.target_price_2,
+      }
     : undefined;
 
   const drawerPosition = drawerPositionId != null ? positions.find((p) => p.id === drawerPositionId) : null;

@@ -57,6 +57,19 @@ export function PositionDrawer({ position, onClose }: Props) {
   const pnl = currentValue != null ? currentValue - totalCost : undefined;
   const pnlPct = pnl != null && totalCost > 0 ? (pnl / totalCost) * 100 : undefined;
 
+  const stopPriceBase = position.stop_price != null
+    ? convertCurrency(position.stop_price, position.currency, baseCurrency, eurUsd)
+    : null;
+  const targetPriceBase = position.target_price != null
+    ? convertCurrency(position.target_price, position.currency, baseCurrency, eurUsd)
+    : null;
+  const target2PriceBase = position.target_price_2 != null
+    ? convertCurrency(position.target_price_2, position.currency, baseCurrency, eurUsd)
+    : null;
+  const distToStop = currentPrice != null && stopPriceBase != null
+    ? (stopPriceBase / currentPrice - 1) * 100
+    : null;
+
   const firstTx = transactions.length > 0
     ? Math.min(...transactions.map((t) => t.created_at))
     : position.created_at;
@@ -112,6 +125,20 @@ export function PositionDrawer({ position, onClose }: Props) {
                 <Stat label="Devise" value={position.currency} />
                 <Stat label="Jours détenus" value={daysHeld < 1 ? '< 1 jour' : `${daysHeld} j`} />
                 <Stat label="Depuis" value={entryDate} span={2} />
+                {(position.stop_price != null || position.target_price != null || position.target_price_2 != null) && (
+                  <>
+                    <Stat label="Stop loss" value={stopPriceBase != null ? fmtCcy(stopPriceBase, baseCurrency) : '—'} />
+                    {distToStop != null && (
+                      <Stat
+                        label="Distance stop"
+                        value={fmtPct(distToStop)}
+                        valueClass={distToStop <= 0 ? styles.green : styles.red}
+                      />
+                    )}
+                    <Stat label="TP 1 (1R)" value={targetPriceBase != null ? fmtCcy(targetPriceBase, baseCurrency) : '—'} />
+                    <Stat label="TP 2 (2R)" value={target2PriceBase != null ? fmtCcy(target2PriceBase, baseCurrency) : '—'} />
+                  </>
+                )}
               </div>
 
               <div className={styles.divider} />
@@ -253,11 +280,11 @@ export function PositionDrawer({ position, onClose }: Props) {
   );
 }
 
-function Stat({ label, value, span }: { label: string; value: string; span?: number }) {
+function Stat({ label, value, span, valueClass }: { label: string; value: string; span?: number; valueClass?: string }) {
   return (
     <div className={styles.stat} style={span ? { gridColumn: `span ${span}` } : undefined}>
       <span className={styles.statLabel}>{label}</span>
-      <span className={styles.statValue}>{value}</span>
+      <span className={`${styles.statValue} ${valueClass ?? ''}`}>{value}</span>
     </div>
   );
 }

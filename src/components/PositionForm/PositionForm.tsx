@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { AssetType, PositionInput } from '../../types';
 import { searchYahoo, detectCurrency, type YahooSuggestion } from '../../lib/api/yahoo';
 import { searchCoinGecko, type CoinGeckoSuggestion } from '../../lib/api/coingecko';
+import { usePortfolioStore, computeTotals, resolvePositions, convertCurrency } from '../../store/portfolio';
 import styles from './PositionForm.module.css';
 
 interface Props {
@@ -18,6 +19,9 @@ const EMPTY: PositionInput = {
   currency: 'EUR',
   quantity: 0,
   cost_basis: 0,
+  stop_price: null,
+  target_price: null,
+  target_price_2: null,
 };
 
 const CURRENCIES = ['EUR', 'USD', 'GBP', 'CAD', 'AUD', 'JPY', 'CHF'];
@@ -31,11 +35,68 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
   // Keep raw strings for numeric inputs to preserve "0.", "0.00" while typing
   const [qtyRaw, setQtyRaw] = useState(initial?.quantity ? String(initial.quantity) : '');
   const [costRaw, setCostRaw] = useState(initial?.cost_basis ? String(initial.cost_basis) : '');
+  const [stopRaw, setStopRaw] = useState(initial?.stop_price ? String(initial.stop_price) : '');
+  const [targetRaw, setTargetRaw] = useState(initial?.target_price ? String(initial.target_price) : '');
+  const [target2Raw, setTarget2Raw] = useState(initial?.target_price_2 ? String(initial.target_price_2) : '');
+  const [riskOpen, setRiskOpen] = useState(!!(initial?.stop_price));
+  // true = user has manually edited the field → stop changes no longer override it
+  const t1ManualRef = useRef(!!(initial?.target_price));
+  const t2ManualRef = useRef(!!(initial?.target_price_2));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const prices = usePortfolioStore((s) => s.prices);
+  const baseCurrency = usePortfolioStore((s) => s.baseCurrency);
+  const eurUsd = usePortfolioStore((s) => s.eurUsd);
+  const storePositions = usePortfolioStore((s) => s.positions);
+  const storeTransactions = usePortfolioStore((s) => s.transactions);
+
+  const { totalValue } = computeTotals(
+    resolvePositions(storePositions, storeTransactions).filter((p) => p.asset_type !== 'fiat'),
+    prices, baseCurrency, eurUsd
+  );
+
+  const stopVal = parseFloat(stopRaw) || 0;
+  const R = stopVal > 0 && form.cost_basis > 0 ? form.cost_basis - stopVal : 0;
+  const riskAmount = R > 0 && form.quantity > 0 ? R * form.quantity : null;
+  const riskBase = riskAmount != null
+    ? convertCurrency(riskAmount, form.currency, baseCurrency, eurUsd)
+    : null;
+  const riskPct = riskBase != null && totalValue > 0
+    ? (riskBase / totalValue) * 100
+    : null;
+
+  const decimals = form.asset_type === 'crypto' ? 6 : 2;
+  const rPct = R > 0 && form.cost_basis > 0 ? ((R / form.cost_basis) * 100).toFixed(1) : null;
+  const t1Label = `TP 1 — 1R${rPct ? ` (+${rPct}%)` : ''}`;
+  const t2Label = `TP 2 — 2R${rPct ? ` (+${(parseFloat(rPct) * 2).toFixed(1)}%)` : ''}`;
+
+  const stopSuggestion = form.cost_basis > 0
+    ? (form.cost_basis * (form.asset_type === 'crypto' ? 0.85 : 0.92)).toFixed(decimals)
+    : (form.asset_type === 'crypto' ? '−15%' : '−8%');
+
+  // Recalculate T1/T2 on every stop change, unless the user has manually edited them
+  useEffect(() => {
+    const stop = parseFloat(stopRaw);
+    if (!stop || form.cost_basis <= 0) return;
+    const r = form.cost_basis - stop;
+    if (r <= 0) return;
+    const dec = form.asset_type === 'crypto' ? 6 : 2;
+    if (!t1ManualRef.current) {
+      const t1 = (form.cost_basis + r).toFixed(dec);
+      setTargetRaw(t1);
+      set('target_price', parseFloat(t1));
+    }
+    if (!t2ManualRef.current) {
+      const t2 = (form.cost_basis + 2 * r).toFixed(dec);
+      setTarget2Raw(t2);
+      set('target_price_2', parseFloat(t2));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stopRaw]);
 
   function set<K extends keyof PositionInput>(key: K, value: PositionInput[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -112,7 +173,10 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
       if (form.asset_type === 'fiat') ticker = form.ticker.trim().toUpperCase();
       else if (form.asset_type === 'stock') ticker = form.ticker.trim().toUpperCase();
       else ticker = form.ticker.trim().toLowerCase();
-      await onSubmit({ ...form, ticker });
+      const stop_price = parseFloat(stopRaw) || null;
+      const target_price = parseFloat(targetRaw) || null;
+      const target_price_2 = parseFloat(target2Raw) || null;
+      await onSubmit({ ...form, ticker, stop_price, target_price, target_price_2 });
       setForm(EMPTY);
       onClose();
     } catch (e) {
@@ -123,7 +187,7 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
   }
 
   return (
-    <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={styles.overlay}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <span>{editMode ? 'Edit position' : 'Add position'}</span>
@@ -284,6 +348,81 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
                 placeholder="150.00"
               />
             </div>
+          )}
+
+          {form.asset_type !== 'fiat' && (
+            <>
+              <div className={styles.riskToggle} onClick={() => setRiskOpen((v) => !v)}>
+                <span className={styles.riskChevron}>{riskOpen ? '▼' : '▶'}</span>
+                Risk management
+              </div>
+              {riskOpen && (
+                <div className={styles.riskBody}>
+                  <div className={styles.row}>
+                    <label className={styles.label}>Stop loss ({form.currency})</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      className={styles.input}
+                      value={stopRaw}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (/^[0-9]*\.?[0-9]*$/.test(v)) {
+                          setStopRaw(v);
+                          set('stop_price', parseFloat(v) || null);
+                        }
+                      }}
+                      placeholder={stopSuggestion}
+                    />
+                  </div>
+                  {riskBase != null && (
+                    <p className={styles.riskHint}>
+                      Risque :{' '}
+                      <span>
+                        {riskBase.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {baseCurrency}
+                      </span>
+                      {riskPct != null && <> ({riskPct.toFixed(1)}% du portefeuille)</>}
+                    </p>
+                  )}
+                  <div className={styles.row}>
+                    <label className={styles.label}>{t1Label} ({form.currency})</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      className={styles.input}
+                      value={targetRaw}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (/^[0-9]*\.?[0-9]*$/.test(v)) {
+                          t1ManualRef.current = true;
+                          setTargetRaw(v);
+                          set('target_price', parseFloat(v) || null);
+                        }
+                      }}
+                      placeholder="—"
+                    />
+                  </div>
+                  <div className={styles.row}>
+                    <label className={styles.label}>{t2Label} ({form.currency})</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      className={styles.input}
+                      value={target2Raw}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (/^[0-9]*\.?[0-9]*$/.test(v)) {
+                          t2ManualRef.current = true;
+                          setTarget2Raw(v);
+                          set('target_price_2', parseFloat(v) || null);
+                        }
+                      }}
+                      placeholder="—"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {error && <p className={styles.error}>{error}</p>}

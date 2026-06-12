@@ -199,6 +199,12 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
                       {fmtPct(row.pnl_pct)}
                     </td>
                     <td className={styles.actions} onClick={(e) => e.stopPropagation()}>
+                      {!row.stop_price && (
+                        <span
+                          className={styles.noStopBadge}
+                          data-tooltip="Aucun stop défini"
+                        >⚠</span>
+                      )}
                       <button
                         className={styles.editBtn}
                         onClick={() => onEdit(row.id)}

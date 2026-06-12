@@ -55,6 +55,7 @@ export function AlertPanel({ open, onClose }: Props) {
   });
 
   const unacknowledged = events.filter(e => !e.acknowledged);
+  const userRules = rules.filter(r => !r.is_system);
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ['alert-events'] });
@@ -148,11 +149,11 @@ export function AlertPanel({ open, onClose }: Props) {
               <button className={styles.addBtn} onClick={() => setShowForm(true)}>+ Nouvelle</button>
             </div>
 
-            {rules.length === 0 && (
+            {userRules.length === 0 && (
               <div className={styles.empty}>Aucune règle configurée</div>
             )}
 
-            {rules.map(rule => {
+            {userRules.map(rule => {
               const badge = TYPE_BADGE[rule.type] ?? { label: '?', color: '#6e7681' };
               const isSnoozed = rule.snoozed_until != null && rule.snoozed_until > Math.floor(Date.now() / 1000);
               return (

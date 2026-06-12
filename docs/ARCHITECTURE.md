@@ -15,7 +15,13 @@
 - Multi-devise par position (EUR, USD, GBP…) avec conversion dans une devise de base toggleable (EUR/USD)
 - Dashboard : valeur totale, coût total, P&L global + par ligne, filtre ALL/STOCK/CRYPTO
 - Strip de périodes P&L dans la summary bar (1W / 1M / 3M / YTD / 1Y) calculée depuis les snapshots locaux
-- Drawer latéral au clic sur une ligne : prix d'entrée, valeur actuelle, P&L, break-even, jours détenus, historique transactions
+- Drawer latéral au clic sur une ligne : prix d'entrée, valeur actuelle, P&L, break-even, jours détenus, historique transactions, stop/TP1/TP2 + distance au stop
+- **Risk management par position** (DB migration v6) : stop loss + TP1/TP2 (R-multiples) définis dans la section "Risk" de PositionForm
+  - T1 = entry + 1R, T2 = entry + 2R, auto-calculés depuis le stop, modifiables (flag manuel via `useRef`)
+  - Badge ⚠ sur les lignes sans stop dans le Dashboard
+  - Sync alertes automatique : chaque stop crée une `alert_rule` `stop_loss` système, chaque TP crée une `price_target` système (`slot='tp1'|'tp2'`, `is_system=1`) — upsert à chaque édition de position
+  - Règles système cachées dans l'AlertPanel (filtrées côté UI), notifications OS déclenchées normalement
+  - Limite : le moteur d'alertes utilise Yahoo Finance pour évaluer les prix — fonctionne pour les stocks, pas pour les tickers crypto (CoinGecko IDs)
 - Graphique d'évolution du portefeuille (area chart) avec downsampling adaptatif selon la durée
 - Snapshots sauvegardés automatiquement à chaque refresh de prix (debounce 5s)
 
@@ -51,13 +57,15 @@
 
 ### Système d'alertes (DB migration v3)
 - 5 types : `rsi_overbought`, `rsi_oversold`, `macro_regime_change`, `price_target`, `stop_loss`
-- `alert_rules` : règles persistantes (type, scope, scope_id, label, threshold, is_active, snoozed_until)
+- `alert_rules` : règles persistantes (type, scope, scope_id, label, threshold, is_active, snoozed_until, `is_system`, `slot`)
+  - `is_system=1` : règle créée automatiquement depuis une position (stop/TP) — cachée dans l'AlertPanel, gérée via le PositionDrawer
+  - `slot` : `'stop'|'tp1'|'tp2'` pour distinguer les règles système d'une même position
 - `alert_events` : historique des déclenchements (consecutive_days, value_at_trigger, acknowledged)
 - `useAlertEngine` : moteur d'évaluation piggyback sur les queries TanStack existantes, debounce 4min
   - Baseline silencieux au premier run pour `macro_regime_change` (pas de fausse alerte au démarrage)
   - `consecutive_days` : compte les jours consécutifs en comparant `triggered_at` à J-1
   - Notification OS via `tauri-plugin-notification` (permission demandée à la première alerte)
-- `AlertPanel` : slide-in depuis la droite — section événements + section règles (toggle, snooze 24h, delete)
+- `AlertPanel` : slide-in depuis la droite — section événements + section règles utilisateur (toggle, snooze 24h, delete) — règles système exclues
 - `AlertForm` : modal de création (type → sous-scope secteur/narrative → seuil)
 - Cloche SVG dans le header avec badge rouge (count non acquittés)
 - Agnostique à la source du ticker : compatible watchlist sans modification du moteur

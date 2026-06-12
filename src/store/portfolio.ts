@@ -11,6 +11,9 @@ import {
   insertTransaction,
   insertSwapTransactions,
   deleteTransaction,
+  upsertStopAlertRule,
+  removeStopAlertRule,
+  upsertTargetAlertRules,
 } from '../lib/db';
 import { computePRU } from '../lib/pru';
 
@@ -63,10 +66,16 @@ export const usePortfolioStore = create<PortfolioState>((set) => ({
 
   addPosition: async (input) => {
     const id = await insertPosition(input);
+    const ticker = input.ticker.toUpperCase();
+    if (input.stop_price) await upsertStopAlertRule(ticker, input.stop_price);
+    await upsertTargetAlertRules(ticker, input.target_price ?? null, input.target_price_2 ?? null);
     const newPosition: Position = {
       id,
       ...input,
-      ticker: input.ticker.toUpperCase(),
+      ticker,
+      stop_price: input.stop_price ?? null,
+      target_price: input.target_price ?? null,
+      target_price_2: input.target_price_2 ?? null,
       created_at: Math.floor(Date.now() / 1000),
     };
     set((state) => ({ positions: [...state.positions, newPosition] }));
@@ -74,9 +83,23 @@ export const usePortfolioStore = create<PortfolioState>((set) => ({
 
   updatePosition: async (id, input) => {
     await updatePosition(id, input);
+    const ticker = input.ticker.toUpperCase();
+    if (input.stop_price) {
+      await upsertStopAlertRule(ticker, input.stop_price);
+    } else {
+      await removeStopAlertRule(ticker);
+    }
+    await upsertTargetAlertRules(ticker, input.target_price ?? null, input.target_price_2 ?? null);
     set((state) => ({
       positions: state.positions.map((p) =>
-        p.id === id ? { ...p, ...input, ticker: input.ticker.toUpperCase() } : p
+        p.id === id
+          ? {
+              ...p, ...input, ticker,
+              stop_price: input.stop_price ?? null,
+              target_price: input.target_price ?? null,
+              target_price_2: input.target_price_2 ?? null,
+            }
+          : p
       ),
     }));
   },
