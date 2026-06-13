@@ -130,6 +130,8 @@ export const usePortfolioStore = create<PortfolioState>((set) => ({
       linked_tx_id: null,
       fee: input.fee ?? 0,
       note: input.note ?? '',
+      setup: input.setup ?? null,
+      note_context: input.note_context ?? null,
       created_at: input.created_at ?? Math.floor(Date.now() / 1000),
       position_id: input.position_id,
       ticker: input.ticker,
@@ -151,11 +153,13 @@ export const usePortfolioStore = create<PortfolioState>((set) => ({
     const { outId, inId } = await insertSwapTransactions(swapOut, swapIn);
     const outTx: Transaction = {
       id: outId, linked_tx_id: inId, fee: swapOut.fee ?? 0, note: swapOut.note ?? '',
+      setup: null, note_context: null,
       created_at: ts, position_id: swapOut.position_id, ticker: swapOut.ticker,
       type: 'swap_out', quantity: swapOut.quantity, price: swapOut.price, currency: swapOut.currency,
     };
     const inTx: Transaction = {
       id: inId, linked_tx_id: outId, fee: swapIn.fee ?? 0, note: swapIn.note ?? '',
+      setup: null, note_context: null,
       created_at: ts, position_id: swapIn.position_id, ticker: swapIn.ticker,
       type: 'swap_in', quantity: swapIn.quantity, price: swapIn.price, currency: swapIn.currency,
     };

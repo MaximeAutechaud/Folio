@@ -187,6 +187,47 @@ select.input {
   color: var(--text-muted);
 }
 
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.chip {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-primary);
+  color: var(--text-secondary, var(--text-muted));
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.chipTp {
+  border-color: rgba(34, 197, 94, 0.3);
+  color: var(--green);
+}
+.chipTp:hover {
+  border-color: var(--green);
+}
+
+.chipStop {
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--red);
+}
+.chipStop:hover {
+  border-color: var(--red);
+}
+
 .error {
   color: var(--red);
   font-size: 12px;

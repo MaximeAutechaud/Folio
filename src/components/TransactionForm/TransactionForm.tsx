@@ -1,12 +1,17 @@
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Position } from '../../types';
+import type { MacroScoreData } from '../../hooks/useMacroScore';
 import { usePortfolioStore } from '../../store/portfolio';
 import { useSwapRate } from '../../hooks/useSwapRate';
+import { SETUP_OPTIONS } from '../../lib/tradeJournal';
 import styles from './TransactionForm.module.css';
 
 interface Props {
   position: Position;
   onClose: () => void;
+  defaultType?: TxType;
+  effectiveQty?: number;
 }
 
 type TxType = 'buy' | 'sell' | 'swap';
@@ -25,17 +30,27 @@ function fmt(n: number) {
   return n.toLocaleString('en-US', { maximumSignificantDigits: 8 });
 }
 
-export function TransactionForm({ position, onClose }: Props) {
+function fmtQtyChip(n: number): string {
+  return String(parseFloat(n.toPrecision(8)));
+}
+
+function fmtPriceChip(n: number): string {
+  return n.toFixed(6).replace(/\.?0+$/, '');
+}
+
+export function TransactionForm({ position, onClose, defaultType, effectiveQty }: Props) {
   const addTransaction = usePortfolioStore((s) => s.addTransaction);
   const addSwap = usePortfolioStore((s) => s.addSwap);
   const positions = usePortfolioStore((s) => s.positions);
   const prices = usePortfolioStore((s) => s.prices);
+  const queryClient = useQueryClient();
 
-  const [type, setType] = useState<TxType>('buy');
+  const [type, setType] = useState<TxType>(defaultType ?? 'buy');
   const [qtyRaw, setQtyRaw] = useState('');
   const [priceRaw, setPriceRaw] = useState('');
   const [feeRaw, setFeeRaw] = useState('');
   const [note, setNote] = useState('');
+  const [setup, setSetup] = useState('');
   const [date, setDate] = useState(toLocalDatetime(Math.floor(Date.now() / 1000)));
 
   // Swap fields
@@ -127,6 +142,12 @@ export function TransactionForm({ position, onClose }: Props) {
       setSaving(true);
       if (type === 'buy' || type === 'sell') {
         if (price <= 0) return setError('Le prix doit être > 0');
+        const macroData = queryClient.getQueryData<MacroScoreData>(['macro-score']);
+        const noteCtx = type === 'buy' ? JSON.stringify({
+          macroScore: macroData?.score ?? null,
+          regime: macroData?.regime ?? null,
+          initialStop: position.stop_price ?? null,
+        }) : null;
         await addTransaction({
           position_id: position.id,
           ticker: position.ticker,
@@ -136,6 +157,8 @@ export function TransactionForm({ position, onClose }: Props) {
           currency: position.currency,
           fee: parseFloat(feeRaw) || 0,
           note,
+          setup: type === 'buy' ? (setup || null) : null,
+          note_context: noteCtx,
           created_at: ts,
         });
       } else {
@@ -231,6 +254,20 @@ export function TransactionForm({ position, onClose }: Props) {
                   onChange={(e) => { if (/^[0-9]*\.?[0-9]*$/.test(e.target.value)) setQtyRaw(e.target.value); }}
                   placeholder="0.05" autoFocus
                 />
+                {type === 'sell' && effectiveQty != null && effectiveQty > 0 && (
+                  <div className={styles.chips}>
+                    {([['¼', 0.25], ['⅓', 1 / 3], ['½', 0.5], ['Tout', 1]] as [string, number][]).map(([label, frac]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        className={styles.chip}
+                        onClick={() => setQtyRaw(fmtQtyChip(effectiveQty * frac))}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className={styles.row}>
                 <label className={styles.label}>
@@ -243,6 +280,34 @@ export function TransactionForm({ position, onClose }: Props) {
                   onChange={(e) => { if (/^[0-9]*\.?[0-9]*$/.test(e.target.value)) setPriceRaw(e.target.value); }}
                   placeholder="150.00"
                 />
+                {type === 'sell' && (
+                  <div className={styles.chips}>
+                    {prices[position.ticker] != null && (
+                      <button type="button" className={styles.chip}
+                        onClick={() => setPriceRaw(fmtPriceChip(prices[position.ticker]!))}>
+                        Live
+                      </button>
+                    )}
+                    {position.target_price != null && (
+                      <button type="button" className={`${styles.chip} ${styles.chipTp}`}
+                        onClick={() => setPriceRaw(fmtPriceChip(position.target_price!))}>
+                        TP1 · {position.target_price}
+                      </button>
+                    )}
+                    {position.target_price_2 != null && (
+                      <button type="button" className={`${styles.chip} ${styles.chipTp}`}
+                        onClick={() => setPriceRaw(fmtPriceChip(position.target_price_2!))}>
+                        TP2 · {position.target_price_2}
+                      </button>
+                    )}
+                    {position.stop_price != null && (
+                      <button type="button" className={`${styles.chip} ${styles.chipStop}`}
+                        onClick={() => setPriceRaw(fmtPriceChip(position.stop_price!))}>
+                        Stop · {position.stop_price}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -338,6 +403,22 @@ export function TransactionForm({ position, onClose }: Props) {
                 </>
               )}
             </>
+          )}
+
+          {type === 'buy' && (
+            <div className={styles.row}>
+              <label className={styles.label}>Setup {position.stop_price ? '' : <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(définir un stop pour activer le journal)</span>}</label>
+              <select
+                className={styles.input}
+                value={setup}
+                onChange={(e) => setSetup(e.target.value)}
+              >
+                <option value="">— optionnel —</option>
+                {SETUP_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
           )}
 
           <div className={styles.twoCol}>

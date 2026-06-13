@@ -13,6 +13,8 @@ export interface Transaction {
   linked_tx_id: number | null;
   fee: number;
   note: string;
+  setup: string | null;
+  note_context: string | null;
   created_at: number;
 }
 
@@ -26,6 +28,8 @@ export interface TransactionInput {
   linked_tx_id?: number | null;
   fee?: number;
   note?: string;
+  setup?: string | null;
+  note_context?: string | null;
   created_at?: number;
 }
 

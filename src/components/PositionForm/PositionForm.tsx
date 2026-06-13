@@ -39,9 +39,10 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
   const [targetRaw, setTargetRaw] = useState(initial?.target_price ? String(initial.target_price) : '');
   const [target2Raw, setTarget2Raw] = useState(initial?.target_price_2 ? String(initial.target_price_2) : '');
   const [riskOpen, setRiskOpen] = useState(!!(initial?.stop_price));
+  const mountedRef = useRef(false);
   // true = user has manually edited the field → stop changes no longer override it
-  const t1ManualRef = useRef(!!(initial?.target_price));
-  const t2ManualRef = useRef(!!(initial?.target_price_2));
+  const t1ManualRef = useRef(false);
+  const t2ManualRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -78,8 +79,10 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
     ? (form.cost_basis * (form.asset_type === 'crypto' ? 0.85 : 0.92)).toFixed(decimals)
     : (form.asset_type === 'crypto' ? '−15%' : '−8%');
 
-  // Recalculate T1/T2 on every stop change, unless the user has manually edited them
+  // Recalculate T1/T2 on every stop change, unless the user has manually edited them.
+  // Skip the first run (mount) so saved TP values are preserved when opening edit mode.
   useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; return; }
     const stop = parseFloat(stopRaw);
     if (!stop || form.cost_basis <= 0) return;
     const r = form.cost_basis - stop;

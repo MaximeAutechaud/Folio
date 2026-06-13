@@ -81,6 +81,7 @@ async function runMigrations(db: Database): Promise<void> {
   await migrateToV4(db);
   await migrateToV5(db);
   await migrateToV6(db);
+  await migrateToV7(db);
 
   // alert_rules: is_system + slot (Phase 1 extension)
   const isSystemCol = await db.select<{ name: string }[]>(
@@ -290,6 +291,21 @@ async function migrateToV6(db: Database): Promise<void> {
   );
 }
 
+async function migrateToV7(db: Database): Promise<void> {
+  const col = await db.select<{ name: string }[]>(
+    `SELECT name FROM pragma_table_info('transactions') WHERE name='setup'`
+  );
+  if (col.length > 0) return;
+
+  await db.execute(`ALTER TABLE transactions ADD COLUMN setup TEXT`);
+  await db.execute(`ALTER TABLE transactions ADD COLUMN note_context TEXT`);
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '7')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
 async function seedNarratives(db: Database): Promise<void> {
   for (const n of NARRATIVE_SEED) {
     const result = await db.execute(
@@ -375,8 +391,8 @@ export async function fetchTransactions(positionId: number): Promise<Transaction
 export async function insertTransaction(input: TransactionInput): Promise<number> {
   const db = await getDb();
   const result = await db.execute(
-    `INSERT INTO transactions (position_id, ticker, type, quantity, price, currency, linked_tx_id, fee, note, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    `INSERT INTO transactions (position_id, ticker, type, quantity, price, currency, linked_tx_id, fee, note, setup, note_context, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
     [
       input.position_id,
       input.ticker,
@@ -387,6 +403,8 @@ export async function insertTransaction(input: TransactionInput): Promise<number
       input.linked_tx_id ?? null,
       input.fee ?? 0,
       input.note ?? '',
+      input.setup ?? null,
+      input.note_context ?? null,
       input.created_at ?? Math.floor(Date.now() / 1000),
     ]
   );
@@ -401,16 +419,16 @@ export async function insertSwapTransactions(
   const ts = swapOut.created_at ?? Math.floor(Date.now() / 1000);
 
   const outResult = await db.execute(
-    `INSERT INTO transactions (position_id, ticker, type, quantity, price, currency, fee, note, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [swapOut.position_id, swapOut.ticker, 'swap_out', swapOut.quantity, swapOut.price, swapOut.currency, swapOut.fee ?? 0, swapOut.note ?? '', ts]
+    `INSERT INTO transactions (position_id, ticker, type, quantity, price, currency, fee, note, setup, note_context, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [swapOut.position_id, swapOut.ticker, 'swap_out', swapOut.quantity, swapOut.price, swapOut.currency, swapOut.fee ?? 0, swapOut.note ?? '', null, null, ts]
   );
   const outId = outResult.lastInsertId as number;
 
   const inResult = await db.execute(
-    `INSERT INTO transactions (position_id, ticker, type, quantity, price, currency, linked_tx_id, fee, note, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-    [swapIn.position_id, swapIn.ticker, 'swap_in', swapIn.quantity, swapIn.price, swapIn.currency, outId, swapIn.fee ?? 0, swapIn.note ?? '', ts]
+    `INSERT INTO transactions (position_id, ticker, type, quantity, price, currency, linked_tx_id, fee, note, setup, note_context, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    [swapIn.position_id, swapIn.ticker, 'swap_in', swapIn.quantity, swapIn.price, swapIn.currency, outId, swapIn.fee ?? 0, swapIn.note ?? '', null, null, ts]
   );
   const inId = inResult.lastInsertId as number;
 

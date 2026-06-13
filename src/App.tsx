@@ -8,6 +8,7 @@ import { PositionDrawer } from './components/Drawer/PositionDrawer';
 import { ChartsView } from './components/ChartsView/ChartsView';
 import { MarketView } from './components/MarketView/MarketView';
 import { WatchlistView } from './components/WatchlistView/WatchlistView';
+import { TradesView } from './components/TradesView/TradesView';
 import { AlertPanel } from './components/AlertPanel/AlertPanel';
 import { usePortfolioStore } from './store/portfolio';
 import { usePrices } from './hooks/usePrices';
@@ -16,7 +17,7 @@ import { fetchSnapshots } from './lib/db';
 import type { PositionInput } from './types';
 import styles from './App.module.css';
 
-type Tab = 'portfolio' | 'charts' | 'market' | 'watchlist';
+type Tab = 'portfolio' | 'charts' | 'market' | 'watchlist' | 'trades';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('portfolio');
@@ -69,11 +70,11 @@ export default function App() {
     else await addPosition(input);
   }
 
-  const TAB_LABELS: Record<Tab, string> = { portfolio: 'Portfolio', charts: 'Charts', market: 'Market', watchlist: 'Watchlist' };
+  const TAB_LABELS: Record<Tab, string> = { portfolio: 'Portfolio', charts: 'Charts', market: 'Market', watchlist: 'Watchlist', trades: 'Trades' };
 
   const nav = (
     <>
-      {(['portfolio', 'charts', 'market', 'watchlist'] as Tab[]).map((tab) => (
+      {(['portfolio', 'charts', 'market', 'watchlist', 'trades'] as Tab[]).map((tab) => (
         <button
           key={tab}
           className={`${styles.tabBtn} ${activeTab === tab ? styles.tabActive : ''}`}
@@ -114,8 +115,10 @@ export default function App() {
         <ChartsView />
       ) : activeTab === 'market' ? (
         <MarketView />
-      ) : (
+      ) : activeTab === 'watchlist' ? (
         <WatchlistView />
+      ) : (
+        <TradesView />
       )}
 
       {showForm && (
