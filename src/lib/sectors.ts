@@ -133,6 +133,7 @@ export const SECTORS: SectorDef[] = [
       { ticker: 'NOC',  name: 'Northrop Grumman' },
       { ticker: 'GD',   name: 'General Dynamics' },
       { ticker: 'HII',  name: 'Huntington Ingalls' },
+      { ticker: 'SPCX', name: 'SpaceX' },
     ],
   },
   {
