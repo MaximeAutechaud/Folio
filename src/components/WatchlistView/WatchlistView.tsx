@@ -111,13 +111,15 @@ interface RowProps {
   row: WatchlistRow;
   selected: boolean;
   categories: WatchlistCategory[];
+  isDragging: boolean;
   onClick: () => void;
   onAlert: () => void;
   onRemove: () => void;
   onAssign: (categoryId: number | null) => void;
+  onPointerDown: (e: React.PointerEvent) => void;
 }
 
-function PanelRow({ row, selected, categories, onClick, onAlert, onRemove, onAssign }: RowProps) {
+function PanelRow({ row, selected, categories, isDragging, onClick, onAlert, onRemove, onAssign, onPointerDown }: RowProps) {
   const changePos = row.change1d != null && row.change1d >= 0;
   const vsMA50Pos = row.vsMA50 != null && row.vsMA50 >= 0;
   const atTop     = row.drawdown != null && row.drawdown > -1;
@@ -125,8 +127,9 @@ function PanelRow({ row, selected, categories, onClick, onAlert, onRemove, onAss
 
   return (
     <div
-      className={`${styles.row} ${selected ? styles.rowSelected : ''}`}
+      className={`${styles.row} ${selected ? styles.rowSelected : ''} ${isDragging ? styles.rowDragging : ''}`}
       onClick={onClick}
+      onPointerDown={onPointerDown}
     >
       {/* Line 1: category dot + ticker + actions */}
       <div className={styles.rowTop}>
@@ -260,6 +263,13 @@ export function WatchlistView() {
   const [alertTicker, setAlertTicker]       = useState<string | null>(null);
   const [collapsed, setCollapsed]           = useState<Set<string>>(new Set());
   const [activeCatId, setActiveCatId]       = useState<number | null>(null);
+  const [draggingId, setDraggingId]         = useState<number | null>(null);
+  const [dragOverKey, setDragOverKey]       = useState<string | null>(null);
+  const activeDrag = useRef<{
+    id: number; catId: number | null; clone: HTMLElement;
+    offsetX: number; offsetY: number; moved: boolean;
+  } | null>(null);
+  const lastDragWasMove = useRef(false);
 
   const selectedRow = rows.find(r => r.ticker === selectedTicker) ?? rows[0] ?? null;
 
@@ -278,6 +288,84 @@ export function WatchlistView() {
 
   function handleGroupHeaderClick(catId: number | null) {
     setActiveCatId(catId);
+  }
+
+  function handleRowPointerDown(e: React.PointerEvent, row: WatchlistRow) {
+    if ((e.target as HTMLElement).closest('button, select, input')) return;
+    if (e.button !== 0) return;
+
+    const el = e.currentTarget as HTMLElement;
+    const rect = el.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const clone = el.cloneNode(true) as HTMLElement;
+    Object.assign(clone.style, {
+      position: 'fixed', left: `${rect.left}px`, top: `${rect.top}px`,
+      width: `${rect.width}px`, opacity: '0', pointerEvents: 'none',
+      zIndex: '9999', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+      borderRadius: '6px', background: 'var(--bg-secondary)',
+    });
+    document.body.appendChild(clone);
+
+    activeDrag.current = {
+      id: row.id, catId: row.category_id, clone,
+      offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top, moved: false,
+    };
+
+    function onMove(ev: PointerEvent) {
+      const drag = activeDrag.current;
+      if (!drag) return;
+      if (!drag.moved) {
+        if (Math.abs(ev.clientX - startX) < 6 && Math.abs(ev.clientY - startY) < 6) return;
+        drag.moved = true;
+        drag.clone.style.opacity = '0.85';
+        setDraggingId(drag.id);
+      }
+      drag.clone.style.left = `${ev.clientX - drag.offsetX}px`;
+      drag.clone.style.top  = `${ev.clientY - drag.offsetY}px`;
+      drag.clone.style.display = 'none';
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
+      drag.clone.style.display = '';
+      setDragOverKey((under?.closest('[data-cat-key]') as HTMLElement | null)?.dataset.catKey ?? null);
+    }
+
+    function onUp(ev: PointerEvent) {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onCancel);
+      const drag = activeDrag.current;
+      if (!drag) return;
+      drag.clone.remove();
+      activeDrag.current = null;
+      setDraggingId(null);
+      setDragOverKey(null);
+      if (!drag.moved) return;
+      lastDragWasMove.current = true;
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
+      const groupEl = under?.closest('[data-cat-key]') as HTMLElement | null;
+      if (!groupEl) return;
+      const targetCatId = groupEl.dataset.catId === 'null' ? null : parseInt(groupEl.dataset.catId!);
+      if (targetCatId !== drag.catId && (targetCatId === null || !isNaN(targetCatId))) {
+        assignToCategory(drag.id, targetCatId);
+      }
+    }
+
+    function onCancel() {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onCancel);
+      const drag = activeDrag.current;
+      if (!drag) return;
+      drag.clone.remove();
+      activeDrag.current = null;
+      setDraggingId(null);
+      setDragOverKey(null);
+    }
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onCancel);
   }
 
   return (
@@ -325,7 +413,12 @@ export function WatchlistView() {
             if (!group.category && group.rows.length === 0) return null;
 
             return (
-              <div key={key} className={styles.group}>
+              <div
+                key={key}
+                className={`${styles.group} ${dragOverKey === key && draggingId !== null ? styles.groupDragOver : ''}`}
+                data-cat-key={key}
+                data-cat-id={String(group.category?.id ?? null)}
+              >
                 <GroupHeader
                   category={group.category}
                   count={group.rows.length}
@@ -342,10 +435,15 @@ export function WatchlistView() {
                     row={row}
                     selected={row.ticker === selectedRow?.ticker}
                     categories={categories}
-                    onClick={() => setSelectedTicker(row.ticker)}
+                    isDragging={row.id === draggingId}
+                    onClick={() => {
+                      if (lastDragWasMove.current) { lastDragWasMove.current = false; return; }
+                      setSelectedTicker(row.ticker);
+                    }}
                     onAlert={() => setAlertTicker(row.ticker)}
                     onRemove={() => removeItem(row.id)}
                     onAssign={catId => assignToCategory(row.id, catId)}
+                    onPointerDown={e => handleRowPointerDown(e, row)}
                   />
                 ))}
 
