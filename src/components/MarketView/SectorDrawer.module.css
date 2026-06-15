@@ -358,3 +358,14 @@
   background: rgba(227, 179, 65, 0.08);
   border-color: rgba(227, 179, 65, 0.2);
 }
+
+.scoreDisclaimer {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  padding: 5px 8px;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  margin-top: 2px;
+}

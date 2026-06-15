@@ -95,6 +95,9 @@ function ScoreBreakdown({ score }: { score: SectorScore }) {
         </div>
       )}
       <SignalBadge signal={score.signal} />
+      <div className={styles.scoreDisclaimer}>
+        Ce score ignore : earnings, news, liquidité. Il mesure uniquement le momentum relatif.
+      </div>
     </div>
   );
 }
