@@ -112,6 +112,44 @@ export async function fetchYahooDailyOHLCV(
   }
 }
 
+export interface CorporateEvent {
+  type: 'split' | 'dividend';
+  date: number;
+  value: number; // split: ratio (numerator/denominator) | dividend: amount per share
+}
+
+export async function fetchCorporateActions(ticker: string, since: number): Promise<CorporateEvent[]> {
+  const now = Math.floor(Date.now() / 1000);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?period1=${since}&period2=${now}&interval=1d&events=div%7Csplit`;
+  try {
+    const raw: string = await invoke('fetch_url', { url });
+    const data = JSON.parse(raw);
+    const result = data?.chart?.result?.[0];
+    if (!result) return [];
+
+    const events: CorporateEvent[] = [];
+
+    for (const s of Object.values(result.events?.splits ?? {})) {
+      const split = s as { date: number; numerator: number; denominator: number };
+      const ratio = split.denominator > 0 ? split.numerator / split.denominator : 0;
+      if (ratio > 0 && ratio !== 1) {
+        events.push({ type: 'split', date: split.date, value: ratio });
+      }
+    }
+
+    for (const d of Object.values(result.events?.dividends ?? {})) {
+      const div = d as { date: number; amount: number };
+      if (div.amount > 0) {
+        events.push({ type: 'dividend', date: div.date, value: div.amount });
+      }
+    }
+
+    return events.sort((a, b) => a.date - b.date);
+  } catch {
+    return [];
+  }
+}
+
 export async function searchYahoo(query: string): Promise<YahooSuggestion[]> {
   if (!query.trim()) return [];
   const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=7&newsCount=0&listsCount=0`;

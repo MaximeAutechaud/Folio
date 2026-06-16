@@ -10,11 +10,13 @@ import { MarketView } from './components/MarketView/MarketView';
 import { WatchlistView } from './components/WatchlistView/WatchlistView';
 import { TradesView } from './components/TradesView/TradesView';
 import { AlertPanel } from './components/AlertPanel/AlertPanel';
+import { CorporateActionModal } from './components/CorporateActionModal/CorporateActionModal';
 import { usePortfolioStore } from './store/portfolio';
 import { usePrices } from './hooks/usePrices';
 import { useAlertEngine, useUnacknowledgedCount } from './hooks/useAlertEngine';
+import { useCorporateActionSync } from './hooks/useCorporateActionSync';
 import { fetchSnapshots } from './lib/db';
-import type { PositionInput } from './types';
+import type { PendingCorporateAction, PositionInput, TransactionInput } from './types';
 import styles from './App.module.css';
 
 type Tab = 'portfolio' | 'charts' | 'market' | 'watchlist' | 'trades';
@@ -26,17 +28,21 @@ export default function App() {
   const [drawerPositionId, setDrawerPositionId] = useState<number | null>(null);
 
   const [alertOpen, setAlertOpen] = useState(false);
+  const [corpActionModal, setCorpActionModal] = useState<PendingCorporateAction | null>(null);
 
   const positions = usePortfolioStore((s) => s.positions);
   const loadPositions = usePortfolioStore((s) => s.loadPositions);
   const addPosition = usePortfolioStore((s) => s.addPosition);
   const updatePosition = usePortfolioStore((s) => s.updatePosition);
   const removePosition = usePortfolioStore((s) => s.removePosition);
+  const addTransaction = usePortfolioStore((s) => s.addTransaction);
+  const storeTransactions = usePortfolioStore((s) => s.transactions);
 
   useEffect(() => { loadPositions(); }, []);
 
   usePrices();
   useAlertEngine();
+  const corpActionSync = useCorporateActionSync();
 
   const { data: unackCount = 0 } = useUnacknowledgedCount();
 
@@ -70,6 +76,17 @@ export default function App() {
     else await addPosition(input);
   }
 
+  async function handleCorporateActionConfirm(input: TransactionInput) {
+    await addTransaction(input);
+    if (corpActionModal) corpActionSync.confirmAction(corpActionModal);
+    setCorpActionModal(null);
+  }
+
+  async function handleCorporateActionDismiss() {
+    if (corpActionModal) await corpActionSync.dismissAction(corpActionModal);
+    setCorpActionModal(null);
+  }
+
   const TAB_LABELS: Record<Tab, string> = { portfolio: 'Portfolio', charts: 'Charts', market: 'Market', watchlist: 'Watchlist', trades: 'Trades' };
 
   const nav = (
@@ -87,13 +104,31 @@ export default function App() {
   );
 
   const actions = (
-    <button className={styles.bellBtn} onClick={() => setAlertOpen(v => !v)}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-      </svg>
-      {unackCount > 0 && <span className={styles.badge}>{unackCount > 99 ? '99+' : unackCount}</span>}
-    </button>
+    <>
+      {activeTab === 'portfolio' && (
+        <button
+          className={`${styles.syncBtn} ${corpActionSync.isSyncing ? styles.syncSpinning : ''}`}
+          onClick={corpActionSync.syncNow}
+          disabled={corpActionSync.isSyncing}
+          title="Vérifier les événements corporate (splits, dividendes)"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+          {corpActionSync.pendingActions.length > 0 && (
+            <span className={styles.syncBadge}>{corpActionSync.pendingActions.length}</span>
+          )}
+        </button>
+      )}
+      <button className={styles.bellBtn} onClick={() => setAlertOpen(v => !v)}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        {unackCount > 0 && <span className={styles.badge}>{unackCount > 99 ? '99+' : unackCount}</span>}
+      </button>
+    </>
   );
 
   return (
@@ -108,6 +143,8 @@ export default function App() {
               onEdit={handleEdit}
               onRemove={removePosition}
               onRowClick={(id) => setDrawerPositionId(drawerPositionId === id ? null : id)}
+              pendingActions={corpActionSync.pendingActions}
+              onCorporateActionClick={setCorpActionModal}
             />
           </div>
         </>
@@ -138,6 +175,21 @@ export default function App() {
       )}
 
       <AlertPanel open={alertOpen} onClose={() => setAlertOpen(false)} />
+
+      {corpActionModal && (() => {
+        const modalPosition = positions.find((p) => p.id === corpActionModal.positionId);
+        if (!modalPosition) return null;
+        return (
+          <CorporateActionModal
+            action={corpActionModal}
+            position={modalPosition}
+            transactions={storeTransactions[corpActionModal.positionId] ?? []}
+            onConfirm={handleCorporateActionConfirm}
+            onDismiss={handleCorporateActionDismiss}
+            onClose={() => setCorpActionModal(null)}
+          />
+        );
+      })()}
     </Layout>
   );
 }

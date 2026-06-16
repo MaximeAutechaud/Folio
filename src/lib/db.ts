@@ -82,6 +82,7 @@ async function runMigrations(db: Database): Promise<void> {
   await migrateToV5(db);
   await migrateToV6(db);
   await migrateToV7(db);
+  await migrateToV8(db);
 
   // alert_rules: is_system + slot (Phase 1 extension)
   const isSystemCol = await db.select<{ name: string }[]>(
@@ -302,6 +303,24 @@ async function migrateToV7(db: Database): Promise<void> {
 
   await db.execute(
     `INSERT INTO settings (key, value) VALUES ('schema_version', '7')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
+async function migrateToV8(db: Database): Promise<void> {
+  if (await tableExists(db, 'dismissed_corporate_actions')) return;
+
+  await db.execute(`
+    CREATE TABLE dismissed_corporate_actions (
+      ticker  TEXT    NOT NULL,
+      type    TEXT    NOT NULL,
+      ex_date INTEGER NOT NULL,
+      PRIMARY KEY (ticker, type, ex_date)
+    )
+  `);
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '8')
      ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   );
 }
@@ -760,4 +779,22 @@ export async function renameWatchlistCategory(id: number, name: string): Promise
 export async function deleteWatchlistCategory(id: number): Promise<void> {
   const db = await getDb();
   await db.execute('DELETE FROM watchlist_categories WHERE id=$1', [id]);
+}
+
+// ── Corporate actions (dismissed) ─────────────────────────────────────────────
+
+export async function fetchDismissedCorporateActions(): Promise<Set<string>> {
+  const db = await getDb();
+  const rows = await db.select<{ ticker: string; type: string; ex_date: number }[]>(
+    'SELECT ticker, type, ex_date FROM dismissed_corporate_actions'
+  );
+  return new Set(rows.map((r) => `${r.ticker}:${r.type}:${r.ex_date}`));
+}
+
+export async function dismissCorporateAction(ticker: string, type: string, exDate: number): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    'INSERT OR IGNORE INTO dismissed_corporate_actions (ticker, type, ex_date) VALUES ($1, $2, $3)',
+    [ticker, type, exDate]
+  );
 }

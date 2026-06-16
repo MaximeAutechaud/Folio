@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Position } from '../../types';
+import type { Position, Transaction } from '../../types';
 import { usePortfolioStore, convertCurrency } from '../../store/portfolio';
 import { detectCurrency } from '../../lib/api/yahoo';
 import { useTransactions } from '../../hooks/useTransactions';
@@ -34,7 +34,78 @@ const TX_LABELS: Record<string, string> = {
   sell: 'SELL',
   swap_in: 'SWAP IN',
   swap_out: 'SWAP OUT',
+  split: 'SPLIT',
+  dividend: 'DIVIDENDE',
+  bonus_share: 'GRATUITES',
 };
+
+function fmtNum(n: number, sig = 6): string {
+  return n.toLocaleString('en-US', { maximumSignificantDigits: sig });
+}
+
+// Compact value shown on the always-visible summary row, adapted per tx type
+function TxSummaryValue({ tx }: { tx: Transaction }) {
+  if (tx.type === 'split') {
+    return <span className={styles.txQty}>ratio × {fmtNum(tx.price)}</span>;
+  }
+  if (tx.type === 'bonus_share') {
+    return <span className={styles.txQty}>+{fmtNum(tx.quantity)} gratuites</span>;
+  }
+  if (tx.type === 'dividend') {
+    return (
+      <>
+        <span className={styles.txQty}>{fmtNum(tx.quantity)} act.</span>
+        <span className={styles.txPrice}>= {fmtNum(tx.quantity * tx.price)} {tx.currency}</span>
+      </>
+    );
+  }
+  return (
+    <>
+      <span className={styles.txQty}>{fmtNum(tx.quantity)}</span>
+      <span className={styles.txPrice}>@ {fmtNum(tx.price)} {tx.currency}</span>
+    </>
+  );
+}
+
+// First rows of the expanded detail grid, adapted per tx type
+function TxDetailRows({ tx, ticker }: { tx: Transaction; ticker: string }) {
+  if (tx.type === 'split') {
+    return (
+      <>
+        <span className={styles.txDetailLabel}>Ratio</span>
+        <span className={styles.txDetailValue}>× {fmtNum(tx.price, 10)}</span>
+      </>
+    );
+  }
+  if (tx.type === 'dividend') {
+    return (
+      <>
+        <span className={styles.txDetailLabel}>Actions à l'ex-date</span>
+        <span className={styles.txDetailValue}>{fmtNum(tx.quantity, 10)} {ticker.toUpperCase()}</span>
+        <span className={styles.txDetailLabel}>Montant / action</span>
+        <span className={styles.txDetailValue}>{fmtNum(tx.price, 10)} {tx.currency.toUpperCase()}</span>
+        <span className={styles.txDetailLabel}>Total perçu</span>
+        <span className={styles.txDetailValue}>{fmtNum(tx.quantity * tx.price, 10)} {tx.currency.toUpperCase()}</span>
+      </>
+    );
+  }
+  if (tx.type === 'bonus_share') {
+    return (
+      <>
+        <span className={styles.txDetailLabel}>Actions gratuites</span>
+        <span className={styles.txDetailValue}>+{fmtNum(tx.quantity, 10)} {ticker.toUpperCase()}</span>
+      </>
+    );
+  }
+  return (
+    <>
+      <span className={styles.txDetailLabel}>Quantité</span>
+      <span className={styles.txDetailValue}>{fmtNum(tx.quantity, 10)} {ticker.toUpperCase()}</span>
+      <span className={styles.txDetailLabel}>Prix unitaire</span>
+      <span className={styles.txDetailValue}>{fmtNum(tx.price, 10)} {tx.currency.toUpperCase()}</span>
+    </>
+  );
+}
 
 export function PositionDrawer({ position, onClose }: Props) {
   const prices = usePortfolioStore((s) => s.prices);
@@ -184,12 +255,7 @@ export function PositionDrawer({ position, onClose }: Props) {
                         <span className={`${styles.txBadge} ${styles[`tx_${tx.type}`]}`}>
                           {TX_LABELS[tx.type]}
                         </span>
-                        <span className={styles.txQty}>
-                          {tx.quantity.toLocaleString('en-US', { maximumSignificantDigits: 6 })}
-                        </span>
-                        <span className={styles.txPrice}>
-                          @ {tx.price.toLocaleString('en-US', { maximumSignificantDigits: 6 })} {tx.currency}
-                        </span>
+                        <TxSummaryValue tx={tx} />
                         <span className={styles.txDate}>
                           {new Date(tx.created_at * 1000).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' })}
                         </span>
@@ -200,14 +266,7 @@ export function PositionDrawer({ position, onClose }: Props) {
                       {expanded && (
                         <div className={styles.txDetail}>
                           <div className={styles.txDetailGrid}>
-                            <span className={styles.txDetailLabel}>Quantité</span>
-                            <span className={styles.txDetailValue}>
-                              {tx.quantity.toLocaleString('en-US', { maximumSignificantDigits: 10 })} {position.ticker.toUpperCase()}
-                            </span>
-                            <span className={styles.txDetailLabel}>Prix unitaire</span>
-                            <span className={styles.txDetailValue}>
-                              {tx.price.toLocaleString('en-US', { maximumSignificantDigits: 10 })} {tx.currency.toUpperCase()}
-                            </span>
+                            <TxDetailRows tx={tx} ticker={position.ticker} />
                             {tx.type === 'swap_out' && linkedTx != null && (
                               <>
                                 <span className={styles.txDetailLabel}>Taux</span>

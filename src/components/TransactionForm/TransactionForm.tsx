@@ -14,7 +14,7 @@ interface Props {
   effectiveQty?: number;
 }
 
-type TxType = 'buy' | 'sell' | 'swap';
+type TxType = 'buy' | 'sell' | 'swap' | 'bonus_share';
 
 function toLocalDatetime(ts: number): string {
   const d = new Date(ts * 1000);
@@ -67,6 +67,7 @@ export function TransactionForm({ position, onClose, defaultType, effectiveQty }
 
   const otherPosition = positions.find((p) => p.id === otherId);
   const isSwap = type === 'swap' && position.asset_type === 'crypto';
+  const isBonusShare = type === 'bonus_share';
 
   const canFetchRate = isSwap && !!otherPosition
     && position.asset_type === 'crypto'
@@ -140,7 +141,18 @@ export function TransactionForm({ position, onClose, defaultType, effectiveQty }
 
     try {
       setSaving(true);
-      if (type === 'buy' || type === 'sell') {
+      if (type === 'bonus_share') {
+        await addTransaction({
+          position_id: position.id,
+          ticker: position.ticker,
+          type: 'bonus_share',
+          quantity: qty,
+          price: 0,
+          currency: position.currency,
+          note,
+          created_at: ts,
+        });
+      } else if (type === 'buy' || type === 'sell') {
         if (price <= 0) return setError('Le prix doit être > 0');
         const macroData = queryClient.getQueryData<MacroScoreData>(['macro-score']);
         const noteCtx = type === 'buy' ? JSON.stringify({
@@ -219,14 +231,14 @@ export function TransactionForm({ position, onClose, defaultType, effectiveQty }
           <div className={styles.row}>
             <label className={styles.label}>Type</label>
             <div className={styles.toggle}>
-              {(['buy', 'sell', ...(position.asset_type === 'crypto' ? ['swap'] : [])] as TxType[]).map((t) => (
+              {(['buy', 'sell', ...(position.asset_type === 'crypto' ? ['swap'] : []), 'bonus_share'] as TxType[]).map((t) => (
                 <button
                   key={t}
                   type="button"
-                  className={`${styles.toggleBtn} ${type === t ? styles.active : ''} ${styles[`toggle_${t}`]}`}
+                  className={`${styles.toggleBtn} ${type === t ? styles.active : ''} ${styles[`toggle_${t}`] ?? ''}`}
                   onClick={() => setType(t)}
                 >
-                  {t === 'buy' ? 'Achat' : t === 'sell' ? 'Vente' : 'Swap'}
+                  {t === 'buy' ? 'Achat' : t === 'sell' ? 'Vente' : t === 'swap' ? 'Swap' : 'Gratuites'}
                 </button>
               ))}
             </div>
@@ -243,8 +255,21 @@ export function TransactionForm({ position, onClose, defaultType, effectiveQty }
             />
           </div>
 
+          {/* Bonus share */}
+          {isBonusShare && (
+            <div className={styles.row}>
+              <label className={styles.label}>Actions gratuites / Airdrop reçus ({position.ticker.toUpperCase()})</label>
+              <input
+                type="text" inputMode="decimal" className={styles.input}
+                value={qtyRaw}
+                onChange={(e) => { if (/^[0-9]*\.?[0-9]*$/.test(e.target.value)) setQtyRaw(e.target.value); }}
+                placeholder="10" autoFocus
+              />
+            </div>
+          )}
+
           {/* Buy / Sell */}
-          {!isSwap && (
+          {!isSwap && !isBonusShare && (
             <>
               <div className={styles.row}>
                 <label className={styles.label}>Quantité {position.ticker.toUpperCase()}</label>
@@ -313,7 +338,7 @@ export function TransactionForm({ position, onClose, defaultType, effectiveQty }
           )}
 
           {/* Swap */}
-          {isSwap && (
+          {isSwap && !isBonusShare && (
             <>
               {/* Direction + asset select */}
               <div className={styles.row}>
@@ -405,7 +430,7 @@ export function TransactionForm({ position, onClose, defaultType, effectiveQty }
             </>
           )}
 
-          {type === 'buy' && (
+          {type === 'buy' && !isBonusShare && (
             <div className={styles.row}>
               <label className={styles.label}>Setup {position.stop_price ? '' : <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(définir un stop pour activer le journal)</span>}</label>
               <select
@@ -421,16 +446,18 @@ export function TransactionForm({ position, onClose, defaultType, effectiveQty }
             </div>
           )}
 
-          <div className={styles.twoCol}>
-            <div className={styles.row}>
-              <label className={styles.label}>Frais ({position.currency})</label>
-              <input
-                type="text" inputMode="decimal" className={styles.input}
-                value={feeRaw}
-                onChange={(e) => { if (/^[0-9]*\.?[0-9]*$/.test(e.target.value)) setFeeRaw(e.target.value); }}
-                placeholder="0"
-              />
-            </div>
+          <div className={isBonusShare ? styles.row : styles.twoCol}>
+            {!isBonusShare && (
+              <div className={styles.row}>
+                <label className={styles.label}>Frais ({position.currency})</label>
+                <input
+                  type="text" inputMode="decimal" className={styles.input}
+                  value={feeRaw}
+                  onChange={(e) => { if (/^[0-9]*\.?[0-9]*$/.test(e.target.value)) setFeeRaw(e.target.value); }}
+                  placeholder="0"
+                />
+              </div>
+            )}
             <div className={styles.row}>
               <label className={styles.label}>Note</label>
               <input

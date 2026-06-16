@@ -1,6 +1,15 @@
 export type AssetType = 'stock' | 'crypto' | 'fiat';
 
-export type TransactionType = 'buy' | 'sell' | 'swap_out' | 'swap_in';
+export type TransactionType = 'buy' | 'sell' | 'swap_out' | 'swap_in' | 'split' | 'bonus_share' | 'dividend';
+
+export interface PendingCorporateAction {
+  positionId: number;
+  ticker: string;
+  type: 'split' | 'dividend';
+  date: number;
+  value: number;        // split: ratio (e.g. 2.0 for 2:1) | dividend: amount/share
+  sharesAtDate: number; // qty held at ex-date
+}
 
 export interface Transaction {
   id: number;

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { usePortfolioStore, computeTotals, convertCurrency, resolvePositions, type BaseCurrency } from '../../store/portfolio';
 import { detectCurrency } from '../../lib/api/yahoo';
 import { usePeriodPnl } from '../../hooks/usePeriodPnl';
-import type { PositionWithValue, Snapshot } from '../../types';
+import type { PendingCorporateAction, PositionWithValue, Snapshot } from '../../types';
 import { InfoTooltip } from '../InfoTooltip/InfoTooltip';
 import styles from './Dashboard.module.css';
 
@@ -42,9 +42,11 @@ interface Props {
   onEdit: (id: number) => void;
   onRemove: (id: number) => void;
   onRowClick: (id: number) => void;
+  pendingActions?: PendingCorporateAction[];
+  onCorporateActionClick?: (action: PendingCorporateAction) => void;
 }
 
-export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick }: Props) {
+export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick, pendingActions = [], onCorporateActionClick }: Props) {
   const rawPositions = usePortfolioStore((s) => s.positions);
   const storeTransactions = usePortfolioStore((s) => s.transactions);
   const prices = usePortfolioStore((s) => s.prices);
@@ -53,6 +55,12 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
   const setBaseCurrency = usePortfolioStore((s) => s.setBaseCurrency);
   const eurUsd = usePortfolioStore((s) => s.eurUsd);
   const [filter, setFilter] = useState<Filter>('all');
+
+  const pendingByPositionId = new Map<number, PendingCorporateAction[]>();
+  for (const a of pendingActions) {
+    const existing = pendingByPositionId.get(a.positionId) ?? [];
+    pendingByPositionId.set(a.positionId, [...existing, a]);
+  }
 
   const positions = resolvePositions(rawPositions, storeTransactions);
   const investmentPositions = positions.filter((p) => p.asset_type !== 'fiat');
@@ -66,6 +74,21 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
   const periods = usePeriodPnl(snapshots, totalValue);
   const totalPnl = totalValue - totalCost;
   const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
+  // Dividend income — derived from ledger, no extra query
+  const dividendByPositionId = new Map<number, number>();
+  for (const rawPos of rawPositions) {
+    const txs = storeTransactions[rawPos.id] ?? [];
+    const total = txs
+      .filter((t) => t.type === 'dividend')
+      .reduce((sum, t) => sum + t.quantity * t.price, 0);
+    if (total > 0) dividendByPositionId.set(rawPos.id, total);
+  }
+  const hasDividends = dividendByPositionId.size > 0;
+  const totalDividendsBase = rawPositions.reduce((sum, p) => {
+    const div = dividendByPositionId.get(p.id) ?? 0;
+    return sum + convertCurrency(div, p.currency, baseCurrency, eurUsd);
+  }, 0);
 
   const rows: PositionWithValue[] = filtered.map((p) => {
     const price = prices[p.ticker];
@@ -100,6 +123,14 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
             {totalPnl >= 0 ? '+' : ''}{fmtCurrency(totalPnl, baseCurrency)} ({fmtPct(totalPnlPct)})
           </span>
         </div>
+        {totalDividendsBase > 0 && (
+          <div className={styles.summaryItem}>
+            <span className={styles.label}>Dividendes <InfoTooltip text="Cumul des dividendes perçus sur toutes les positions, convertis en devise de base." /></span>
+            <span className={`${styles.value} ${styles.green}`}>
+              +{fmtCurrency(totalDividendsBase, baseCurrency)}
+            </span>
+          </div>
+        )}
 
         {periods.length > 0 && (
           <div className={styles.periods}>
@@ -170,6 +201,7 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
                   <th className={styles.right}>Valeur ({baseCurrency})</th>
                   <th className={styles.right}>G/P <InfoTooltip text="Gain ou Perte sur la position : différence entre la valeur actuelle et le montant investi." /></th>
                   <th className={styles.right}>G/P % <InfoTooltip text="Gain ou Perte en pourcentage du montant investi." /></th>
+                  {hasDividends && <th className={styles.right}>Div. <InfoTooltip text="Dividendes perçus cumulés sur cette position." /></th>}
                   <th></th>
                 </tr>
               </thead>
@@ -198,6 +230,13 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
                     <td className={`${styles.right} ${row.pnl_pct == null ? '' : row.pnl_pct >= 0 ? styles.green : styles.red}`}>
                       {fmtPct(row.pnl_pct)}
                     </td>
+                    {hasDividends && (
+                      <td className={`${styles.right} ${styles.divCell}`}>
+                        {dividendByPositionId.has(row.id)
+                          ? fmtCurrency(dividendByPositionId.get(row.id), row.currency)
+                          : '—'}
+                      </td>
+                    )}
                     <td className={styles.actions} onClick={(e) => e.stopPropagation()}>
                       {!row.stop_price && (
                         <span
@@ -205,6 +244,19 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick 
                           data-tooltip="Aucun stop défini"
                         >⚠</span>
                       )}
+                      {(() => {
+                        const pending = pendingByPositionId.get(row.id) ?? [];
+                        if (pending.length === 0 || !onCorporateActionClick) return null;
+                        return (
+                          <button
+                            className={styles.eventChip}
+                            onClick={() => onCorporateActionClick(pending[0])}
+                            title={`${pending.length} événement(s) corporate détecté(s)`}
+                          >
+                            ⚡ {pending.length}
+                          </button>
+                        );
+                      })()}
                       <button
                         className={styles.editBtn}
                         onClick={() => onEdit(row.id)}
