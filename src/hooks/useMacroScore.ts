@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchYahooPrices, fetchYahooHistory } from '../lib/api/yahoo';
 import { norm, calcMacroScore, regimeFromScore, MACRO_WEIGHTS } from '../lib/macroScore';
-import type { MacroInputs } from '../lib/macroScore';
 
 export type { Regime } from '../lib/macroScore';
 export type Signal = 'bullish' | 'neutral' | 'bearish';
@@ -49,23 +48,28 @@ function weekDeltaBp(h: { time: number; value: number }[]): number | null {
   return Math.round((h[h.length - 1].value - h[h.length - 6].value) * 100);
 }
 
-// Adapter: derives MacroInputs from a snapshot of histories (used for t-1W slice)
-function calcScoreFromHist(hist: Record<string, { time: number; value: number }[]>): number {
-  const last = (t: string): number | null => hist[t]?.[hist[t].length - 1]?.value ?? null;
-  const tnx = last('^TNX');
-  const irx = last('^IRX');
-  const spy1M = calcPerf(hist['SPY']);
-  const iwm1M = calcPerf(hist['IWM']);
-  const inputs: MacroInputs = {
-    vix:        last('^VIX'),
-    yieldCurve: tnx != null && irx != null ? tnx - irx : null,
-    hyg1M:      calcPerf(hist['HYG']),
-    gld1M:      calcPerf(hist['GLD']),
-    copper1M:   calcPerf(hist['HG=F']),
-    dxy1M:      calcPerf(hist['DX-Y.NYB']),
-    iwmVsSpy:   iwm1M != null && spy1M != null ? iwm1M - spy1M : null,
-  };
-  return calcMacroScore(inputs);
+const DAY = 86400;
+
+// Trailing-window perf: % change over `windowDays`, ending `endDaysAgo` days ago.
+// Lets us measure a true trailing-1M momentum both now (endDaysAgo=0) and as of
+// a week ago (endDaysAgo=7) from a single ~3M daily history.
+function perfWindow(h: { time: number; value: number }[], windowDays: number, endDaysAgo = 0): number | null {
+  if (h.length < 2) return null;
+  const end = Date.now() / 1000 - endDaysAgo * DAY;
+  const start = end - windowDays * DAY;
+  return calcPerf(h.filter(p => p.time >= start && p.time <= end));
+}
+
+// Daily close as of `daysAgo` days ago (last bar at or before that point).
+function valueAt(h: { time: number; value: number }[], daysAgo: number): number | null {
+  if (h.length === 0) return null;
+  const target = Date.now() / 1000 - daysAgo * DAY;
+  let v: number | null = null;
+  for (const p of h) {
+    if (p.time <= target) v = p.value;
+    else break;
+  }
+  return v ?? h[0].value;
 }
 
 // ── Tickers fetchés ───────────────────────────────────────────────────────────
@@ -80,7 +84,9 @@ export function useMacroScore() {
     queryFn: async () => {
       const [prices, histories] = await Promise.all([
         fetchYahooPrices(TICKERS),
-        Promise.all(TICKERS.map(t => fetchYahooHistory(t, '1M'))),
+        // 3M daily so we can take a true trailing-1M window both now and as of a
+        // week ago (the trend computation needs the latter — see scorePrev below)
+        Promise.all(TICKERS.map(t => fetchYahooHistory(t, '3M'))),
       ]);
 
       const hist: Record<string, { time: number; value: number }[]> = {};
@@ -92,12 +98,12 @@ export function useMacroScore() {
       const irx  = prices['^IRX']     ?? null;
       const dxy  = prices['DX-Y.NYB'] ?? null;
 
-      const hyg1M    = calcPerf(hist['HYG']);
-      const gld1M    = calcPerf(hist['GLD']);
-      const copper1M = calcPerf(hist['HG=F']);
-      const dxy1M    = calcPerf(hist['DX-Y.NYB']);
-      const spy1M    = calcPerf(hist['SPY']);
-      const iwm1M    = calcPerf(hist['IWM']);
+      const hyg1M    = perfWindow(hist['HYG'],      30);
+      const gld1M    = perfWindow(hist['GLD'],      30);
+      const copper1M = perfWindow(hist['HG=F'],     30);
+      const dxy1M    = perfWindow(hist['DX-Y.NYB'], 30);
+      const spy1M    = perfWindow(hist['SPY'],      30);
+      const iwm1M    = perfWindow(hist['IWM'],      30);
 
       const yieldCurve = tnx != null && irx != null ? tnx - irx : null;
       const iwmVsSpy   = iwm1M != null && spy1M != null ? iwm1M - spy1M : null;
@@ -110,10 +116,27 @@ export function useMacroScore() {
 
       const score = calcMacroScore({ vix, yieldCurve, hyg1M, gld1M, copper1M, iwmVsSpy, dxy1M });
 
-      const WEEK_BARS = 5;
-      const hasEnoughHistory = Object.values(hist).every(h => h.length > WEEK_BARS);
-      const scorePrev = hasEnoughHistory
-        ? calcScoreFromHist(Object.fromEntries(Object.entries(hist).map(([t, h]) => [t, h.slice(0, -WEEK_BARS)])))
+      // Trend: compare the live score against the same score computed as of one
+      // week ago, using true trailing-1M windows for the momentum components.
+      // (Previously only 1M of data was fetched, so the "t-1W" momentum was
+      // measured over a ~3-week fixed-start window — a systematic bias.)
+      const tnxPrev = valueAt(hist['^TNX'], 7);
+      const irxPrev = valueAt(hist['^IRX'], 7);
+      const spyPrev = perfWindow(hist['SPY'], 30, 7);
+      const iwmPrev = perfWindow(hist['IWM'], 30, 7);
+      const earliest = hist['SPY']?.[0]?.time ?? Infinity;
+      const spanDays = (Date.now() / 1000 - earliest) / DAY;
+      // Need ~37 days of data so a 1M window ending a week ago actually exists
+      const scorePrev = spanDays >= 37
+        ? calcMacroScore({
+            vix:        valueAt(hist['^VIX'], 7),
+            yieldCurve: tnxPrev != null && irxPrev != null ? tnxPrev - irxPrev : null,
+            hyg1M:      perfWindow(hist['HYG'],      30, 7),
+            gld1M:      perfWindow(hist['GLD'],      30, 7),
+            copper1M:   perfWindow(hist['HG=F'],     30, 7),
+            dxy1M:      perfWindow(hist['DX-Y.NYB'], 30, 7),
+            iwmVsSpy:   iwmPrev != null && spyPrev != null ? iwmPrev - spyPrev : null,
+          })
         : null;
       const trend: MacroScoreData['trend'] =
         scorePrev == null        ? 'flat' :

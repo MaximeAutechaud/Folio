@@ -132,7 +132,7 @@ export interface NarrativeKeyword {
   keyword: string;
 }
 
-export type AlertType = 'rsi_overbought' | 'rsi_oversold' | 'macro_regime_change' | 'price_target' | 'stop_loss';
+export type AlertType = 'rsi_overbought' | 'rsi_oversold' | 'macro_regime_change' | 'price_target' | 'stop_loss' | 'price_below_ma200' | 'ema_cross' | 'sector_score_threshold';
 export type AlertScope = 'sector' | 'narrative' | 'macro' | 'ticker';
 
 export interface AlertRule {

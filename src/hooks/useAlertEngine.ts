@@ -4,7 +4,9 @@ import { isPermissionGranted, requestPermission, sendNotification } from '@tauri
 import { useSectorPerfs } from './useSectorData';
 import { useNarrativePerfs } from './useNarrativePerfs';
 import { useMacroScore } from './useMacroScore';
-import { fetchYahooPrices } from '../lib/api/yahoo';
+import { fetchYahooPrices, fetchYahooHistory } from '../lib/api/yahoo';
+import { calcEma, calcMa } from '../lib/indicators';
+import { calcSectorScore } from '../lib/scoring';
 import {
   fetchAlertRules,
   fetchUnacknowledgedCount,
@@ -43,6 +45,7 @@ async function evaluateRules(
   narrativePerfs: NarrativePerf[],
   macroScore: MacroScoreData | undefined,
   tickerPrices: Record<string, number | undefined>,
+  maHistories: Record<string, number[]>,
   onNewEvent: () => void,
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
@@ -94,7 +97,6 @@ async function evaluateRules(
           continue;
         }
 
-        // Skip if we already fired a real alert today
         if (lastEvent.triggered_at >= todayStart && lastEvent.consecutive_days > 0) continue;
 
         conditionMet = lastEvent.value_at_trigger !== currentRegime;
@@ -119,6 +121,87 @@ async function evaluateRules(
           const op = rule.type === 'price_target' ? '≥' : '≤';
           const lbl = rule.type === 'price_target' ? 'Prix cible' : 'Stop atteint';
           message = `${rule.label} · ${lbl} — ${price.toFixed(2)} ${op} ${threshold}${consecutiveSuffix(consecutiveDays)}`;
+        }
+
+      } else if (rule.type === 'price_below_ma200') {
+        if (lastEvent && lastEvent.triggered_at >= todayStart) continue;
+
+        const prices = maHistories[rule.scope_id];
+        if (!prices || prices.length < 200) continue;
+
+        const ma200 = calcMa(prices, 200)!;
+        const currentPrice = prices[prices.length - 1];
+        conditionMet = currentPrice < ma200;
+        currentValue = currentPrice.toFixed(2);
+
+        if (conditionMet) {
+          consecutiveDays = (lastEvent && lastEvent.triggered_at >= yesterdayStart)
+            ? lastEvent.consecutive_days + 1 : 1;
+          message = `${rule.label} · Prix sous MA200 — ${currentPrice.toFixed(2)} < ${ma200.toFixed(2)}${consecutiveSuffix(consecutiveDays)}`;
+        }
+
+      } else if (rule.type === 'ema_cross') {
+        const prices = maHistories[rule.scope_id];
+        if (!prices || prices.length < 200) continue;
+
+        const ema50 = calcEma(prices, 50)!;
+        const ema200 = calcEma(prices, 200)!;
+        const currentState = ema50 > ema200 ? 'above' : 'below';
+        currentValue = currentState;
+
+        if (!lastEvent) {
+          await insertBaselineAlertEvent(rule.id, currentState);
+          continue;
+        }
+
+        if (lastEvent.triggered_at >= todayStart && lastEvent.consecutive_days > 0) continue;
+
+        const prevState = lastEvent.value_at_trigger;
+        const crossedGolden = prevState === 'below' && currentState === 'above';
+        const crossedDeath = prevState === 'above' && currentState === 'below';
+        const wantedDir = rule.threshold ?? 'both';
+
+        if (crossedGolden && (wantedDir === 'golden' || wantedDir === 'both')) {
+          conditionMet = true;
+          message = `${rule.label} · Golden Cross — EMA50 croise au-dessus de EMA200`;
+        } else if (crossedDeath && (wantedDir === 'death' || wantedDir === 'both')) {
+          conditionMet = true;
+          message = `${rule.label} · Death Cross — EMA50 croise en-dessous de EMA200`;
+        }
+
+        // Always update baseline to current state so next crossover is detected
+        if (!conditionMet && prevState !== currentState) {
+          await insertBaselineAlertEvent(rule.id, currentState);
+          continue;
+        }
+
+      } else if (rule.type === 'sector_score_threshold') {
+        if (lastEvent && lastEvent.triggered_at >= todayStart) continue;
+        if (!macroScore) continue;
+
+        const sp = sectorPerfs.find(s => s.sector.id === rule.scope_id);
+        if (!sp) continue;
+
+        const score = calcSectorScore({
+          relPerf1W: sp.relPerf1W,
+          relPerf1M: sp.relPerf1M,
+          relPerf3M: sp.relPerf3M,
+          rsi: sp.rsi,
+          drawdown3M: sp.drawdown3M,
+          ma50Above: sp.ma50Above,
+          macroProfile: sp.sector.macroProfile,
+          macroScore: macroScore.score,
+          macroTrend: macroScore.trend,
+        });
+
+        const threshold = parseFloat(rule.threshold ?? '70');
+        conditionMet = score.total >= threshold;
+        currentValue = String(score.total);
+
+        if (conditionMet) {
+          consecutiveDays = (lastEvent && lastEvent.triggered_at >= yesterdayStart)
+            ? lastEvent.consecutive_days + 1 : 1;
+          message = `${rule.label} · Score ≥ ${threshold} — ${score.total}/100 (${score.label})${consecutiveSuffix(consecutiveDays)}`;
         }
       }
     } catch {
@@ -164,7 +247,7 @@ export function useAlertEngine() {
   const tickerSymbols = [
     ...new Set(
       rules
-        .filter(r => r.scope === 'ticker' && r.is_active)
+        .filter(r => r.scope === 'ticker' && r.is_active && (r.type === 'price_target' || r.type === 'stop_loss'))
         .map(r => r.scope_id)
         .filter(Boolean)
     ),
@@ -178,6 +261,37 @@ export function useAlertEngine() {
     refetchInterval: 5 * 60 * 1000,
   });
   const tickerPrices = rawTickerPrices ?? {};
+
+  // 1Y daily history for MA200 / EMA cross alerts
+  const maTickers = [
+    ...new Set(
+      rules
+        .filter(r => (r.type === 'price_below_ma200' || r.type === 'ema_cross') && r.is_active)
+        .map(r => r.scope_id)
+        .filter(Boolean)
+    ),
+  ].sort();
+
+  const { data: maHistoriesRaw } = useQuery({
+    queryKey: ['alert-ma-histories', maTickers.join(',')],
+    // 2Y daily (~500 points) so the EMA200 is properly warmed up: with only
+    // ~252 points the EMA200 stays anchored to its SMA seed and diverges from
+    // what charting platforms show, mistiming golden/death cross detection.
+    queryFn: () => Promise.all(
+      maTickers.map(async t => ({
+        ticker: t,
+        prices: (await fetchYahooHistory(t, '2Y_daily')).map(p => p.value),
+      }))
+    ),
+    enabled: maTickers.length > 0,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  const maHistories: Record<string, number[]> = {};
+  for (const item of (maHistoriesRaw ?? [])) {
+    maHistories[item.ticker] = item.prices;
+  }
 
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['alert-unack-count'] });
@@ -196,9 +310,9 @@ export function useAlertEngine() {
     runningRef.current = true;
     lastRunRef.current = now;
 
-    evaluateRules(rules, sectorPerfs, narrativePerfs, macroScore, tickerPrices, invalidate)
+    evaluateRules(rules, sectorPerfs, narrativePerfs, macroScore, tickerPrices, maHistories, invalidate)
       .finally(() => { runningRef.current = false; });
-  }, [rules, sectorPerfs, narrativePerfs, macroScore, tickerPrices, invalidate]);
+  }, [rules, sectorPerfs, narrativePerfs, macroScore, tickerPrices, maHistories, invalidate]);
 }
 
 export function useUnacknowledgedCount() {

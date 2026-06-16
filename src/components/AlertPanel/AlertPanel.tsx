@@ -19,12 +19,31 @@ interface Props {
 }
 
 const TYPE_BADGE: Record<string, { label: string; color: string }> = {
-  rsi_overbought:     { label: 'RSI OB',  color: '#f85149' },
-  rsi_oversold:       { label: 'RSI OS',  color: '#3fb950' },
-  macro_regime_change:{ label: 'Régime',  color: '#d29922' },
-  price_target:       { label: 'Cible',   color: '#58a6ff' },
-  stop_loss:          { label: 'Stop',    color: '#f85149' },
+  rsi_overbought:          { label: 'RSI OB',   color: '#f85149' },
+  rsi_oversold:            { label: 'RSI OS',   color: '#3fb950' },
+  macro_regime_change:     { label: 'Régime',   color: '#d29922' },
+  price_target:            { label: 'Cible',    color: '#58a6ff' },
+  stop_loss:               { label: 'Stop',     color: '#f85149' },
+  price_below_ma200:       { label: 'MA200',    color: '#f85149' },
+  ema_cross:               { label: 'EMA ✕',   color: '#a78bfa' },
+  sector_score_threshold:  { label: 'Score',    color: '#f59e0b' },
 };
+
+function ruleThresholdLabel(rule: AlertRule): string | null {
+  if (rule.type === 'rsi_overbought') return `> ${rule.threshold}`;
+  if (rule.type === 'rsi_oversold')   return `< ${rule.threshold}`;
+  if (rule.type === 'price_target')   return `≥ ${rule.threshold}`;
+  if (rule.type === 'stop_loss')      return `≤ ${rule.threshold}`;
+  if (rule.type === 'sector_score_threshold') return `≥ ${rule.threshold}`;
+  if (rule.type === 'ema_cross') {
+    const dir = rule.threshold;
+    if (dir === 'golden') return 'Golden Cross';
+    if (dir === 'death')  return 'Death Cross';
+    return 'Golden + Death';
+  }
+  if (rule.type === 'price_below_ma200') return 'Prix < MA200';
+  return null;
+}
 
 function relativeTime(ts: number): string {
   const diff = Math.floor(Date.now() / 1000) - ts;
@@ -166,10 +185,8 @@ export function AlertPanel({ open, onClose }: Props) {
                   </span>
                   <div className={styles.ruleInfo}>
                     <span className={styles.ruleLabel}>{rule.label}</span>
-                    {rule.threshold && (
-                      <span className={styles.ruleThreshold}>
-                        {rule.type === 'rsi_overbought' ? '>' : rule.type === 'rsi_oversold' ? '<' : rule.type === 'price_target' ? '≥' : '≤'} {rule.threshold}
-                      </span>
+                    {ruleThresholdLabel(rule) && (
+                      <span className={styles.ruleThreshold}>{ruleThresholdLabel(rule)}</span>
                     )}
                     {isSnoozed && <span className={styles.snoozed}>snoozé</span>}
                   </div>

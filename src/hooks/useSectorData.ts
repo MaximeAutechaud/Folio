@@ -82,8 +82,6 @@ export function useSectorPerfs(period: '1W' | '1M' | '3M') {
       const spy1MPerf = calcPerf(spy1M);
       const spy3MPerf = calcPerf(spy3M);
 
-      const periodWeeks = period === '1W' ? 1 : period === '1M' ? 4 : 13;
-
       return SECTORS.map((sector, i) => {
         const raw   = hists3M[i + 1] ?? [];
         const hist  = slice(raw);
@@ -102,7 +100,12 @@ export function useSectorPerfs(period: '1W' | '1M' | '3M') {
         const relPerf1M = etf1M != null && spy1MPerf != null ? etf1M - spy1MPerf : null;
         const relPerf3M = etf3M != null && spy3MPerf != null ? etf3M - spy3MPerf : null;
 
-        const avgWeeklyRelPerf = relPeriodPerf != null ? relPeriodPerf / periodWeeks : null;
+        // Momentum reflects the sector's *current* acceleration, independent of
+        // the selected view period: this week's relative pace vs the trailing
+        // month's average weekly pace (= scoring.ts shortAccel). Deriving it from
+        // the selected period made the 1W view degenerate — relPeriodPerf == relPerf1W
+        // and periodWeeks == 1, so it compared relPerf1W against itself → always neutral.
+        const avgWeeklyRelPerf = relPerf1M != null ? relPerf1M / 4 : null;
         let momentum: SectorPerf['momentum'] = 'neutral';
         if (relPerf1W != null && avgWeeklyRelPerf != null) {
           if (relPerf1W > avgWeeklyRelPerf + 0.3) momentum = 'accelerating';

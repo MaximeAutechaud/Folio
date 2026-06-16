@@ -55,7 +55,6 @@ function computePerf(
   period: '1W' | '1M' | '3M'
 ): NarrativePerf {
   const daysMap = { '1W': 7, '1M': 30, '3M': 91 };
-  const periodWeeks = period === '1W' ? 1 : period === '1M' ? 4 : 13;
   const daysBack = daysMap[period];
 
   const spyPerf = calcPerf(sliceByDays(spyHistory, daysBack));
@@ -86,14 +85,6 @@ function computePerf(
     ? basketWeekPerf - spyWeekPerf
     : null;
 
-  const avgWeeklyRelPerf = relPerf != null ? relPerf / periodWeeks : null;
-
-  let momentum: NarrativeMomentum = 'neutral';
-  if (relWeekPerf != null && avgWeeklyRelPerf != null) {
-    if (relWeekPerf > avgWeeklyRelPerf + 0.3) momentum = 'accelerating';
-    else if (relWeekPerf < avgWeeklyRelPerf - 0.3) momentum = 'decelerating';
-  }
-
   // RS trend: relPerf vs SPY at 3 timeframes, always from 3M data
   function rsAt(days: number): number | null {
     let perf: number | null = null;
@@ -110,6 +101,18 @@ function computePerf(
   }
 
   const rsTrend: NarrativePerf['rsTrend'] = [rsAt(91), rsAt(30), rsAt(7)];
+
+  // Momentum reflects current acceleration, independent of the selected view
+  // period: this week's relative pace (relWeekPerf) vs the trailing month's
+  // average weekly pace (rsTrend[1] / 4). Deriving it from the selected period
+  // made the 1W view degenerate — relPerf == relWeekPerf and periodWeeks == 1,
+  // so it compared this week against itself → always neutral.
+  const avgWeeklyRelPerf = rsTrend[1] != null ? rsTrend[1] / 4 : null;
+  let momentum: NarrativeMomentum = 'neutral';
+  if (relWeekPerf != null && avgWeeklyRelPerf != null) {
+    if (relWeekPerf > avgWeeklyRelPerf + 0.3) momentum = 'accelerating';
+    else if (relWeekPerf < avgWeeklyRelPerf - 0.3) momentum = 'decelerating';
+  }
 
   const lowConfidence = source.type === 'basket' && source.count < 5;
 

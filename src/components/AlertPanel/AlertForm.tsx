@@ -11,18 +11,23 @@ interface Props {
 }
 
 type RsiSubScope = 'sector' | 'narrative';
+type EmaDir = 'golden' | 'death' | 'both';
 
 const TYPE_LABELS: Record<AlertType, string> = {
-  rsi_overbought:     'RSI Overbought',
-  rsi_oversold:       'RSI Oversold',
-  macro_regime_change:'Changement de régime macro',
-  price_target:       'Prix cible',
-  stop_loss:          'Stop loss',
+  rsi_overbought:          'RSI Overbought',
+  rsi_oversold:            'RSI Oversold',
+  macro_regime_change:     'Changement de régime macro',
+  price_target:            'Prix cible',
+  stop_loss:               'Stop loss',
+  price_below_ma200:       'Prix sous MA200',
+  ema_cross:               'Croisement EMA (Golden/Death)',
+  sector_score_threshold:  'Score secteur ≥ seuil',
 };
 
 const DEFAULT_THRESHOLD: Partial<Record<AlertType, string>> = {
-  rsi_overbought: '70',
-  rsi_oversold:   '30',
+  rsi_overbought:         '70',
+  rsi_oversold:           '30',
+  sector_score_threshold: '70',
 };
 
 export function AlertForm({ onClose, prefillTicker }: Props) {
@@ -35,6 +40,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
   const [narrativeId, setNarrativeId] = useState('');
   const [ticker, setTicker] = useState(prefillTicker ? prefillTicker.toUpperCase() : '');
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD[initialType] ?? '');
+  const [emaDir, setEmaDir] = useState<EmaDir>('both');
   const [saving, setSaving] = useState(false);
 
   const { data: narratives = [] } = useQuery({
@@ -43,7 +49,6 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
     staleTime: 60_000,
   });
 
-  // Set default narrative once loaded
   if (!narrativeId && narratives.length > 0) {
     setNarrativeId(String(narratives[0].id));
   }
@@ -104,6 +109,44 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
       };
     }
 
+    if (type === 'price_below_ma200') {
+      const sym = ticker.trim().toUpperCase();
+      if (!sym) return null;
+      return {
+        type,
+        scope: 'ticker' as AlertScope,
+        scope_id: sym,
+        label: sym,
+        threshold: null,
+      };
+    }
+
+    if (type === 'ema_cross') {
+      const sym = ticker.trim().toUpperCase();
+      if (!sym) return null;
+      return {
+        type,
+        scope: 'ticker' as AlertScope,
+        scope_id: sym,
+        label: sym,
+        threshold: emaDir,
+      };
+    }
+
+    if (type === 'sector_score_threshold') {
+      const thr = parseFloat(threshold);
+      if (isNaN(thr) || thr < 0 || thr > 100) return null;
+      const sector = SECTORS.find(s => s.id === sectorId);
+      if (!sector) return null;
+      return {
+        type,
+        scope: 'sector' as AlertScope,
+        scope_id: sector.id,
+        label: `${sector.name} (${sector.etf})`,
+        threshold: String(thr),
+      };
+    }
+
     return null;
   }
 
@@ -121,9 +164,10 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
     }
   }
 
-  const needsThreshold = type !== 'macro_regime_change';
   const isRsiType = type === 'rsi_overbought' || type === 'rsi_oversold';
-  const isTickerType = type === 'price_target' || type === 'stop_loss';
+  const isTickerType = type === 'price_target' || type === 'stop_loss' || type === 'price_below_ma200' || type === 'ema_cross';
+  const needsNumericThreshold = type !== 'macro_regime_change' && type !== 'price_below_ma200' && type !== 'ema_cross';
+  const isSectorScoped = isRsiType && rsiSubScope === 'sector' || type === 'sector_score_threshold';
 
   return (
     <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -150,6 +194,18 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
           {type === 'macro_regime_change' && (
             <p className={styles.hint}>
               Déclenche une alerte à chaque changement de régime macro (Risk-On → Favorable → Neutre → Défavorable → Risk-Off).
+            </p>
+          )}
+
+          {type === 'price_below_ma200' && (
+            <p className={styles.hint}>
+              Déclenche une alerte quand le prix du ticker passe sous sa moyenne mobile 200j.
+            </p>
+          )}
+
+          {type === 'ema_cross' && (
+            <p className={styles.hint}>
+              Déclenche quand l'EMA50 croise l'EMA200 (Golden Cross = signal haussier, Death Cross = signal baissier).
             </p>
           )}
 
@@ -207,6 +263,21 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
             </>
           )}
 
+          {type === 'sector_score_threshold' && (
+            <label className={styles.label}>
+              Secteur
+              <select
+                className={styles.select}
+                value={sectorId}
+                onChange={e => setSectorId(e.target.value)}
+              >
+                {SECTORS.map(s => (
+                  <option key={s.id} value={s.id}>{s.name} ({s.etf})</option>
+                ))}
+              </select>
+            </label>
+          )}
+
           {isTickerType && (
             <label className={styles.label}>
               Ticker
@@ -216,19 +287,43 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
                 placeholder="ex: NVDA, AAPL, AIR.PA"
                 value={ticker}
                 onChange={e => setTicker(e.target.value)}
-                autoFocus
+                autoFocus={!prefillTicker}
               />
             </label>
           )}
 
-          {needsThreshold && (
+          {type === 'ema_cross' && (
             <label className={styles.label}>
-              {isRsiType ? 'Seuil RSI' : isTickerType && type === 'price_target' ? 'Prix cible' : 'Prix stop'}
+              Croisement
+              <div className={styles.segmented}>
+                {(['golden', 'death', 'both'] as EmaDir[]).map(dir => (
+                  <button
+                    key={dir}
+                    type="button"
+                    className={`${styles.seg} ${emaDir === dir ? styles.segActive : ''}`}
+                    onClick={() => setEmaDir(dir)}
+                  >
+                    {dir === 'golden' ? 'Golden Cross' : dir === 'death' ? 'Death Cross' : 'Les deux'}
+                  </button>
+                ))}
+              </div>
+            </label>
+          )}
+
+          {needsNumericThreshold && (
+            <label className={styles.label}>
+              {isRsiType
+                ? 'Seuil RSI'
+                : type === 'sector_score_threshold'
+                  ? 'Score minimum (0–100)'
+                  : type === 'price_target'
+                    ? 'Prix cible'
+                    : 'Prix stop'}
               <input
                 className={styles.input}
                 type="text"
                 inputMode="decimal"
-                placeholder={isRsiType ? '70' : '0.00'}
+                placeholder={isSectorScoped && type === 'sector_score_threshold' ? '70' : isRsiType ? '70' : '0.00'}
                 value={threshold}
                 onChange={e => setThreshold(e.target.value)}
               />

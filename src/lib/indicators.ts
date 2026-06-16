@@ -1,3 +1,18 @@
+export function calcEma(prices: number[], period: number): number | null {
+  if (prices.length < period) return null;
+  const k = 2 / (period + 1);
+  let ema = prices.slice(0, period).reduce((s, p) => s + p, 0) / period;
+  for (let i = period; i < prices.length; i++) {
+    ema = prices[i] * k + ema * (1 - k);
+  }
+  return ema;
+}
+
+export function calcMa(prices: number[], period: number): number | null {
+  if (prices.length < period) return null;
+  return prices.slice(-period).reduce((s, p) => s + p, 0) / period;
+}
+
 // RSI 14 rolling series — returns one value per input point (starting at index `period`)
 export function calcRsiSeries(
   points: { time: number; value: number }[],

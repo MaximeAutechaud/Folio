@@ -65,11 +65,13 @@ export async function fetchEurUsd(): Promise<number> {
 }
 
 const YAHOO_RANGE: Record<string, { range: string; interval: string }> = {
-  '1W': { range: '5d',  interval: '1h' },
-  '1M': { range: '1mo', interval: '1d' },
-  '3M': { range: '3mo', interval: '1d' },
-  '1Y': { range: '1y',  interval: '1wk' },
-  '2Y': { range: '2y',  interval: '1wk' },
+  '1W':       { range: '5d',  interval: '1h' },
+  '1M':       { range: '1mo', interval: '1d' },
+  '3M':       { range: '3mo', interval: '1d' },
+  '1Y':       { range: '1y',  interval: '1wk' },
+  '1Y_daily': { range: '1y',  interval: '1d' },
+  '2Y':       { range: '2y',  interval: '1wk' },
+  '2Y_daily': { range: '2y',  interval: '1d' },
 };
 
 export async function fetchYahooHistory(ticker: string, period: string): Promise<{ time: number; value: number }[]> {
