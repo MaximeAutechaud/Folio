@@ -15,7 +15,6 @@ export function usePrices() {
   const setPrices = usePortfolioStore((s) => s.setPrices);
   const setEurUsd = usePortfolioStore((s) => s.setEurUsd);
   const baseCurrency = usePortfolioStore((s) => s.baseCurrency);
-  const eurUsd = usePortfolioStore((s) => s.eurUsd);
 
   const stockTickers = positions
     .filter((p) => p.asset_type === 'stock')
@@ -69,17 +68,30 @@ export function usePrices() {
 
   useEffect(() => {
     if (positions.length === 0) return;
+
+    // Snapshot only once every required price source has returned at least once.
+    // On first launch the queries resolve at different times; computing the total
+    // on partial data (e.g. stocks in, crypto still pending → crypto counts as 0,
+    // or FX still at its default rate of 1) persists a phantom dip that only
+    // "corrects" on the next fetch cycle.
+    const stocksReady = stockTickers.length === 0 || stockQuery.data != null;
+    const cryptoReady = cryptoIds.length === 0 || cryptoQuery.data != null;
+    if (!stocksReady || !cryptoReady || fxQuery.data == null) return;
+
     const now = Math.floor(Date.now() / 1000);
     if (now - lastSnapshotRef.current < 5) return; // debounce: max 1 snapshot per 5s
-    lastSnapshotRef.current = now;
+
     const freshPrices = { ...stockQuery.data, ...cryptoQuery.data };
     const resolved = resolvePositions(positions, storeTransactions);
-    const { totalValue, totalCost } = computeTotals(resolved, freshPrices, baseCurrency, eurUsd);
+    // Use the live FX rate directly — the store's eurUsd may lag a render behind.
+    const { totalValue, totalCost } = computeTotals(resolved, freshPrices, baseCurrency, fxQuery.data);
     if (totalValue === 0) return;
+
+    lastSnapshotRef.current = now;
     insertSnapshot(totalValue, totalCost)
       .then(() => queryClient.invalidateQueries({ queryKey: ['snapshots'] }))
       .catch(console.error);
-  }, [stockQuery.dataUpdatedAt, cryptoQuery.dataUpdatedAt]);
+  }, [stockQuery.dataUpdatedAt, cryptoQuery.dataUpdatedAt, fxQuery.dataUpdatedAt]);
 
   return {
     isLoading: stockQuery.isFetching || cryptoQuery.isFetching,
