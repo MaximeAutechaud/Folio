@@ -20,6 +20,7 @@ export interface ScoreInput {
   relPerf3M: number | null;
   rsi: number | null;
   drawdown3M: number | null;
+  drawdown6M: number | null;
   ma50Above: boolean | null;
   macroProfile: MacroProfile;
   macroScore: number;
@@ -148,14 +149,20 @@ export function calcSectorScore(input: ScoreInput): SectorScore {
     : 0;
   const rsiEntry = Math.min(100, rsiBase + reversalBoost);
 
-  const drawdownRaw = calcDrawdownScore(input.drawdown3M);
+  // Blend 3M (entry timing) with 6M (trend context), 60/40: a bounce inside a
+  // 6M downtrend gets a deeply negative 6M distance → low 6M sub-score → the
+  // blend stays modest instead of scoring 100 on the 3M rebound alone.
+  const drawdownRaw =
+    calcDrawdownScore(input.drawdown3M) * 0.6 +
+    calcDrawdownScore(input.drawdown6M) * 0.4;
   // Dip score depends on two conditions:
   // 1. RS must be improving (not decelerating)
   // 2. Price should be above MA50 — dip below MA50 is a broken-support warning, not a buy
-  const drawdown =
-    shortAccel < -0.5      ? Math.round(drawdownRaw * 0.4) :  // RS decelerating: heavy discount
-    ma50Above === false     ? Math.round(drawdownRaw * 0.6) :  // Under MA50: moderate discount
-    drawdownRaw;                                                // Clean dip in uptrend: full score
+  const drawdown = Math.round(
+    shortAccel < -0.5   ? drawdownRaw * 0.4 :  // RS decelerating: heavy discount
+    ma50Above === false ? drawdownRaw * 0.6 :  // Under MA50: moderate discount
+    drawdownRaw,                                // Clean dip in uptrend: full score
+  );
 
   const macroAlign = calcMacroAlignScore(input.macroProfile, input.macroScore, input.macroTrend);
 

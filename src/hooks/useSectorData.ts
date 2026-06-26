@@ -11,7 +11,13 @@ export interface SectorPerf {
   relPerf1W: number | null;
   relPerf1M: number | null;
   relPerf3M: number | null;
+  // Equal-weight (RSP) relatives — fed to the opportunity score, immune to the
+  // mega-cap base effect that inflates SPY-relative perf during tech selloffs.
+  relPerf1W_ew: number | null;
+  relPerf1M_ew: number | null;
+  relPerf3M_ew: number | null;
   drawdown3M: number | null;
+  drawdown6M: number | null;
   ma50: number | null;
   ma50Above: boolean | null;
   momentum: 'accelerating' | 'neutral' | 'decelerating';
@@ -29,7 +35,7 @@ export interface HoldingPerf {
 
 type Point = { time: number; value: number };
 
-const SECTOR_TICKERS = ['SPY', ...SECTORS.map(s => s.etf)];
+const SECTOR_TICKERS = ['SPY', 'RSP', ...SECTORS.map(s => s.etf)];
 const STALE = 5 * 60 * 1000;
 
 function sliceByDays(history: Point[], daysBack: number): Point[] {
@@ -45,12 +51,13 @@ function calcPerf(history: Point[]): number | null {
   return ((history[history.length - 1].value - start) / start) * 100;
 }
 
-// Base query: always 3M daily, shared across all period variants.
-// Period switching becomes pure computation — no extra network requests.
+// Base query: always 6M daily, shared across all period variants.
+// 6M provides the long high for the drawdown blend; the 1W/1M/3M windows are
+// sliced from it, so period switching stays pure computation (no extra requests).
 function useSectorRaw() {
   return useQuery<Point[][]>({
     queryKey: ['sector-raw'],
-    queryFn: () => Promise.all(SECTOR_TICKERS.map(t => fetchYahooHistory(t, '3M'))),
+    queryFn: () => Promise.all(SECTOR_TICKERS.map(t => fetchYahooHistory(t, '6M'))),
     staleTime: STALE,
     refetchInterval: STALE,
   });
@@ -62,43 +69,53 @@ export function useSectorPerfs(period: '1W' | '1M' | '3M') {
   return useQuery<SectorPerf[]>({
     queryKey: ['sector-perfs', period],
     queryFn: async () => {
-      // Reuse cached 3M data — fires only if not already in cache
-      const hists3M = await queryClient.fetchQuery<Point[][]>({
+      // Reuse cached 6M data — fires only if not already in cache
+      const histsRaw = await queryClient.fetchQuery<Point[][]>({
         queryKey: ['sector-raw'],
-        queryFn: () => Promise.all(SECTOR_TICKERS.map(t => fetchYahooHistory(t, '3M'))),
+        queryFn: () => Promise.all(SECTOR_TICKERS.map(t => fetchYahooHistory(t, '6M'))),
         staleTime: STALE,
       });
 
-      const DAYS = { '1W': 7, '1M': 31, '3M': Infinity } as const;
+      // Base series is 6M; slice every window explicitly (3M is no longer "full").
+      const DAYS = { '1W': 7, '1M': 31, '3M': 93 } as const;
       const daysBack = DAYS[period];
+      const slice = (h: Point[]) => sliceByDays(h, daysBack);
 
-      const slice = (h: Point[]) => daysBack === Infinity ? h : sliceByDays(h, daysBack);
+      // Two benchmarks: SPY (cap-weight) drives the displayed relPerf + sort,
+      // RSP (equal-weight) drives the opportunity score.
+      const spyRaw = histsRaw[0];
+      const rspRaw = histsRaw[1];
 
-      const spy3M   = hists3M[0];
-      const spy1W   = sliceByDays(spy3M, 7);
-      const spy1M   = sliceByDays(spy3M, 31);
-      const spyPerf = calcPerf(slice(spy3M));
-      const spy1WPerf = calcPerf(spy1W);
-      const spy1MPerf = calcPerf(spy1M);
-      const spy3MPerf = calcPerf(spy3M);
+      const spyPerf   = calcPerf(slice(spyRaw));
+      const spy1WPerf = calcPerf(sliceByDays(spyRaw, 7));
+      const spy1MPerf = calcPerf(sliceByDays(spyRaw, 31));
+      const spy3MPerf = calcPerf(sliceByDays(spyRaw, 93));
+
+      const rsp1WPerf = calcPerf(sliceByDays(rspRaw, 7));
+      const rsp1MPerf = calcPerf(sliceByDays(rspRaw, 31));
+      const rsp3MPerf = calcPerf(sliceByDays(rspRaw, 93));
 
       return SECTORS.map((sector, i) => {
-        const raw   = hists3M[i + 1] ?? [];
+        const raw   = histsRaw[i + 2] ?? [];
         const hist  = slice(raw);
-        const h1W   = sliceByDays(raw, 7);
-        const h1M   = sliceByDays(raw, 31);
 
         const etfPeriodPerf = calcPerf(hist);
         const relPeriodPerf =
           etfPeriodPerf != null && spyPerf != null ? etfPeriodPerf - spyPerf : null;
 
-        const etf1W = calcPerf(h1W);
-        const etf1M = calcPerf(h1M);
-        const etf3M = calcPerf(raw);
+        const etf1W = calcPerf(sliceByDays(raw, 7));
+        const etf1M = calcPerf(sliceByDays(raw, 31));
+        const etf3M = calcPerf(sliceByDays(raw, 93));
 
+        // Display/sort: relative to SPY (cap-weight)
         const relPerf1W = etf1W != null && spy1WPerf != null ? etf1W - spy1WPerf : null;
         const relPerf1M = etf1M != null && spy1MPerf != null ? etf1M - spy1MPerf : null;
         const relPerf3M = etf3M != null && spy3MPerf != null ? etf3M - spy3MPerf : null;
+
+        // Scoring: relative to RSP (equal-weight)
+        const relPerf1W_ew = etf1W != null && rsp1WPerf != null ? etf1W - rsp1WPerf : null;
+        const relPerf1M_ew = etf1M != null && rsp1MPerf != null ? etf1M - rsp1MPerf : null;
+        const relPerf3M_ew = etf3M != null && rsp3MPerf != null ? etf3M - rsp3MPerf : null;
 
         // Momentum reflects the sector's *current* acceleration, independent of
         // the selected view period: this week's relative pace vs the trailing
@@ -112,20 +129,23 @@ export function useSectorPerfs(period: '1W' | '1M' | '3M') {
           else if (relPerf1W < avgWeeklyRelPerf - 0.3) momentum = 'decelerating';
         }
 
-        const rsi = calcRsi(raw.map(p => p.value));
+        // RSI on the trailing 3M window (preserves prior behaviour now that raw is 6M)
+        const raw3M = sliceByDays(raw, 93);
+        const rsi = calcRsi(raw3M.map(p => p.value));
 
-        const high3M    = raw.length ? Math.max(...raw.map(p => p.value)) : null;
-        const current3M = raw.length ? raw[raw.length - 1].value : null;
+        const current = raw.length ? raw[raw.length - 1].value : null;
+        const high3M  = raw3M.length ? Math.max(...raw3M.map(p => p.value)) : null;
+        const high6M  = raw.length ? Math.max(...raw.map(p => p.value)) : null;
         const drawdown3M =
-          high3M && current3M && high3M > 0
-            ? ((current3M - high3M) / high3M) * 100
-            : null;
+          high3M && current && high3M > 0 ? ((current - high3M) / high3M) * 100 : null;
+        const drawdown6M =
+          high6M && current && high6M > 0 ? ((current - high6M) / high6M) * 100 : null;
 
         const ma50Bars = raw.length >= 50 ? raw.slice(-50) : null;
         const ma50 = ma50Bars
           ? ma50Bars.reduce((s, p) => s + p.value, 0) / ma50Bars.length
           : null;
-        const ma50Above = ma50 != null && current3M != null ? current3M > ma50 : null;
+        const ma50Above = ma50 != null && current != null ? current > ma50 : null;
 
         return {
           sector,
@@ -135,7 +155,11 @@ export function useSectorPerfs(period: '1W' | '1M' | '3M') {
           relPerf1W,
           relPerf1M,
           relPerf3M,
+          relPerf1W_ew,
+          relPerf1M_ew,
+          relPerf3M_ew,
           drawdown3M,
+          drawdown6M,
           ma50,
           ma50Above,
           momentum,

@@ -161,12 +161,14 @@ function SectorCard({
   rank,
   selected,
   score,
+  broadMarket,
   onClick,
 }: {
   data: SectorPerf;
   rank: number;
   selected: boolean;
   score: SectorScore;
+  broadMarket: boolean;
   onClick: () => void;
 }) {
   const { sector, etfPerf, relPerf, momentum, rsi, history } = data;
@@ -189,6 +191,14 @@ function SectorCard({
         <div className={styles.cardTop}>
           <span className={styles.rank}>#{rank}</span>
           <span className={styles.sectorName}>{sector.name}</span>
+          {broadMarket && score.signal === 'reversal' && (
+            <span
+              className={styles.macroBadge}
+              title="Reversal probablement dû au contexte macro (signal large marché), pas au secteur"
+            >
+              macro
+            </span>
+          )}
           <span className={styles.etfBadge}>{sector.etf}</span>
           {dist != null && (
             <span
@@ -234,11 +244,12 @@ export function SectorDashboard() {
     return sectors.map(s => ({
       ...s,
       score: calcSectorScore({
-        relPerf1W:    s.relPerf1W,
-        relPerf1M:    s.relPerf1M,
-        relPerf3M:    s.relPerf3M,
+        relPerf1W:    s.relPerf1W_ew,
+        relPerf1M:    s.relPerf1M_ew,
+        relPerf3M:    s.relPerf3M_ew,
         rsi:          s.rsi,
         drawdown3M:   s.drawdown3M,
+        drawdown6M:   s.drawdown6M,
         ma50Above:    s.ma50Above,
         macroProfile: s.sector.macroProfile,
         macroScore,
@@ -246,6 +257,14 @@ export function SectorDashboard() {
       }),
     }));
   }, [sectors, macroData]);
+
+  // Broad-market detection: when many sectors flag 'reversal' at once, it's a
+  // macro/base effect (everything beating a tech-dragged tape), not sector-specific.
+  const reversalCount = useMemo(
+    () => sectorsWithScores.filter(s => s.score.signal === 'reversal').length,
+    [sectorsWithScores],
+  );
+  const broadMarket = reversalCount >= 6;
 
   const selectedData = sectorsWithScores.find(s => s.sector.id === selectedId);
 
@@ -272,6 +291,14 @@ export function SectorDashboard() {
         </span>
       </div>
 
+      {broadMarket && (
+        <div className={styles.broadFlag}>
+          <span className={styles.broadFlagIcon}>⚠</span>
+          Signal large marché — {reversalCount} secteurs en reversal simultané :
+          rotation macro probable (non sectorielle). Les scores reversal sont à relativiser.
+        </div>
+      )}
+
       <Legend />
 
       <div className={styles.grid}>
@@ -282,6 +309,7 @@ export function SectorDashboard() {
             rank={i + 1}
             selected={selectedId === s.sector.id}
             score={s.score}
+            broadMarket={broadMarket}
             onClick={() => handleCardClick(s.sector.id)}
           />
         ))}

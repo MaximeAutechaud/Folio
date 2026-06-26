@@ -45,6 +45,42 @@
   font-family: var(--font-mono);
 }
 
+/* ── Broad-market flag ─────────────────────────────── */
+
+.broadFlag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(227, 179, 65, 0.1);
+  border: 1px solid rgba(227, 179, 65, 0.35);
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1.4;
+  font-family: var(--font-mono);
+  color: #e3b341;
+  flex-shrink: 0;
+}
+
+.broadFlagIcon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.macroBadge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 5px;
+  background: rgba(227, 179, 65, 0.15);
+  border: 1px solid rgba(227, 179, 65, 0.3);
+  border-radius: 3px;
+  color: #e3b341;
+  flex-shrink: 0;
+  cursor: default;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
 /* ── Legend ────────────────────────────────────────── */
 
 .legend {

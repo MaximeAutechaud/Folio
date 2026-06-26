@@ -183,11 +183,12 @@ async function evaluateRules(
         if (!sp) continue;
 
         const score = calcSectorScore({
-          relPerf1W: sp.relPerf1W,
-          relPerf1M: sp.relPerf1M,
-          relPerf3M: sp.relPerf3M,
+          relPerf1W: sp.relPerf1W_ew,
+          relPerf1M: sp.relPerf1M_ew,
+          relPerf3M: sp.relPerf3M_ew,
           rsi: sp.rsi,
           drawdown3M: sp.drawdown3M,
+          drawdown6M: sp.drawdown6M,
           ma50Above: sp.ma50Above,
           macroProfile: sp.sector.macroProfile,
           macroScore: macroScore.score,
