@@ -155,8 +155,18 @@ export function TickerChart({ ticker, assetType, name, entryPrice, currency }: P
       priceFormat: { type: 'price', precision: 1, minMove: 0.1 },
     });
 
-    const rsiData = calcRsiSeries(convertedData);
-    rsiSeries.setData(rsiData.map(p => ({ time: p.time as TS, value: p.value })));
+    // Align RSI to the price time axis: the first `period` bars have no RSI
+    // (warmup), so emit them as whitespace ({ time } without value). Otherwise
+    // the RSI series is shorter than price, and syncing the two by *logical*
+    // range clamps the price chart down to the RSI's bar count
+    // (fixLeftEdge/fixRightEdge), collapsing the initial view to the first bars.
+    const rsiByTime = new Map(calcRsiSeries(convertedData).map(p => [p.time, p.value]));
+    const rsiData = convertedData.map(p =>
+      rsiByTime.has(p.time)
+        ? { time: p.time as TS, value: rsiByTime.get(p.time)! }
+        : { time: p.time as TS }
+    );
+    rsiSeries.setData(rsiData);
 
     rsiSeries.createPriceLine({ price: 70, color: '#f85149', lineWidth: 1, lineStyle: LineStyle.Dashed, title: '' });
     rsiSeries.createPriceLine({ price: 50, color: '#6e7681', lineWidth: 1, lineStyle: LineStyle.Dotted, title: '' });
