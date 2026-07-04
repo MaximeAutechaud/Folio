@@ -53,6 +53,7 @@ export interface Position {
   stop_price: number | null;
   target_price: number | null;
   target_price_2: number | null;
+  note: string | null;
   created_at: number;
 }
 
@@ -66,6 +67,7 @@ export interface PositionInput {
   stop_price?: number | null;
   target_price?: number | null;
   target_price_2?: number | null;
+  note?: string | null;
 }
 
 export interface Snapshot {

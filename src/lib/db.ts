@@ -84,6 +84,7 @@ async function runMigrations(db: Database): Promise<void> {
   await migrateToV7(db);
   await migrateToV8(db);
   await migrateToV9(db);
+  await migrateToV10(db);
 
   // alert_rules: is_system + slot (Phase 1 extension)
   const isSystemCol = await db.select<{ name: string }[]>(
@@ -360,6 +361,19 @@ async function migrateToV9(db: Database): Promise<void> {
   );
 }
 
+// positions.note : contexte libre par ligne (intention de l'user), lu par le briefing IA.
+async function migrateToV10(db: Database): Promise<void> {
+  const col = await db.select<{ name: string }[]>(
+    `SELECT name FROM pragma_table_info('positions') WHERE name='note'`
+  );
+  if (col.length > 0) return;
+  await db.execute(`ALTER TABLE positions ADD COLUMN note TEXT`);
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '10')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
 async function seedNarratives(db: Database): Promise<void> {
   for (const n of NARRATIVE_SEED) {
     const result = await db.execute(
@@ -386,9 +400,9 @@ export async function fetchPositions(): Promise<Position[]> {
 export async function insertPosition(input: PositionInput): Promise<number> {
   const db = await getDb();
   const result = await db.execute(
-    `INSERT INTO positions (ticker, name, asset_type, currency, quantity, cost_basis, stop_price, target_price, target_price_2)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [input.ticker.toUpperCase(), input.name, input.asset_type, input.currency, input.quantity, input.cost_basis, input.stop_price ?? null, input.target_price ?? null, input.target_price_2 ?? null]
+    `INSERT INTO positions (ticker, name, asset_type, currency, quantity, cost_basis, stop_price, target_price, target_price_2, note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [input.ticker.toUpperCase(), input.name, input.asset_type, input.currency, input.quantity, input.cost_basis, input.stop_price ?? null, input.target_price ?? null, input.target_price_2 ?? null, input.note ?? null]
   );
   return result.lastInsertId as number;
 }
@@ -396,8 +410,8 @@ export async function insertPosition(input: PositionInput): Promise<number> {
 export async function updatePosition(id: number, input: PositionInput): Promise<void> {
   const db = await getDb();
   await db.execute(
-    `UPDATE positions SET ticker=$1, name=$2, asset_type=$3, currency=$4, quantity=$5, cost_basis=$6, stop_price=$7, target_price=$8, target_price_2=$9 WHERE id=$10`,
-    [input.ticker.toUpperCase(), input.name, input.asset_type, input.currency, input.quantity, input.cost_basis, input.stop_price ?? null, input.target_price ?? null, input.target_price_2 ?? null, id]
+    `UPDATE positions SET ticker=$1, name=$2, asset_type=$3, currency=$4, quantity=$5, cost_basis=$6, stop_price=$7, target_price=$8, target_price_2=$9, note=$10 WHERE id=$11`,
+    [input.ticker.toUpperCase(), input.name, input.asset_type, input.currency, input.quantity, input.cost_basis, input.stop_price ?? null, input.target_price ?? null, input.target_price_2 ?? null, input.note ?? null, id]
   );
 }
 

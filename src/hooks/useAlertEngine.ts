@@ -41,8 +41,8 @@ function consecutiveSuffix(n: number): string {
 }
 
 // Applique le score d'opportunité à un secteur. Mapping partagé entre l'alerte
-// sector_score_threshold et le logging de signaux (Phase 3) — même entrées EW.
-function scoreSector(sp: SectorPerf, macro: MacroScoreData): SectorScore {
+// sector_score_threshold, le logging de signaux (Phase 3) et le briefing IA — même entrées EW.
+export function scoreSector(sp: SectorPerf, macro: MacroScoreData): SectorScore {
   return calcSectorScore({
     relPerf1W: sp.relPerf1W_ew,
     relPerf1M: sp.relPerf1M_ew,

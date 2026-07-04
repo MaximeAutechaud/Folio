@@ -428,6 +428,18 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
             </>
           )}
 
+          <div className={styles.row}>
+            <label className={styles.label} htmlFor="note">Note / contexte (optionnel)</label>
+            <textarea
+              id="note"
+              className={styles.input}
+              rows={2}
+              value={form.note ?? ''}
+              onChange={(e) => set('note', e.target.value || null)}
+              placeholder="Ex : ligne héritée, conservation long terme, hors gestion active"
+            />
+          </div>
+
           {error && <p className={styles.error}>{error}</p>}
 
           <div className={styles.actions}>
