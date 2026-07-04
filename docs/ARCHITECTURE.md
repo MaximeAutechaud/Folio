@@ -49,6 +49,14 @@
 - Bibliothèque de narratives presets activables/désactivables, + Narrative custom
 - 20 narratives pré-seedées (DB migration v2)
 
+### Market tab — Signaux (Phase 3, DB migration v9)
+- `SignalStats` (4ᵉ sous-tab « Signaux ») : fiabilité historique des signaux secteurs (`dip`/`reversal`/`accelerating`/`exhaustion`) — win% + perf relative moyenne vs SPY à J+5/J+10/J+20, badge « échantillon faible » si n < 10
+- `signal_log` (id, date `YYYY-MM-DD`, scope, scope_id, signal, score, rel_perf_j5/j10/j20) : `UNIQUE(date, scope, scope_id)` → 1 ligne/secteur/jour
+- **Logging** : piggyback dans `useAlertEngine` (`logSectorSignals`) — au même cycle debounce 4min, calcule `scoreSector` (helper extrait, partagé avec l'alerte `sector_score_threshold`) pour les 13 secteurs et upsert la classification du jour (dernier signal observé, `ON CONFLICT DO UPDATE` qui ne touche jamais les `rel_perf_*`)
+- **Backfill** : `useSignalBackfill` (job one-shot au démarrage, monté dans `App`) — réutilise le cache `['sector-raw']` (6M daily, zéro requête extra), remplit les perfs forward par offset en bougies de bourse ; un horizon non encore atteint reste NULL et se remplit au prochain lancement
+- **Agrégation** : `lib/signalStats.ts` (pur, testable) — `exhaustion` est un signal d'évitement : sa réussite = perf relative **négative** ensuite (`isWin` inversé)
+- Scope = secteurs uniquement (les narratives n'ont pas de primitive `signal` — extension future)
+
 ### Watchlist tab (DB migrations v4 + v5)
 - `WatchlistView` : layout split chart/panel — table par catégories + `TickerChart` avec sub-chart RSI
 - `useWatchlist` : `useQueries` par ticker (1 query/ticker, cache partagé) — prix, change 1d, RSI 14, distance MA50, drawdown
@@ -93,6 +101,7 @@ src/
       SectorDrawer.tsx        # chart + table holdings secteur
       MacroScore.tsx          # barre macro collapsible + tableau indicateurs + MacroScoreChart
       MacroScoreChart.tsx     # courbe historique score macro (6M/1Y/2Y)
+      SignalStats.tsx         # tab Signaux — fiabilité historique des signaux secteurs (Phase 3)
       NarrativeDashboard.tsx  # grille narratives + bibliothèque + NarrativeDrawer/Form
       NarrativeDrawer.tsx     # chart + table holdings + RS trend narrative
       NarrativeForm.tsx       # CRUD narrative custom
@@ -109,11 +118,13 @@ src/
     useMacroScoreHistory.ts # historique hebdo 2Y du score macro pour MacroScoreChart
     useNarrativePerfs.ts    # useNarrativePerfs(period) — expose history[], rsTrend, momentum
     useWatchlist.ts         # rows watchlist (prix, RSI, MA50, drawdown) + catégories
-    useAlertEngine.ts       # moteur alertes + useUnacknowledgedCount + useAlertRules
+    useAlertEngine.ts       # moteur alertes + logging signaux (Phase 3) + useUnacknowledgedCount + useAlertRules
+    useSignalBackfill.ts    # job one-shot : perfs forward J+5/10/20 des signaux loggés
   lib/
     db.ts               # SQLite helpers — migrations inline, CRUD complet
     sectors.ts          # 13 SectorDef (id, name, etf, color, macroProfile, holdings[5])
     scoring.ts          # calcSectorScore — opportunity score composite + signaux
+    signalStats.ts      # agrégation pure des signal_log (win% + perf/horizon, exhaustion inversé)
     indicators.ts       # calcRsi, calcRsiSeries (Wilder)
     narratives-seed.ts  # 20 narratives presets (migration v2)
     api/

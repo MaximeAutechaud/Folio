@@ -116,6 +116,28 @@
 }
 .addBtn:hover { background: var(--bg-hover); }
 
+.linkBtn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  padding: 0;
+}
+.linkBtn:hover { text-decoration: underline; }
+
+/* Scrollable list of events when history is expanded */
+.historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
 /* Event rows */
 .eventRow {
   display: flex;

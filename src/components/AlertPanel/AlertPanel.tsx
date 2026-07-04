@@ -32,7 +32,7 @@ const TYPE_BADGE: Record<string, { label: string; color: string }> = {
 function ruleThresholdLabel(rule: AlertRule): string | null {
   if (rule.type === 'rsi_overbought') return `> ${rule.threshold}`;
   if (rule.type === 'rsi_oversold')   return `< ${rule.threshold}`;
-  if (rule.type === 'price_target')   return `≥ ${rule.threshold}`;
+  if (rule.type === 'price_target')   return `${rule.direction === 'below' ? '≤' : '≥'} ${rule.threshold}`;
   if (rule.type === 'stop_loss')      return `≤ ${rule.threshold}`;
   if (rule.type === 'sector_score_threshold') return `≥ ${rule.threshold}`;
   if (rule.type === 'ema_cross') {
@@ -57,10 +57,13 @@ function relativeTime(ts: number): string {
 export function AlertPanel({ open, onClose }: Props) {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
+  const [showAllHistory, setShowAllHistory] = useState(false);
+
+  const HISTORY_PREVIEW = 3;
 
   const { data: events = [] } = useQuery({
     queryKey: ['alert-events'],
-    queryFn: () => fetchAlertEvents(50),
+    queryFn: () => fetchAlertEvents(100),
     staleTime: 30_000,
     refetchInterval: 60_000,
     enabled: open,
@@ -145,15 +148,27 @@ export function AlertPanel({ open, onClose }: Props) {
 
           {unacknowledged.length === 0 && events.length > 0 && (
             <section className={styles.section}>
-              <div className={styles.sectionTitle}>Historique récent</div>
-              {events.slice(0, 10).map(event => (
-                <div key={event.id} className={`${styles.eventRow} ${styles.eventAcked}`}>
-                  <div className={styles.eventContent}>
-                    <span className={styles.eventTime}>{relativeTime(event.triggered_at)}</span>
-                    <span className={styles.eventMsg}>{event.message}</span>
+              <div className={styles.sectionTitle}>
+                Historique récent
+                {events.length > HISTORY_PREVIEW && (
+                  <button
+                    className={styles.linkBtn}
+                    onClick={() => setShowAllHistory(v => !v)}
+                  >
+                    {showAllHistory ? 'Réduire' : `Voir tout (${events.length})`}
+                  </button>
+                )}
+              </div>
+              <div className={showAllHistory ? styles.historyList : styles.section}>
+                {(showAllHistory ? events : events.slice(0, HISTORY_PREVIEW)).map(event => (
+                  <div key={event.id} className={`${styles.eventRow} ${styles.eventAcked}`}>
+                    <div className={styles.eventContent}>
+                      <span className={styles.eventTime}>{relativeTime(event.triggered_at)}</span>
+                      <span className={styles.eventMsg}>{event.message}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </section>
           )}
 

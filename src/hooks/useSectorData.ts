@@ -35,7 +35,9 @@ export interface HoldingPerf {
 
 type Point = { time: number; value: number };
 
-const SECTOR_TICKERS = ['SPY', 'RSP', ...SECTORS.map(s => s.etf)];
+// SPY et RSP en tête, puis les ETF sectoriels dans l'ordre de SECTORS.
+// Exporté pour que le backfill de signaux (Phase 3) tape le même cache ['sector-raw'].
+export const SECTOR_TICKERS = ['SPY', 'RSP', ...SECTORS.map(s => s.etf)];
 const STALE = 5 * 60 * 1000;
 
 function sliceByDays(history: Point[], daysBack: number): Point[] {

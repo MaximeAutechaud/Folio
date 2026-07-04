@@ -7,12 +7,15 @@ import { useMacroScore } from './useMacroScore';
 import { fetchYahooPrices, fetchYahooHistory } from '../lib/api/yahoo';
 import { calcEma, calcMa } from '../lib/indicators';
 import { calcSectorScore } from '../lib/scoring';
+import type { SectorScore } from '../lib/scoring';
 import {
   fetchAlertRules,
   fetchUnacknowledgedCount,
   getLastAlertEvent,
   insertAlertEvent,
   insertBaselineAlertEvent,
+  insertSignalLog,
+  toggleAlertRule,
 } from '../lib/db';
 import type { AlertRule } from '../types';
 import type { SectorPerf } from './useSectorData';
@@ -35,6 +38,50 @@ function formatRegime(regime: string): string {
 function consecutiveSuffix(n: number): string {
   if (n <= 1) return '';
   return ` — ${n}j consécutifs`;
+}
+
+// Applique le score d'opportunité à un secteur. Mapping partagé entre l'alerte
+// sector_score_threshold et le logging de signaux (Phase 3) — même entrées EW.
+function scoreSector(sp: SectorPerf, macro: MacroScoreData): SectorScore {
+  return calcSectorScore({
+    relPerf1W: sp.relPerf1W_ew,
+    relPerf1M: sp.relPerf1M_ew,
+    relPerf3M: sp.relPerf3M_ew,
+    rsi: sp.rsi,
+    drawdown3M: sp.drawdown3M,
+    drawdown6M: sp.drawdown6M,
+    ma50Above: sp.ma50Above,
+    macroProfile: sp.sector.macroProfile,
+    macroScore: macro.score,
+    macroTrend: macro.trend,
+  });
+}
+
+function localDateString(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// Phase 3 : enregistre 1 ligne/secteur/jour dès qu'un secteur émet un signal
+// (dip/reversal/accelerating/exhaustion). Upsert idempotent — les rejeux dans la
+// journée réécrivent juste la classification (voir insertSignalLog).
+async function logSectorSignals(
+  sectorPerfs: SectorPerf[],
+  macro: MacroScoreData | undefined,
+): Promise<void> {
+  if (!macro || sectorPerfs.length === 0) return;
+  const today = localDateString();
+  for (const sp of sectorPerfs) {
+    const s = scoreSector(sp, macro);
+    if (!s.signal) continue;
+    try {
+      await insertSignalLog(today, 'sector', sp.sector.id, s.signal, s.total);
+    } catch {
+      // best-effort — ne bloque jamais le moteur d'alertes
+    }
+  }
 }
 
 // ── Evaluation ────────────────────────────────────────────────────────────────
@@ -112,15 +159,15 @@ async function evaluateRules(
         const threshold = parseFloat(rule.threshold ?? '0');
         if (!threshold) continue;
 
-        conditionMet = rule.type === 'price_target' ? price >= threshold : price <= threshold;
+        // stop_loss = toujours « en-dessous » ; price_target suit rule.direction ('above' par défaut)
+        const below = rule.type === 'stop_loss' || rule.direction === 'below';
+        conditionMet = below ? price <= threshold : price >= threshold;
         currentValue = price.toFixed(2);
 
         if (conditionMet) {
-          consecutiveDays = (lastEvent && lastEvent.triggered_at >= yesterdayStart)
-            ? lastEvent.consecutive_days + 1 : 1;
-          const op = rule.type === 'price_target' ? '≥' : '≤';
-          const lbl = rule.type === 'price_target' ? 'Prix cible' : 'Stop atteint';
-          message = `${rule.label} · ${lbl} — ${price.toFixed(2)} ${op} ${threshold}${consecutiveSuffix(consecutiveDays)}`;
+          const op = below ? '≤' : '≥';
+          const lbl = rule.type === 'stop_loss' ? 'Stop atteint' : 'Prix cible';
+          message = `${rule.label} · ${lbl} — ${price.toFixed(2)} ${op} ${threshold}`;
         }
 
       } else if (rule.type === 'price_below_ma200') {
@@ -182,18 +229,7 @@ async function evaluateRules(
         const sp = sectorPerfs.find(s => s.sector.id === rule.scope_id);
         if (!sp) continue;
 
-        const score = calcSectorScore({
-          relPerf1W: sp.relPerf1W_ew,
-          relPerf1M: sp.relPerf1M_ew,
-          relPerf3M: sp.relPerf3M_ew,
-          rsi: sp.rsi,
-          drawdown3M: sp.drawdown3M,
-          drawdown6M: sp.drawdown6M,
-          ma50Above: sp.ma50Above,
-          macroProfile: sp.sector.macroProfile,
-          macroScore: macroScore.score,
-          macroTrend: macroScore.trend,
-        });
+        const score = scoreSector(sp, macroScore);
 
         const threshold = parseFloat(rule.threshold ?? '70');
         conditionMet = score.total >= threshold;
@@ -212,6 +248,13 @@ async function evaluateRules(
     if (!conditionMet) continue;
 
     await insertAlertEvent(rule.id, consecutiveDays, currentValue, message);
+
+    // One-shot : les franchissements de niveau prix ne se déclenchent qu'une fois.
+    // La règle passe inactive (visible dans le panneau, ré-armable via le toggle).
+    if (rule.type === 'price_target' || rule.type === 'stop_loss') {
+      await toggleAlertRule(rule.id, false);
+    }
+
     onNewEvent();
 
     try {
@@ -225,6 +268,9 @@ async function evaluateRules(
       // Notifications non supportées ou refusées — silencieux
     }
   }
+
+  // Phase 3 : piggyback — logging des signaux secteurs sur le même cycle debounce.
+  await logSectorSignals(sectorPerfs, macroScore);
 }
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
@@ -297,10 +343,13 @@ export function useAlertEngine() {
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['alert-unack-count'] });
     queryClient.invalidateQueries({ queryKey: ['alert-events'] });
+    queryClient.invalidateQueries({ queryKey: ['alert-rules'] });
   }, [queryClient]);
 
   useEffect(() => {
-    if (rules.length === 0) return;
+    // Pas de garde `rules.length === 0` : le logging de signaux (Phase 3) doit
+    // tourner même sans règle d'alerte configurée. evaluateRules gère une liste
+    // vide (boucle no-op) puis loggue les signaux secteurs.
     const dataReady = sectorPerfs.length > 0 || narrativePerfs.length > 0 || macroScore != null;
     if (!dataReady) return;
 

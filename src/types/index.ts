@@ -147,6 +147,7 @@ export interface AlertRule {
   snoozed_until: number | null;
   is_system: number;
   slot: string | null;
+  direction: string | null;
 }
 
 export interface AlertRuleInput {
@@ -155,6 +156,7 @@ export interface AlertRuleInput {
   scope_id: string;
   label: string;
   threshold: string | null;
+  direction?: string | null;
 }
 
 export interface AlertEvent {
@@ -165,6 +167,18 @@ export interface AlertEvent {
   value_at_trigger: string;
   message: string;
   acknowledged: number;
+}
+
+export interface SignalLogRow {
+  id: number;
+  date: string;          // 'YYYY-MM-DD' (local), bucket journalier
+  scope: string;         // 'sector' (narratives = futur)
+  scope_id: string;      // id secteur, ex 'xlk'
+  signal: string;        // 'dip' | 'reversal' | 'accelerating' | 'exhaustion'
+  score: number;
+  rel_perf_j5: number | null;
+  rel_perf_j10: number | null;
+  rel_perf_j20: number | null;
 }
 
 export interface WatchlistCategory {

@@ -1,10 +1,10 @@
 import Database from '@tauri-apps/plugin-sql';
-import type { Position, PositionInput, Snapshot, Transaction, TransactionInput, Narrative, NarrativeInput, NarrativeTicker, NarrativeTickerInput, NarrativeKeyword, AlertRule, AlertRuleInput, AlertEvent, WatchlistItem, WatchlistCategory } from '../types';
+import type { Position, PositionInput, Snapshot, Transaction, TransactionInput, Narrative, NarrativeInput, NarrativeTicker, NarrativeTickerInput, NarrativeKeyword, AlertRule, AlertRuleInput, AlertEvent, WatchlistItem, WatchlistCategory, SignalLogRow } from '../types';
 import { NARRATIVE_SEED } from './narratives-seed';
 
 const SCHEMA_VERSION = '5';
 
-const DB_URL = 'sqlite:folio.db';
+const DB_URL = import.meta.env.DEV ? 'sqlite:folio-dev.db' : 'sqlite:folio.db';
 
 let _dbPromise: Promise<Database> | null = null;
 
@@ -83,6 +83,7 @@ async function runMigrations(db: Database): Promise<void> {
   await migrateToV6(db);
   await migrateToV7(db);
   await migrateToV8(db);
+  await migrateToV9(db);
 
   // alert_rules: is_system + slot (Phase 1 extension)
   const isSystemCol = await db.select<{ name: string }[]>(
@@ -96,6 +97,13 @@ async function runMigrations(db: Database): Promise<void> {
   );
   if (slotCol.length === 0) {
     await db.execute(`ALTER TABLE alert_rules ADD COLUMN slot TEXT`);
+  }
+  // alert_rules.direction: 'above' | 'below' pour price_target (null → 'above')
+  const directionCol = await db.select<{ name: string }[]>(
+    `SELECT name FROM pragma_table_info('alert_rules') WHERE name='direction'`
+  );
+  if (directionCol.length === 0) {
+    await db.execute(`ALTER TABLE alert_rules ADD COLUMN direction TEXT`);
   }
 
   // positions: second take-profit target (Phase 1 extension)
@@ -321,6 +329,33 @@ async function migrateToV8(db: Database): Promise<void> {
 
   await db.execute(
     `INSERT INTO settings (key, value) VALUES ('schema_version', '8')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
+async function migrateToV9(db: Database): Promise<void> {
+  if (await tableExists(db, 'signal_log')) return;
+
+  await db.execute(`
+    CREATE TABLE signal_log (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      date         TEXT    NOT NULL,
+      scope        TEXT    NOT NULL,
+      scope_id     TEXT    NOT NULL,
+      signal       TEXT    NOT NULL,
+      score        INTEGER NOT NULL,
+      rel_perf_j5  REAL,
+      rel_perf_j10 REAL,
+      rel_perf_j20 REAL,
+      UNIQUE(date, scope, scope_id)
+    )
+  `);
+  await db.execute(
+    `CREATE INDEX IF NOT EXISTS idx_signal_log_lookup ON signal_log(scope, scope_id, date)`
+  );
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '9')
      ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   );
 }
@@ -568,9 +603,9 @@ export async function fetchAlertRules(): Promise<AlertRule[]> {
 export async function insertAlertRule(input: AlertRuleInput): Promise<number> {
   const db = await getDb();
   const result = await db.execute(
-    `INSERT INTO alert_rules (type, scope, scope_id, label, threshold)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [input.type, input.scope, input.scope_id, input.label, input.threshold]
+    `INSERT INTO alert_rules (type, scope, scope_id, label, threshold, direction)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [input.type, input.scope, input.scope_id, input.label, input.threshold, input.direction ?? null]
   );
   return result.lastInsertId as number;
 }
@@ -697,6 +732,16 @@ export async function insertAlertEvent(
      VALUES ($1, $2, $3, $4)`,
     [ruleId, consecutiveDays, valueAtTrigger, message]
   );
+
+  // Purge auto : garde les ~100 événements les plus récents. On préserve toujours
+  // le dernier événement de chaque règle (baseline stateful lu par getLastAlertEvent
+  // pour macro_regime_change / ema_cross), sinon on re-baseline à tort.
+  await db.execute(
+    `DELETE FROM alert_events
+     WHERE id NOT IN (SELECT id FROM alert_events ORDER BY triggered_at DESC LIMIT 100)
+       AND id NOT IN (SELECT MAX(id) FROM alert_events GROUP BY rule_id)`
+  );
+
   return result.lastInsertId as number;
 }
 
@@ -796,5 +841,64 @@ export async function dismissCorporateAction(ticker: string, type: string, exDat
   await db.execute(
     'INSERT OR IGNORE INTO dismissed_corporate_actions (ticker, type, ex_date) VALUES ($1, $2, $3)',
     [ticker, type, exDate]
+  );
+}
+
+// ── Signal log (Phase 3 — tracking perf des signaux) ─────────────────────────
+
+// Upsert la classification du jour (dernier signal observé = plus proche de la
+// clôture US). On ne touche JAMAIS les colonnes rel_perf_* ici : elles
+// appartiennent au backfill (updateSignalLogPerf).
+export async function insertSignalLog(
+  date: string,
+  scope: string,
+  scopeId: string,
+  signal: string,
+  score: number
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO signal_log (date, scope, scope_id, signal, score)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT(date, scope, scope_id)
+     DO UPDATE SET signal=excluded.signal, score=excluded.score`,
+    [date, scope, scopeId, signal, score]
+  );
+}
+
+// Lignes dont au moins un horizon forward reste à calculer.
+export async function fetchSignalLogsNeedingBackfill(): Promise<SignalLogRow[]> {
+  const db = await getDb();
+  return db.select<SignalLogRow[]>(
+    `SELECT * FROM signal_log
+     WHERE rel_perf_j5 IS NULL OR rel_perf_j10 IS NULL OR rel_perf_j20 IS NULL
+     ORDER BY date ASC`
+  );
+}
+
+// Écrit uniquement les horizons fournis (les autres restent inchangés / NULL).
+export async function updateSignalLogPerf(
+  id: number,
+  perf: { j5?: number; j10?: number; j20?: number }
+): Promise<void> {
+  const db = await getDb();
+  const sets: string[] = [];
+  const vals: number[] = [];
+  if (perf.j5 != null)  { sets.push(`rel_perf_j5 = $${sets.length + 1}`);  vals.push(perf.j5); }
+  if (perf.j10 != null) { sets.push(`rel_perf_j10 = $${sets.length + 1}`); vals.push(perf.j10); }
+  if (perf.j20 != null) { sets.push(`rel_perf_j20 = $${sets.length + 1}`); vals.push(perf.j20); }
+  if (sets.length === 0) return;
+  vals.push(id);
+  await db.execute(
+    `UPDATE signal_log SET ${sets.join(', ')} WHERE id = $${vals.length}`,
+    vals
+  );
+}
+
+export async function fetchSignalLogs(scope: string): Promise<SignalLogRow[]> {
+  const db = await getDb();
+  return db.select<SignalLogRow[]>(
+    'SELECT * FROM signal_log WHERE scope = $1 ORDER BY date DESC',
+    [scope]
   );
 }

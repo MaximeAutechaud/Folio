@@ -3,15 +3,17 @@ import { SectorDashboard } from './SectorDashboard';
 import { NarrativeDashboard } from './NarrativeDashboard';
 import { MacroScore } from './MacroScore';
 import { MacroPulse } from './MacroPulse';
+import { SignalStats } from './SignalStats';
 import { useMacroScore } from '../../hooks/useMacroScore';
 import styles from './MarketView.module.css';
 
-type MarketSubTab = 'macro' | 'secteurs' | 'narratives';
+type MarketSubTab = 'macro' | 'secteurs' | 'narratives' | 'signaux';
 
 const TABS: { id: MarketSubTab; label: string; hint: string }[] = [
   { id: 'macro',      label: 'Macro',      hint: 'régime & indicateurs' },
   { id: 'secteurs',   label: 'Secteurs',   hint: 'rotation & opportunités' },
   { id: 'narratives', label: 'Narratives', hint: 'thèmes & tickers' },
+  { id: 'signaux',    label: 'Signaux',    hint: 'fiabilité historique' },
 ];
 
 export function MarketView() {
@@ -57,6 +59,7 @@ export function MarketView() {
       {subTab === 'macro'      && <MacroScore />}
       {subTab === 'secteurs'   && <SectorDashboard />}
       {subTab === 'narratives' && <NarrativeDashboard />}
+      {subTab === 'signaux'    && <SignalStats />}
 
       {showMacroDisclaimer && (
         <div className={styles.modalOverlay} onClick={closeMacroDisclaimer}>

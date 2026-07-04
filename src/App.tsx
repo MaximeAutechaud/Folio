@@ -14,6 +14,7 @@ import { CorporateActionModal } from './components/CorporateActionModal/Corporat
 import { usePortfolioStore } from './store/portfolio';
 import { usePrices } from './hooks/usePrices';
 import { useAlertEngine, useUnacknowledgedCount } from './hooks/useAlertEngine';
+import { useSignalBackfill } from './hooks/useSignalBackfill';
 import { useCorporateActionSync } from './hooks/useCorporateActionSync';
 import { fetchSnapshots } from './lib/db';
 import type { PendingCorporateAction, PositionInput, TransactionInput } from './types';
@@ -42,6 +43,7 @@ export default function App() {
 
   usePrices();
   useAlertEngine();
+  useSignalBackfill();
   const corpActionSync = useCorporateActionSync();
 
   const { data: unackCount = 0 } = useUnacknowledgedCount();

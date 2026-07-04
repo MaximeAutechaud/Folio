@@ -12,6 +12,7 @@ interface Props {
 
 type RsiSubScope = 'sector' | 'narrative';
 type EmaDir = 'golden' | 'death' | 'both';
+type PriceDir = 'above' | 'below';
 
 const TYPE_LABELS: Record<AlertType, string> = {
   rsi_overbought:          'RSI Overbought',
@@ -41,6 +42,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
   const [ticker, setTicker] = useState(prefillTicker ? prefillTicker.toUpperCase() : '');
   const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD[initialType] ?? '');
   const [emaDir, setEmaDir] = useState<EmaDir>('both');
+  const [priceDir, setPriceDir] = useState<PriceDir>('above');
   const [saving, setSaving] = useState(false);
 
   const { data: narratives = [] } = useQuery({
@@ -106,6 +108,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
         scope_id: sym,
         label: sym,
         threshold: String(thr),
+        direction: type === 'price_target' ? priceDir : null,
       };
     }
 
@@ -289,6 +292,28 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
                 onChange={e => setTicker(e.target.value)}
                 autoFocus={!prefillTicker}
               />
+            </label>
+          )}
+
+          {type === 'price_target' && (
+            <label className={styles.label}>
+              Condition
+              <div className={styles.segmented}>
+                <button
+                  type="button"
+                  className={`${styles.seg} ${priceDir === 'above' ? styles.segActive : ''}`}
+                  onClick={() => setPriceDir('above')}
+                >
+                  ≥ Au-dessus
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.seg} ${priceDir === 'below' ? styles.segActive : ''}`}
+                  onClick={() => setPriceDir('below')}
+                >
+                  ≤ En-dessous
+                </button>
+              </div>
             </label>
           )}
 
