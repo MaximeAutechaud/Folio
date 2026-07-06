@@ -39,6 +39,7 @@ export function NarrativeForm({ narrative, onClose, onSaved }: Props) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const initialized = useRef(false);
 
   const { data: existingTickers = [], isLoading: loadingTickers } = useQuery({
@@ -80,6 +81,13 @@ export function NarrativeForm({ narrative, onClose, onSaved }: Props) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
+    // Sans ETF, la narrative est un pool de candidats affiché dans le drawer
+    // de son secteur parent — sans secteur, elle ne serait visible nulle part.
+    if (!refEtf.trim() && !parentSector) {
+      setError('Une narrative sans ETF de référence est un pool de candidats : rattachez-la à un secteur parent pour qu\'elle apparaisse dans son drawer.');
+      return;
+    }
+    setError(null);
     setSaving(true);
     try {
       const input: NarrativeInput = {
@@ -141,10 +149,11 @@ export function NarrativeForm({ narrative, onClose, onSaved }: Props) {
                 value={refEtf}
                 onChange={e => setRefEtf(e.target.value.toUpperCase())}
                 placeholder="SOXX, GDX, CIBR..."
+                title="Avec ETF : narrative scorée dans l'onglet Narratives. Sans ETF : pool de candidats dans le drawer du secteur parent."
               />
             </div>
             <div className={styles.row}>
-              <label className={styles.label}>Secteur parent (optionnel)</label>
+              <label className={styles.label}>Secteur parent{refEtf.trim() ? ' (optionnel)' : ''}</label>
               <select
                 className={styles.input}
                 value={parentSector}
@@ -213,6 +222,8 @@ export function NarrativeForm({ narrative, onClose, onSaved }: Props) {
               )}
             </div>
           </div>
+
+          {error && <p className={styles.formError}>{error}</p>}
 
           <div className={styles.actions}>
             <button type="button" className={styles.cancelBtn} onClick={onClose}>Annuler</button>

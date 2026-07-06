@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { createChart, ColorType, AreaSeries, type UTCTimestamp } from 'lightweight-charts';
 import { SECTORS } from '../../lib/sectors';
 import { useSectorHoldings } from '../../hooks/useSectorData';
+import { useNarrativePools } from '../../hooks/useNarrativePools';
 import { fetchYahooHistory } from '../../lib/api/yahoo';
 import type { SectorScore, SectorSignal } from '../../lib/scoring';
 import styles from './SectorDrawer.module.css';
@@ -128,6 +129,7 @@ export function SectorDrawer({
     sectorId,
     period
   );
+  const { data: pools = [] } = useNarrativePools(sectorId);
 
   const etfPerf = calcPerf(history);
   const isPerfPos = (etfPerf ?? 0) >= 0;
@@ -249,6 +251,66 @@ export function SectorDrawer({
             </table>
           )}
         </div>
+
+        {pools.length > 0 && (
+          <div className={styles.holdingsSection}>
+            <span className={styles.holdingsTitle}>
+              Candidats thématiques
+              <span className={styles.poolHint}> — tickers évalués individuellement vs {sector.etf} (1M)</span>
+            </span>
+            {pools.map(({ narrative, rows }) => (
+              <div key={narrative.id} className={styles.poolGroup}>
+                <div className={styles.poolName}>
+                  <span className={styles.colorDot} style={{ background: narrative.color }} />
+                  {narrative.name}
+                  {narrative.description && (
+                    <span className={styles.poolDesc}>{narrative.description}</span>
+                  )}
+                </div>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Ticker</th>
+                      <th>Nom</th>
+                      <th>Perf. 1M</th>
+                      <th>vs {sector.etf}</th>
+                      <th>RSI</th>
+                      <th>Prix</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(r => {
+                      const perfPos = (r.perf1M ?? 0) >= 0;
+                      const relPos = (r.relPerf1M ?? 0) >= 0;
+                      const rsiCls =
+                        r.rsi == null ? '' :
+                        r.rsi < 30 || r.rsi > 70 ? styles.rsiExtreme :
+                        r.rsi < 45 ? styles.rsiFavorable : '';
+                      return (
+                        <tr key={r.ticker}>
+                          <td className={styles.tickerCell}>{r.ticker}</td>
+                          <td className={styles.nameCell}>{r.name}</td>
+                          <td className={`${styles.numCell} ${perfPos ? styles.pos : styles.neg}`}>
+                            {fmtPerf(r.perf1M)}
+                          </td>
+                          <td className={`${styles.numCell} ${relPos ? styles.pos : styles.neg}`}>
+                            {fmtPerf(r.relPerf1M)}
+                          </td>
+                          <td className={`${styles.numCell} ${rsiCls}`}>
+                            {r.rsi ?? '—'}
+                          </td>
+                          <td className={styles.numCell}>
+                            {r.currentPrice != null ? r.currentPrice.toFixed(2) : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </>
   );

@@ -369,3 +369,37 @@
   border: 1px solid var(--border);
   margin-top: 2px;
 }
+
+/* ── Pools de candidats thématiques (narratives sans ETF du secteur) ── */
+.poolHint {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.poolGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.poolName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.poolDesc {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rsiFavorable { color: #7ee787; }
+.rsiExtreme   { color: #e3b341; }

@@ -218,6 +218,7 @@ function LibraryPanel({ onClose }: { onClose: () => void }) {
     queryClient.invalidateQueries({ queryKey: ['narratives-all'] });
     queryClient.invalidateQueries({ queryKey: ['narrative-perfs'] });
     queryClient.invalidateQueries({ queryKey: ['narrative-etf-perfs'] });
+    queryClient.invalidateQueries({ queryKey: ['narrative-pools'] });
     queryClient.invalidateQueries({ queryKey: ['narratives'] });
   }
 
@@ -327,6 +328,7 @@ export function NarrativeDashboard() {
   function handleSaved() {
     queryClient.invalidateQueries({ queryKey: ['narrative-perfs'] });
     queryClient.invalidateQueries({ queryKey: ['narrative-etf-perfs'] });
+    queryClient.invalidateQueries({ queryKey: ['narrative-pools'] });
     queryClient.invalidateQueries({ queryKey: ['narratives'] });
     queryClient.invalidateQueries({ queryKey: ['narratives-all'] });
     setFormNarrative(undefined);
@@ -338,6 +340,7 @@ export function NarrativeDashboard() {
     await deleteNarrative(n.id);
     queryClient.invalidateQueries({ queryKey: ['narrative-perfs'] });
     queryClient.invalidateQueries({ queryKey: ['narrative-etf-perfs'] });
+    queryClient.invalidateQueries({ queryKey: ['narrative-pools'] });
     queryClient.invalidateQueries({ queryKey: ['narratives-all'] });
     if (selectedId === n.id) setSelectedId(null);
   }
