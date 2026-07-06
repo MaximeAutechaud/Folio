@@ -18,9 +18,10 @@ import {
   toggleAlertRule,
 } from '../lib/db';
 import type { AlertRule } from '../types';
-import type { SectorPerf } from './useSectorData';
+import type { SectorPerf, EtfMetrics } from './useSectorData';
 import type { NarrativePerf } from './useNarrativePerfs';
 import type { MacroScoreData } from './useMacroScore';
+import type { MacroProfile } from '../lib/sectors';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -40,21 +41,27 @@ function consecutiveSuffix(n: number): string {
   return ` — ${n}j consécutifs`;
 }
 
-// Applique le score d'opportunité à un secteur. Mapping partagé entre l'alerte
-// sector_score_threshold, le logging de signaux (Phase 3) et le briefing IA — même entrées EW.
-export function scoreSector(sp: SectorPerf, macro: MacroScoreData): SectorScore {
+// Mapping EtfMetrics → ScoreInput, centralisé (partagé entre l'alerte
+// sector_score_threshold, le logging de signaux, le briefing IA et l'UI) —
+// même entrées EW pour les secteurs et les narratives-ETF.
+export function scoreEtf(perf: EtfMetrics, macroProfile: MacroProfile, macro: MacroScoreData): SectorScore {
   return calcSectorScore({
-    relPerf1W: sp.relPerf1W_ew,
-    relPerf1M: sp.relPerf1M_ew,
-    relPerf3M: sp.relPerf3M_ew,
-    rsi: sp.rsi,
-    drawdown3M: sp.drawdown3M,
-    drawdown6M: sp.drawdown6M,
-    ma50Above: sp.ma50Above,
-    macroProfile: sp.sector.macroProfile,
+    relPerf1W: perf.relPerf1W_ew,
+    relPerf1M: perf.relPerf1M_ew,
+    relPerf3M: perf.relPerf3M_ew,
+    rsi: perf.rsi,
+    drawdown3M: perf.drawdown3M,
+    drawdown6M: perf.drawdown6M,
+    ma50Above: perf.ma50Above,
+    macroProfile,
     macroScore: macro.score,
     macroTrend: macro.trend,
   });
+}
+
+// Applique le score d'opportunité à un secteur.
+export function scoreSector(sp: SectorPerf, macro: MacroScoreData): SectorScore {
+  return scoreEtf(sp, sp.sector.macroProfile, macro);
 }
 
 function localDateString(d = new Date()): string {

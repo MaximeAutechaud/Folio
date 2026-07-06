@@ -94,6 +94,18 @@ function calcMacroAlignScore(
   return macroScore >= 50 ? 58 : 42;
 }
 
+// Profil macro d'une narrative-ETF : hérité du secteur parent, sauf quand la
+// thèse du thème diverge du cycle de son secteur GICS. Sans override correct,
+// macroAlign (15% du score) pénalise systématiquement le thème au mauvais moment.
+export const NARRATIVE_MACRO_OVERRIDES: Record<string, MacroProfile> = {
+  GDX: 'defensive', // minières d'or — montent en risk-off, à l'inverse de XLB (risk_on)
+  NLR: 'neutral',   // nucléaire — demande structurelle datacenter, peu corrélé au cycle
+};
+
+export function narrativeMacroProfile(refEtf: string, parentProfile: MacroProfile): MacroProfile {
+  return NARRATIVE_MACRO_OVERRIDES[refEtf] ?? parentProfile;
+}
+
 export function calcSectorScore(input: ScoreInput): SectorScore {
   const { score: rsSlopeScore, shortAccel, reversal } = calcRsSlopeScore(
     input.relPerf1W, input.relPerf1M, input.relPerf3M,
