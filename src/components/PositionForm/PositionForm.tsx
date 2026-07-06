@@ -4,6 +4,8 @@ import { searchYahoo, detectCurrency, type YahooSuggestion } from '../../lib/api
 import { searchCoinGecko, type CoinGeckoSuggestion } from '../../lib/api/coingecko';
 import { usePortfolioStore, computeTotals, resolvePositions, convertCurrency } from '../../store/portfolio';
 import { getSetting, setSetting } from '../../lib/db';
+import { useMacroScore } from '../../hooks/useMacroScore';
+import { evaluateEntryChecks } from '../../lib/entryChecks';
 import styles from './PositionForm.module.css';
 
 const RISK_PCT_SETTING = 'risk_pct';
@@ -59,6 +61,7 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
   const eurUsd = usePortfolioStore((s) => s.eurUsd);
   const storePositions = usePortfolioStore((s) => s.positions);
   const storeTransactions = usePortfolioStore((s) => s.transactions);
+  const { data: macroScore } = useMacroScore();
 
   const { totalValue } = computeTotals(
     resolvePositions(storePositions, storeTransactions).filter((p) => p.asset_type !== 'fiat'),
@@ -94,6 +97,23 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
     setQtyRaw(String(suggestedQty));
     set('quantity', suggestedQty);
   }
+
+  const positionValueBase = form.quantity > 0 && form.cost_basis > 0
+    ? convertCurrency(form.quantity * form.cost_basis, form.currency, baseCurrency, eurUsd)
+    : null;
+  const positionWeightPct = positionValueBase != null && (totalValue + positionValueBase) > 0
+    ? (positionValueBase / (totalValue + positionValueBase)) * 100
+    : null;
+
+  const entryWarnings = form.asset_type !== 'fiat' && form.quantity > 0 && form.cost_basis > 0
+    ? evaluateEntryChecks({
+        hasStop: stopVal > 0,
+        riskPct,
+        riskBudgetPct: riskPctSetting,
+        positionWeightPct,
+        macroRegime: macroScore?.regime ?? null,
+      })
+    : [];
 
   const decimals = form.asset_type === 'crypto' ? 6 : 2;
   const rPct = R > 0 && form.cost_basis > 0 ? ((R / form.cost_basis) * 100).toFixed(1) : null;
@@ -512,6 +532,14 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
               placeholder="Ex : ligne héritée, conservation long terme, hors gestion active"
             />
           </div>
+
+          {entryWarnings.length > 0 && (
+            <ul className={styles.warnings}>
+              {entryWarnings.map((w) => (
+                <li key={w.id} className={styles.warningItem}>⚠ {w.message}</li>
+              ))}
+            </ul>
+          )}
 
           {error && <p className={styles.error}>{error}</p>}
 
