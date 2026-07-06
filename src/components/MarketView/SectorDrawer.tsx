@@ -51,7 +51,8 @@ function SignalBadge({ signal }: { signal: SectorSignal }) {
   );
 }
 
-function ScoreBreakdown({ score }: { score: SectorScore }) {
+// Exporté : réutilisé par NarrativeDrawer (narratives-ETF, même score/pipeline)
+export function ScoreBreakdown({ score }: { score: SectorScore }) {
   const labelCls =
     score.label === 'hot'     ? styles.scoreTotalHot  :
     score.label === 'warming' ? styles.scoreTotalWarm :

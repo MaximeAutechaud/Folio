@@ -43,8 +43,14 @@ function consecutiveSuffix(n: number): string {
 
 // Mapping EtfMetrics → ScoreInput, centralisé (partagé entre l'alerte
 // sector_score_threshold, le logging de signaux, le briefing IA et l'UI) —
-// même entrées EW pour les secteurs et les narratives-ETF.
-export function scoreEtf(perf: EtfMetrics, macroProfile: MacroProfile, macro: MacroScoreData): SectorScore {
+// même entrées EW pour les secteurs et les narratives-ETF. Le paramètre macro
+// n'exige que score/trend pour permettre un fallback neutre quand le
+// MacroScore n'est pas encore chargé.
+export function scoreEtf(
+  perf: EtfMetrics,
+  macroProfile: MacroProfile,
+  macro: Pick<MacroScoreData, 'score' | 'trend'>,
+): SectorScore {
   return calcSectorScore({
     relPerf1W: perf.relPerf1W_ew,
     relPerf1M: perf.relPerf1M_ew,
@@ -60,7 +66,7 @@ export function scoreEtf(perf: EtfMetrics, macroProfile: MacroProfile, macro: Ma
 }
 
 // Applique le score d'opportunité à un secteur.
-export function scoreSector(sp: SectorPerf, macro: MacroScoreData): SectorScore {
+export function scoreSector(sp: SectorPerf, macro: Pick<MacroScoreData, 'score' | 'trend'>): SectorScore {
   return scoreEtf(sp, sp.sector.macroProfile, macro);
 }
 

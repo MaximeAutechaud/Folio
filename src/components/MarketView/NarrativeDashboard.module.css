@@ -248,12 +248,6 @@
   min-width: 0;
 }
 
-.rank {
-  font-size: 10px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
 .name {
   font-size: 12px;
   font-weight: 600;
@@ -271,42 +265,6 @@
   border-radius: 3px;
   padding: 1px 5px;
   flex-shrink: 0;
-}
-
-.sourceBadgeBasket {
-  color: var(--accent);
-  background: var(--accent-subtle);
-}
-
-.lowConf {
-  font-size: 11px;
-  color: #e3b341;
-  flex-shrink: 0;
-  cursor: help;
-  position: relative;
-}
-
-.lowConf::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  bottom: calc(100% + 5px);
-  right: 0;
-  background: #1c2128;
-  border: 1px solid #30363d;
-  border-radius: 4px;
-  padding: 4px 8px;
-  font-size: 11px;
-  font-family: var(--font-mono);
-  color: var(--text-primary);
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s;
-  z-index: 10;
-}
-
-.lowConf:hover::after {
-  opacity: 1;
 }
 
 /* ── Perf row ── */
@@ -330,41 +288,36 @@
 .pos { color: var(--green); }
 .neg { color: var(--red); }
 
-/* ── RS Trend ── */
-.rsTrend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* ── RS vs secteur parent ── */
+.vsParent {
+  font-size: 11px;
+  font-weight: 500;
+  cursor: default;
+  position: relative;
+  width: fit-content;
 }
 
-.rsLabel {
-  font-size: 10px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  flex-shrink: 0;
-}
-
-.rsDot {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  font-size: 10px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  min-width: 36px;
-  line-height: 1.2;
-}
-
-.rsSpan {
-  font-size: 9px;
+.vsParent::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 0;
+  background: #1c2128;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
   font-weight: 400;
-  color: var(--text-muted);
+  color: var(--text-primary);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 10;
 }
 
-.rsDotPos { color: var(--green); }
-.rsDotNeg { color: var(--red); }
-.rsDotNull { color: var(--text-muted); }
+.vsParent:hover::after { opacity: 1; }
 
 /* ── Card bottom ── */
 .cardBottom {
@@ -409,30 +362,6 @@
 .distAtHigh:hover::after {
   opacity: 1;
 }
-
-.rsTrendMini {
-  display: flex;
-  gap: 8px;
-  padding-top: 4px;
-  border-top: 1px solid var(--border-color);
-  margin-top: 2px;
-}
-
-.rsItem {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 10px;
-}
-
-.rsLabel {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-}
-
-.rsPos   { color: var(--green); font-weight: 600; }
-.rsNeg   { color: var(--red);   font-weight: 600; }
-.rsMuted { color: var(--text-muted); }
 
 .momBadge {
   font-size: 10px;
@@ -483,33 +412,122 @@
 .rsiHigh       { background: rgba(227, 179, 65, 0.15); color: #e3b341; }
 .rsiOverbought { background: rgba(248, 81, 73, 0.15);  color: #f85149; }
 
-.sectorIcon {
-  position: relative;
-  font-size: 13px;
-  line-height: 1;
-  cursor: default;
-  flex-shrink: 0;
+/* ── Groupes par secteur parent ── */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.sectorIcon::after {
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-top: 4px;
+}
+
+.groupEtf {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  padding: 1px 5px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.libPool {
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+/* ── Score badge (mêmes conventions que SectorDashboard) ── */
+.scoreBadge {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: default;
+  position: relative;
+  flex-shrink: 0;
+  letter-spacing: -0.2px;
+}
+
+.scoreBadge::after {
   content: attr(data-tooltip);
   position: absolute;
-  bottom: calc(100% + 5px);
+  bottom: calc(100% + 6px);
   right: 0;
   background: #1c2128;
   border: 1px solid #30363d;
   border-radius: 4px;
-  padding: 4px 8px;
+  padding: 7px 10px;
   font-size: 11px;
   font-family: var(--font-mono);
+  font-weight: 400;
   color: var(--text-primary);
-  white-space: nowrap;
+  white-space: pre;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s;
-  z-index: 10;
+  z-index: 20;
+  min-width: 190px;
+}
+.scoreBadge:hover::after { opacity: 1; }
+
+.scoreBadgeHot     { background: rgba(63, 185, 80, 0.2);   color: #3fb950; }
+.scoreBadgeWarm    { background: rgba(227, 179, 65, 0.18); color: #e3b341; }
+.scoreBadgeNeutral { background: var(--bg-hover);           color: var(--text-muted); }
+.scoreBadgeCool    { background: rgba(248, 81, 73, 0.1);   color: #f85149; }
+
+/* ── Glow hot/warming (mêmes animations que SectorDashboard) ── */
+@keyframes pulse-hot {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(63, 185, 80, 0.4),
+      0 0 10px rgba(63, 185, 80, 0.15),
+      0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(63, 185, 80, 0.65),
+      0 0 20px rgba(63, 185, 80, 0.28),
+      0 2px 6px rgba(0, 0, 0, 0.3);
+  }
 }
 
-.sectorIcon:hover::after {
-  opacity: 1;
+@keyframes pulse-warm {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(227, 179, 65, 0.3),
+      0 0 7px rgba(227, 179, 65, 0.1),
+      0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(227, 179, 65, 0.5),
+      0 0 14px rgba(227, 179, 65, 0.2),
+      0 2px 6px rgba(0, 0, 0, 0.3);
+  }
 }
+
+.cardHot {
+  border-color: rgba(63, 185, 80, 0.35);
+  animation: pulse-hot 2.5s ease-in-out infinite;
+}
+.cardHot:hover { border-color: rgba(63, 185, 80, 0.55); }
+
+.cardWarming {
+  border-color: rgba(227, 179, 65, 0.25);
+  animation: pulse-warm 3.5s ease-in-out infinite;
+}
+.cardWarming:hover { border-color: rgba(227, 179, 65, 0.45); }

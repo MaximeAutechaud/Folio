@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useSectorPerfs, type SectorPerf } from '../../hooks/useSectorData';
 import { useMacroScore } from '../../hooks/useMacroScore';
-import { calcSectorScore, type SectorScore, type SectorSignal } from '../../lib/scoring';
+import { scoreSector } from '../../hooks/useAlertEngine';
+import type { SectorScore, SectorSignal } from '../../lib/scoring';
 import { SectorDrawer } from './SectorDrawer';
 import styles from './SectorDashboard.module.css';
 
@@ -239,23 +240,8 @@ export function SectorDashboard() {
   const { data: macroData } = useMacroScore();
 
   const sectorsWithScores = useMemo(() => {
-    const macroScore = macroData?.score ?? 50;
-    const macroTrend = macroData?.trend ?? 'flat';
-    return sectors.map(s => ({
-      ...s,
-      score: calcSectorScore({
-        relPerf1W:    s.relPerf1W_ew,
-        relPerf1M:    s.relPerf1M_ew,
-        relPerf3M:    s.relPerf3M_ew,
-        rsi:          s.rsi,
-        drawdown3M:   s.drawdown3M,
-        drawdown6M:   s.drawdown6M,
-        ma50Above:    s.ma50Above,
-        macroProfile: s.sector.macroProfile,
-        macroScore,
-        macroTrend,
-      }),
-    }));
+    const macro = macroData ?? { score: 50, trend: 'flat' as const };
+    return sectors.map(s => ({ ...s, score: scoreSector(s, macro) }));
   }, [sectors, macroData]);
 
   // Broad-market detection: when many sectors flag 'reversal' at once, it's a

@@ -24,6 +24,7 @@ export interface NarrativeEtfPerf extends EtfMetrics {
   macroProfile: MacroProfile;
   // « Le thème tire-t-il son secteur ? » — ETF narrative vs ETF du parent_sector
   relPerfVsParent: number | null;   // fenêtre de la période sélectionnée
+  relPerfVsParent1W: number | null;
   relPerfVsParent1M: number | null;
   relPerfVsParent3M: number | null;
 }
@@ -94,6 +95,7 @@ export function useNarrativeEtfPerfs(period: '1W' | '1M' | '3M') {
             tickers: tickersByNarrative[n.id] ?? [],
             macroProfile: narrativeMacroProfile(n.ref_etf!, parent?.macroProfile ?? 'neutral'),
             relPerfVsParent: vsParent(daysBack),
+            relPerfVsParent1W: vsParent(7),
             relPerfVsParent1M: vsParent(31),
             relPerfVsParent3M: vsParent(93),
           };

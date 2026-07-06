@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createChart, ColorType, AreaSeries, type UTCTimestamp } from 'lightweight-charts';
 import { fetchYahooHistory } from '../../lib/api/yahoo';
-import { computeBasketHistory } from '../../hooks/useNarrativePerfs';
+import { ScoreBreakdown } from './SectorDrawer';
+import type { SectorScore } from '../../lib/scoring';
 import type { Narrative, NarrativeTicker } from '../../types';
 import styles from './NarrativeDrawer.module.css';
 
@@ -26,49 +27,48 @@ interface HoldingRow {
   ticker: string;
   name: string;
   perf: number | null;
-  relPerf: number | null;
+  relPerf: number | null; // vs l'ETF de la narrative — qui tire le thème ?
   currentPrice: number | null;
 }
 
 interface Props {
   narrative: Narrative;
   tickers: NarrativeTicker[];
-  rsTrend: [number | null, number | null, number | null];
+  rsTrend: [number | null, number | null, number | null];        // [3M, 1M, 1W] vs SPY
+  vsParentTrend: [number | null, number | null, number | null];  // [3M, 1M, 1W] vs ETF du secteur parent
+  parentEtf: string | null;
+  score?: SectorScore;
   initialPeriod: '1W' | '1M' | '3M';
   onEdit: () => void;
   onDelete: () => void;
   onClose: () => void;
 }
 
-export function NarrativeDrawer({ narrative, tickers, rsTrend, initialPeriod, onEdit, onDelete, onClose }: Props) {
+export function NarrativeDrawer({
+  narrative, tickers, rsTrend, vsParentTrend, parentEtf, score,
+  initialPeriod, onEdit, onDelete, onClose,
+}: Props) {
   const [period, setPeriod] = useState<Period>(initialPeriod);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Le dashboard n'affiche que des narratives-ETF — ref_etf est toujours présent ici.
+  const refEtf = narrative.ref_etf!;
 
-  // Fetch chart data
   const { data: chartData = [] } = useQuery({
-    queryKey: ['narrative-chart', narrative.id, narrative.ref_etf, period],
-    queryFn: async () => {
-      if (narrative.ref_etf) {
-        return fetchYahooHistory(narrative.ref_etf, period);
-      }
-      // Basket: fetch all tickers, compute normalized average
-      const tickerHists = await Promise.all(
-        tickers.map(t => fetchYahooHistory(t.ticker, period))
-      );
-      return computeBasketHistory(tickerHists);
-    },
+    queryKey: ['narrative-chart', narrative.id, refEtf, period],
+    queryFn: () => fetchYahooHistory(refEtf, period),
     staleTime: 5 * 60 * 1000,
   });
 
-  // Fetch holdings table data
+  // Composants du thème, comparés à l'ETF de la narrative (pas SPY) :
+  // répond à « qui tire le thème ? », pas « qui bat le marché ? »
   const { data: holdings = [], isFetching: loadingHoldings } = useQuery<HoldingRow[]>({
-    queryKey: ['narrative-holdings', narrative.id, period],
+    queryKey: ['narrative-holdings', narrative.id, refEtf, period],
     queryFn: async () => {
-      const tickersToFetch = ['SPY', ...tickers.map(t => t.ticker)];
+      const tickersToFetch = [refEtf, ...tickers.map(t => t.ticker)];
       const histories = await Promise.all(
         tickersToFetch.map(t => fetchYahooHistory(t, period))
       );
-      const spyPerf = calcPerf(histories[0]);
+      const etfPerf = calcPerf(histories[0]);
       return tickers.map((t, i) => {
         const hist = histories[i + 1];
         const perf = calcPerf(hist);
@@ -76,7 +76,7 @@ export function NarrativeDrawer({ narrative, tickers, rsTrend, initialPeriod, on
           ticker: t.ticker,
           name: t.name,
           perf,
-          relPerf: perf != null && spyPerf != null ? perf - spyPerf : null,
+          relPerf: perf != null && etfPerf != null ? perf - etfPerf : null,
           currentPrice: hist[hist.length - 1]?.value ?? null,
         };
       }).sort((a, b) => (b.perf ?? -999) - (a.perf ?? -999));
@@ -86,7 +86,6 @@ export function NarrativeDrawer({ narrative, tickers, rsTrend, initialPeriod, on
 
   const chartPerf = calcPerf(chartData);
   const isPerfPos = (chartPerf ?? 0) >= 0;
-  const isBasket = !narrative.ref_etf;
 
   useEffect(() => {
     if (!containerRef.current || chartData.length < 2) return;
@@ -134,10 +133,7 @@ export function NarrativeDrawer({ narrative, tickers, rsTrend, initialPeriod, on
             <span className={styles.colorDot} style={{ background: narrative.color }} />
             <div>
               <span className={styles.title}>{narrative.name}</span>
-              {narrative.ref_etf
-                ? <span className={styles.subtitle}>ETF : {narrative.ref_etf}</span>
-                : <span className={styles.subtitle}>Panier synthétique · {tickers.length} tickers</span>
-              }
+              <span className={styles.subtitle}>ETF : {refEtf}</span>
             </div>
           </div>
           <div className={styles.headerActions}>
@@ -163,12 +159,6 @@ export function NarrativeDrawer({ narrative, tickers, rsTrend, initialPeriod, on
           ))}
         </div>
 
-        {isBasket && (
-          <div className={styles.basketNote}>
-            Indice synthétique — retours individuels normalisés à 100, puis moyennés
-          </div>
-        )}
-
         <div ref={containerRef} className={styles.chart} />
 
         <div className={styles.statsRow}>
@@ -192,12 +182,28 @@ export function NarrativeDrawer({ narrative, tickers, rsTrend, initialPeriod, on
               })}
             </div>
           </div>
+          {parentEtf && (
+            <div className={styles.stat}>
+              <span className={styles.statLabel}>RS vs secteur ({parentEtf})</span>
+              <div className={styles.rsTrend}>
+                {(['3M', '1M', '1W'] as const).map((label, i) => {
+                  const v = vsParentTrend[i];
+                  return (
+                    <span key={label} className={`${styles.rsItem} ${v == null ? '' : v >= 0 ? styles.pos : styles.neg}`}>
+                      <span className={styles.rsTimeLabel}>{label}</span>
+                      {v != null ? fmtPerf(v) : '—'}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
+        {score && <ScoreBreakdown score={score} />}
+
         <div className={styles.holdingsSection}>
-          <span className={styles.holdingsTitle}>
-            {narrative.ref_etf ? 'Composants' : 'Tickers'} ({tickers.length})
-          </span>
+          <span className={styles.holdingsTitle}>Composants ({tickers.length})</span>
           {loadingHoldings ? (
             <span className={styles.loadingMsg}>Chargement…</span>
           ) : (
@@ -207,7 +213,7 @@ export function NarrativeDrawer({ narrative, tickers, rsTrend, initialPeriod, on
                   <th>Ticker</th>
                   <th>Nom</th>
                   <th>Perf.</th>
-                  <th>vs S&P 500</th>
+                  <th>vs {refEtf}</th>
                   <th>Prix</th>
                 </tr>
               </thead>

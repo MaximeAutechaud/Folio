@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNarrativePerfs, type NarrativePerf } from '../../hooks/useNarrativePerfs';
+import { useNarrativeEtfPerfs, type NarrativeEtfPerf } from '../../hooks/useNarrativeEtfPerfs';
+import { useMacroScore } from '../../hooks/useMacroScore';
+import { scoreEtf } from '../../hooks/useAlertEngine';
 import { fetchNarratives, toggleNarrativeActive } from '../../lib/db';
 import { SECTORS } from '../../lib/sectors';
+import type { SectorScore, SectorSignal } from '../../lib/scoring';
 import { NarrativeDrawer } from './NarrativeDrawer';
 import { NarrativeForm } from './NarrativeForm';
 import type { Narrative } from '../../types';
@@ -14,22 +17,6 @@ function fmtPerf(n: number | null): string {
   if (n == null) return '—';
   return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
 }
-
-const SECTOR_ICONS: Record<string, string> = {
-  xlk:  '💻',
-  xlv:  '🏥',
-  xlf:  '🏦',
-  xly:  '🛍️',
-  xli:  '⚙️',
-  xlc:  '📡',
-  xle:  '🔋',
-  xlp:  '🛒',
-  xlb:  '🪨',
-  xlre: '🏢',
-  xlu:  '💡',
-  ita:  '🚀',
-  blok: '₿',
-};
 
 // ── Sparkline ─────────────────────────────────────────────────────────────────
 
@@ -66,27 +53,7 @@ function distFromHigh(history: { time: number; value: number }[]): number | null
   return ((current - high) / high) * 100;
 }
 
-// ── RS Trend mini ─────────────────────────────────────────────────────────────
-
-function RsTrendMini({ rsTrend }: { rsTrend: NarrativePerf['rsTrend'] }) {
-  return (
-    <div className={styles.rsTrendMini}>
-      {(['3M', '1M', '1W'] as const).map((label, i) => {
-        const v = rsTrend[i];
-        const arrow = v == null ? '·' : v >= 0.5 ? '↑' : v <= -0.5 ? '↓' : '→';
-        const cls = v == null ? styles.rsMuted : v >= 0.5 ? styles.rsPos : v <= -0.5 ? styles.rsNeg : styles.rsMuted;
-        return (
-          <span key={label} className={styles.rsItem}>
-            <span className={styles.rsLabel}>{label}</span>
-            <span className={cls}>{arrow}</span>
-          </span>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Momentum badge ────────────────────────────────────────────────────────────
+// ── Badges (mêmes conventions que SectorDashboard) ────────────────────────────
 
 function RsiBadge({ rsi }: { rsi: number | null }) {
   if (rsi == null) return null;
@@ -109,53 +76,92 @@ function RsiBadge({ rsi }: { rsi: number | null }) {
   );
 }
 
-function MomentumBadge({ value }: { value: NarrativePerf['momentum'] }) {
+function MomentumBadge({ value }: { value: NarrativeEtfPerf['momentum'] }) {
   const label = value === 'accelerating' ? '↑↑ accélère' : value === 'decelerating' ? '↓↓ ralentit' : '→ stable';
   const cls   = value === 'accelerating' ? styles.momUp : value === 'decelerating' ? styles.momDown : styles.momNeutral;
   return <span className={`${styles.momBadge} ${cls}`}>{label}</span>;
 }
 
+const SIGNAL_LABEL: Record<NonNullable<SectorSignal>, string> = {
+  reversal:     '↗ Retournement détecté',
+  exhaustion:   '↘ Potentiel essoufflement',
+  accelerating: '↑ Accélération en cours',
+  dip:          '◎ Dip dans tendance',
+};
+
+function ScoreBadge({ score }: { score: SectorScore }) {
+  const cls =
+    score.label === 'hot'     ? styles.scoreBadgeHot  :
+    score.label === 'warming' ? styles.scoreBadgeWarm :
+    score.label === 'cooling' ? styles.scoreBadgeCool :
+    styles.scoreBadgeNeutral;
+
+  const signalLine = score.signal ? SIGNAL_LABEL[score.signal] : '';
+
+  const ma50Line =
+    score.ma50Above === true  ? 'MA50  ▲ au-dessus' :
+    score.ma50Above === false ? 'MA50  ▼ en-dessous' :
+    '';
+
+  const tip = [
+    signalLine,
+    signalLine ? '──────────────────' : '',
+    `RS Slope   ${score.rsSlope}/100  ×40%`,
+    `RSI Entry  ${score.rsiEntry}/100  ×25%`,
+    `Dip        ${score.drawdown}/100  ×20%`,
+    `Macro      ${score.macroAlign}/100  ×15%`,
+    '──────────────────',
+    'Signaux narratives non calibrés',
+    '(fiabilité mesurée par le tracking)',
+    ma50Line ? '──────────────────' : '',
+    ma50Line,
+  ].filter(Boolean).join('\n');
+
+  const prefix =
+    score.label === 'hot'     ? '◆ ' :
+    score.label === 'warming' ? '◈ ' :
+    '';
+
+  return (
+    <span className={`${styles.scoreBadge} ${cls}`} data-tooltip={tip}>
+      {prefix}{score.total}
+    </span>
+  );
+}
+
 // ── Narrative card ────────────────────────────────────────────────────────────
 
 function NarrativeCard({
-  data, rank, selected, onClick,
+  data, score, parentEtf, selected, onClick,
 }: {
-  data: NarrativePerf;
-  rank: number;
+  data: NarrativeEtfPerf;
+  score: SectorScore;
+  parentEtf: string | null;
   selected: boolean;
   onClick: () => void;
 }) {
-  const { narrative, basketPerf, relPerf, momentum, rsi, rsTrend, history, source, lowConfidence } = data;
-  const perfPos = (basketPerf ?? 0) >= 0;
+  const { narrative, etfPerf, relPerf, relPerfVsParent, momentum, rsi, history } = data;
+  const perfPos = (etfPerf ?? 0) >= 0;
   const relPos  = (relPerf ?? 0) >= 0;
+  const vsParentPos = (relPerfVsParent ?? 0) >= 0;
   const dist = distFromHigh(history);
+
+  const glowClass =
+    score.label === 'hot'     ? styles.cardHot     :
+    score.label === 'warming' ? styles.cardWarming :
+    '';
 
   return (
     <div
-      className={`${styles.card} ${selected ? styles.cardSelected : ''}`}
+      className={`${styles.card} ${selected ? styles.cardSelected : ''} ${glowClass}`}
       onClick={onClick}
     >
       <div className={styles.colorBar} style={{ background: narrative.color }} />
       <div className={styles.cardContent}>
 
         <div className={styles.cardTop}>
-          <span className={styles.rank}>#{rank}</span>
           <span className={styles.name}>{narrative.name}</span>
-          {narrative.parent_sector && (() => {
-            const sector = SECTORS.find(s => s.id === narrative.parent_sector);
-            return (
-              <span className={styles.sectorIcon} data-tooltip={sector?.name ?? narrative.parent_sector}>
-                {SECTOR_ICONS[narrative.parent_sector!] ?? '📊'}
-              </span>
-            );
-          })()}
-          {source.type === 'etf'
-            ? <span className={styles.sourceBadge}>{source.label}</span>
-            : <span className={`${styles.sourceBadge} ${styles.sourceBadgeBasket}`}>Panier {source.count}T</span>
-          }
-          {lowConfidence && (
-            <span className={styles.lowConf} data-tooltip="Moins de 5 tickers — signal momentum peu fiable">⚠</span>
-          )}
+          <span className={styles.sourceBadge}>{narrative.ref_etf}</span>
           {dist != null && (
             <span
               className={dist >= -1 ? styles.distAtHigh : styles.distFromHigh}
@@ -168,19 +174,28 @@ function NarrativeCard({
 
         <div className={styles.perfRow}>
           <span className={`${styles.perfAbs} ${perfPos ? styles.pos : styles.neg}`}>
-            {fmtPerf(basketPerf)}
+            {fmtPerf(etfPerf)}
           </span>
           <span className={`${styles.perfRel} ${relPos ? styles.pos : styles.neg}`}>
             {fmtPerf(relPerf)} vs S&P 500
           </span>
         </div>
 
+        {parentEtf && relPerfVsParent != null && (
+          <div
+            className={`${styles.vsParent} ${vsParentPos ? styles.pos : styles.neg}`}
+            data-tooltip="Écart vs l'ETF du secteur parent — le thème tire-t-il son secteur ?"
+          >
+            {fmtPerf(relPerfVsParent)} vs {parentEtf}
+          </div>
+        )}
+
         <div className={styles.cardBottom}>
           <MomentumBadge value={momentum} />
           <RsiBadge rsi={rsi} />
+          <ScoreBadge score={score} />
           <Sparkline history={history} positive={perfPos} />
         </div>
-        <RsTrendMini rsTrend={rsTrend} />
 
       </div>
     </div>
@@ -202,6 +217,7 @@ function LibraryPanel({ onClose }: { onClose: () => void }) {
     await toggleNarrativeActive(n.id, n.active === 0);
     queryClient.invalidateQueries({ queryKey: ['narratives-all'] });
     queryClient.invalidateQueries({ queryKey: ['narrative-perfs'] });
+    queryClient.invalidateQueries({ queryKey: ['narrative-etf-perfs'] });
     queryClient.invalidateQueries({ queryKey: ['narratives'] });
   }
 
@@ -219,7 +235,8 @@ function LibraryPanel({ onClose }: { onClose: () => void }) {
         <button className={styles.libCloseBtn} onClick={onClose}>✕</button>
       </div>
       <p className={styles.libraryHint}>
-        Activez les narratives à afficher dans le dashboard. Les narratives custom sont toujours visibles.
+        Activez les narratives à afficher. Celles avec un ETF sont scorées ici ;
+        celles sans ETF deviennent des pools de candidats dans le drawer de leur secteur.
       </p>
       <div className={styles.libraryList}>
         {bySector.map(({ sector, items }) => (
@@ -231,7 +248,9 @@ function LibraryPanel({ onClose }: { onClose: () => void }) {
               <label key={n.id} className={styles.libItem}>
                 <span className={styles.libDot} style={{ background: n.color }} />
                 <span className={styles.libName}>{n.name}</span>
-                {n.ref_etf && <span className={styles.libEtf}>{n.ref_etf}</span>}
+                {n.ref_etf
+                  ? <span className={styles.libEtf}>{n.ref_etf}</span>
+                  : <span className={styles.libPool}>pool</span>}
                 <input
                   type="checkbox"
                   className={styles.libCheck}
@@ -274,16 +293,40 @@ export function NarrativeDashboard() {
   const [showLibrary, setShowLibrary] = useState(false);
   const [formNarrative, setFormNarrative] = useState<Narrative | null | undefined>(undefined);
 
-  const { data: perfs = [], isFetching } = useNarrativePerfs(period);
+  const { data: perfs = [], isFetching } = useNarrativeEtfPerfs(period);
+  const { data: macroData } = useMacroScore();
+
+  const scored = useMemo(() => {
+    const macro = macroData ?? { score: 50, trend: 'flat' as const };
+    return perfs.map(p => ({ ...p, score: scoreEtf(p, p.macroProfile, macro) }));
+  }, [perfs, macroData]);
 
   const filtered = sectorFilter === 'all'
-    ? perfs
-    : perfs.filter(p => p.narrative.parent_sector === sectorFilter);
+    ? scored
+    : scored.filter(p => p.narrative.parent_sector === sectorFilter);
 
-  const selectedPerf = filtered.find(p => p.narrative.id === selectedId);
+  // Groupes par secteur parent, ordonnés par la meilleure narrative du groupe
+  // (les thèmes du secteur le plus chaud d'abord). Cartes triées par relPerf.
+  const groups = useMemo(() => {
+    const bySector = new Map<string, typeof filtered>();
+    for (const p of filtered) {
+      const key = p.narrative.parent_sector ?? 'none';
+      (bySector.get(key) ?? bySector.set(key, []).get(key)!).push(p);
+    }
+    return [...bySector.entries()]
+      .map(([key, items]) => ({
+        sector: key !== 'none' ? SECTORS.find(s => s.id === key) ?? null : null,
+        items, // déjà triés par relPerf (tri du hook préservé par filter)
+        best: Math.max(...items.map(i => i.relPerf ?? -999)),
+      }))
+      .sort((a, b) => b.best - a.best);
+  }, [filtered]);
+
+  const selectedPerf = scored.find(p => p.narrative.id === selectedId);
 
   function handleSaved() {
     queryClient.invalidateQueries({ queryKey: ['narrative-perfs'] });
+    queryClient.invalidateQueries({ queryKey: ['narrative-etf-perfs'] });
     queryClient.invalidateQueries({ queryKey: ['narratives'] });
     queryClient.invalidateQueries({ queryKey: ['narratives-all'] });
     setFormNarrative(undefined);
@@ -294,11 +337,12 @@ export function NarrativeDashboard() {
     if (!window.confirm(`Supprimer "${n.name}" ?`)) return;
     await deleteNarrative(n.id);
     queryClient.invalidateQueries({ queryKey: ['narrative-perfs'] });
+    queryClient.invalidateQueries({ queryKey: ['narrative-etf-perfs'] });
     queryClient.invalidateQueries({ queryKey: ['narratives-all'] });
     if (selectedId === n.id) setSelectedId(null);
   }
 
-  // Sectors that have at least one active narrative
+  // Sectors that have at least one active ETF narrative
   const activeSectorIds = new Set(perfs.map(p => p.narrative.parent_sector).filter(Boolean));
 
   return (
@@ -328,7 +372,9 @@ export function NarrativeDashboard() {
         </select>
 
         <span className={styles.hint}>
-          {isFetching ? 'Chargement…' : `${filtered.length} narrative${filtered.length !== 1 ? 's' : ''} · trié par perf. relative vs S&P 500`}
+          {isFetching
+            ? 'Chargement…'
+            : `${filtered.length} narrative${filtered.length !== 1 ? 's' : ''}-ETF · groupées par secteur, triées par perf. relative`}
         </span>
 
         <div className={styles.actions}>
@@ -349,42 +395,55 @@ export function NarrativeDashboard() {
       <div className={styles.legend}>
         <span className={styles.legendItem}>
           <span className={styles.legendSample + ' ' + styles.pos}>+12.4%</span>
-          <span className={styles.legendDesc}>perf. sur la période</span>
+          <span className={styles.legendDesc}>perf. ETF sur la période</span>
         </span>
         <span className={styles.legendSep}>·</span>
         <span className={styles.legendItem}>
-          <span className={styles.legendSample + ' ' + styles.pos}>+8.1% vs S&P 500</span>
-          <span className={styles.legendDesc}>perf. relative</span>
+          <span className={styles.legendSample + ' ' + styles.pos}>+3.2% vs VGT</span>
+          <span className={styles.legendDesc}>écart vs l'ETF du secteur parent</span>
         </span>
         <span className={styles.legendSep}>·</span>
         <span className={styles.legendItem}>
-          <span className={styles.legendSample}>〰</span>
-          <span className={styles.legendDesc}>trajectoire prix sur la période</span>
+          <span className={`${styles.legendSample} ${styles.scoreBadgeHot}`}>74</span>
+          <span className={styles.legendDesc}>score opportunité (même pipeline que les secteurs)</span>
         </span>
       </div>
 
-      <div className={styles.grid}>
-        {filtered.map((p, i) => (
-          <NarrativeCard
-            key={p.narrative.id}
-            data={p}
-            rank={i + 1}
-            selected={selectedId === p.narrative.id}
-            onClick={() => setSelectedId(prev => prev === p.narrative.id ? null : p.narrative.id)}
-          />
-        ))}
-        {filtered.length === 0 && !isFetching && (
-          <div className={styles.empty}>
-            Aucune narrative active — ouvrez la Bibliothèque pour en activer.
+      {groups.map(({ sector, items }) => (
+        <div key={sector?.id ?? 'none'} className={styles.group}>
+          <div className={styles.groupHeader} style={sector ? { color: sector.color } : undefined}>
+            {sector?.name ?? 'Sans secteur'}
+            {sector && <span className={styles.groupEtf}>{sector.etf}</span>}
           </div>
-        )}
-      </div>
+          <div className={styles.grid}>
+            {items.map(p => (
+              <NarrativeCard
+                key={p.narrative.id}
+                data={p}
+                score={p.score}
+                parentEtf={sector?.etf ?? null}
+                selected={selectedId === p.narrative.id}
+                onClick={() => setSelectedId(prev => prev === p.narrative.id ? null : p.narrative.id)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+      {filtered.length === 0 && !isFetching && (
+        <div className={styles.empty}>
+          Aucune narrative-ETF active — ouvrez la Bibliothèque pour en activer.
+          Les narratives sans ETF vivent dans le drawer de leur secteur (onglet Secteurs).
+        </div>
+      )}
 
       {selectedId != null && selectedPerf && (
         <NarrativeDrawer
           narrative={selectedPerf.narrative}
           tickers={selectedPerf.tickers}
-          rsTrend={selectedPerf.rsTrend}
+          rsTrend={[selectedPerf.relPerf3M, selectedPerf.relPerf1M, selectedPerf.relPerf1W]}
+          vsParentTrend={[selectedPerf.relPerfVsParent3M, selectedPerf.relPerfVsParent1M, selectedPerf.relPerfVsParent1W]}
+          parentEtf={SECTORS.find(s => s.id === selectedPerf.narrative.parent_sector)?.etf ?? null}
+          score={selectedPerf.score}
           initialPeriod={period}
           onEdit={() => setFormNarrative(selectedPerf.narrative)}
           onDelete={() => handleDelete(selectedPerf.narrative)}
