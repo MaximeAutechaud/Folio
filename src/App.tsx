@@ -68,6 +68,7 @@ export default function App() {
         stop_price: editingPosition.stop_price,
         target_price: editingPosition.target_price,
         target_price_2: editingPosition.target_price_2,
+        note: editingPosition.note,
       }
     : undefined;
 

@@ -13,7 +13,10 @@ export function computePRU(
   for (const tx of sorted) {
     if (tx.type === 'buy' || tx.type === 'swap_in' || tx.type === 'bonus_share') {
       const newQty = quantity + tx.quantity;
-      pru = newQty > 0 ? (quantity * pru + tx.quantity * tx.price) / newQty : tx.price;
+      // Frais d'acquisition inclus dans le prix de revient (méthode PRU française).
+      // Les frais de vente ne touchent pas le PRU — ils réduisent la plus-value.
+      const acquisitionCost = tx.quantity * tx.price + (tx.fee ?? 0);
+      pru = newQty > 0 ? (quantity * pru + acquisitionCost) / newQty : tx.price;
       quantity = newQty;
     } else if (tx.type === 'sell' || tx.type === 'swap_out') {
       quantity = Math.max(0, quantity - tx.quantity);
