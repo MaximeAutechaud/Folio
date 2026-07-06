@@ -54,15 +54,9 @@
   background: var(--bg-hover);
 }
 
-.summaryActions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .currencyToggle {
   display: flex;
+  align-self: flex-start;
   gap: 2px;
   background: var(--bg-primary);
   border: 1px solid var(--border);
@@ -90,6 +84,7 @@
 .tableHeader {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 8px 0;
 }
 

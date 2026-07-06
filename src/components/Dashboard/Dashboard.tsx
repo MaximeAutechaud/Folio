@@ -179,6 +179,17 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
       {/* Summary bar */}
       <div className={styles.summary}>
         <div className={styles.summaryItem}>
+          <div className={styles.currencyToggle}>
+            {(['EUR', 'USD'] as BaseCurrency[]).map((c) => (
+              <button
+                key={c}
+                className={`${styles.currencyBtn} ${baseCurrency === c ? styles.currencyActive : ''}`}
+                onClick={() => setBaseCurrency(c)}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
           <span className={styles.label}>Portfolio value</span>
           <span className={styles.valueLarge}>{fmtCurrency(totalValue, baseCurrency)}</span>
         </div>
@@ -239,22 +250,6 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
           </div>
         )}
 
-        <div className={styles.summaryActions}>
-          <div className={styles.currencyToggle}>
-            {(['EUR', 'USD'] as BaseCurrency[]).map((c) => (
-              <button
-                key={c}
-                className={`${styles.currencyBtn} ${baseCurrency === c ? styles.currencyActive : ''}`}
-                onClick={() => setBaseCurrency(c)}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-          <button className={styles.addBtn} onClick={onAddClick}>
-            + Add position
-          </button>
-        </div>
       </div>
 
       {exposureSegments.length > 0 && (
@@ -282,26 +277,29 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
         </div>
       )}
 
+      <div className={styles.tableHeader}>
+        <div className={styles.filterToggle}>
+          {(['all', 'stock', 'crypto'] as Filter[]).map((f) => (
+            <button
+              key={f}
+              className={`${styles.filterBtn} ${filter === f ? styles.filterActive : ''}`}
+              onClick={() => setFilter(f)}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+        <button className={styles.addBtn} onClick={onAddClick}>
+          + Add position
+        </button>
+      </div>
+
       {isLoading && rawPositions.length === 0 ? (
         <p className={styles.empty}>Loading…</p>
       ) : rawPositions.length === 0 ? (
         <p className={styles.empty}>No positions yet. Add your first one.</p>
       ) : (
         <>
-          <div className={styles.tableHeader}>
-            <div className={styles.filterToggle}>
-              {(['all', 'stock', 'crypto'] as Filter[]).map((f) => (
-                <button
-                  key={f}
-                  className={`${styles.filterBtn} ${filter === f ? styles.filterActive : ''}`}
-                  onClick={() => setFilter(f)}
-                >
-                  {f}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {investmentPositions.length === 0 ? (
             <p className={styles.empty}>No positions yet. Add your first one.</p>
           ) : filtered.length === 0 ? (
