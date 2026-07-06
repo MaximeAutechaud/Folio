@@ -54,6 +54,7 @@ export interface Position {
   target_price: number | null;
   target_price_2: number | null;
   note: string | null;
+  sector_id: string | null;
   created_at: number;
 }
 
@@ -68,6 +69,7 @@ export interface PositionInput {
   target_price?: number | null;
   target_price_2?: number | null;
   note?: string | null;
+  sector_id?: string | null;
 }
 
 export interface Snapshot {

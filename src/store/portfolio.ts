@@ -77,6 +77,7 @@ export const usePortfolioStore = create<PortfolioState>((set) => ({
       target_price: input.target_price ?? null,
       target_price_2: input.target_price_2 ?? null,
       note: input.note ?? null,
+      sector_id: input.sector_id ?? null,
       created_at: Math.floor(Date.now() / 1000),
     };
     set((state) => ({ positions: [...state.positions, newPosition] }));

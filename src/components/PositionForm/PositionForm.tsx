@@ -6,6 +6,7 @@ import { usePortfolioStore, computeTotals, resolvePositions, convertCurrency } f
 import { getSetting, setSetting } from '../../lib/db';
 import { useMacroScore } from '../../hooks/useMacroScore';
 import { evaluateEntryChecks } from '../../lib/entryChecks';
+import { SECTORS } from '../../lib/sectors';
 import styles from './PositionForm.module.css';
 
 const RISK_PCT_SETTING = 'risk_pct';
@@ -50,6 +51,7 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
   // true = user has manually edited the field → stop changes no longer override it
   const t1ManualRef = useRef(false);
   const t2ManualRef = useRef(false);
+  const sectorManualRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -209,6 +211,17 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
     if (debounceRef.current) clearTimeout(debounceRef.current);
   }, []);
 
+  // Sector auto-suggestion (add mode only) — convenience only: the holdings
+  // lists are short (top 5-6 per sector), so most tickers won't match and
+  // manual selection stays the primary path.
+  useEffect(() => {
+    if (editMode || sectorManualRef.current || form.asset_type !== 'stock') return;
+    const tickerUpper = form.ticker.trim().toUpperCase();
+    if (!tickerUpper) return;
+    const match = SECTORS.find((s) => s.holdings.some((h) => h.ticker.toUpperCase() === tickerUpper));
+    if (match) set('sector_id', match.id);
+  }, [form.ticker, form.asset_type, editMode]);
+
   useEffect(() => {
     getSetting(RISK_PCT_SETTING).then((v) => setRiskPctRaw(v ?? DEFAULT_RISK_PCT));
   }, []);
@@ -339,6 +352,26 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
               placeholder="Apple Inc."
             />
           </div>
+
+          {form.asset_type === 'stock' && (
+            <div className={styles.row}>
+              <label className={styles.label} htmlFor="sector">Secteur (optionnel)</label>
+              <select
+                id="sector"
+                className={styles.input}
+                value={form.sector_id ?? ''}
+                onChange={(e) => {
+                  sectorManualRef.current = true;
+                  set('sector_id', e.target.value || null);
+                }}
+              >
+                <option value="">—</option>
+                {SECTORS.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className={styles.twoCol}>
             <div className={styles.row}>

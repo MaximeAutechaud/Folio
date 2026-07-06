@@ -70,6 +70,7 @@ export default function App() {
         target_price: editingPosition.target_price,
         target_price_2: editingPosition.target_price_2,
         note: editingPosition.note,
+        sector_id: editingPosition.sector_id,
       }
     : undefined;
 

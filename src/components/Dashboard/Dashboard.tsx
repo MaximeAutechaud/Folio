@@ -1,7 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { usePortfolioStore, computeTotals, convertCurrency, resolvePositions, type BaseCurrency } from '../../store/portfolio';
 import { detectCurrency } from '../../lib/api/yahoo';
 import { usePeriodPnl } from '../../hooks/usePeriodPnl';
+import { useSectorPerfs } from '../../hooks/useSectorData';
+import { useMacroScore } from '../../hooks/useMacroScore';
+import { calcSectorScore, type SectorSignal } from '../../lib/scoring';
+import { SECTORS } from '../../lib/sectors';
 import type { PendingCorporateAction, PositionWithValue, Snapshot } from '../../types';
 import { InfoTooltip } from '../InfoTooltip/InfoTooltip';
 import styles from './Dashboard.module.css';
@@ -105,6 +109,71 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
     return { ...p, current_price, current_value: value, pnl, pnl_pct };
   });
 
+  // Signal sectoriel (dip/reversal/exhaustion/…) — même cache/calcul que SectorDashboard
+  const { data: sectorPerfs = [] } = useSectorPerfs('3M');
+  const { data: macroData } = useMacroScore();
+  const sectorSignalById = useMemo(() => {
+    const macroScore = macroData?.score ?? 50;
+    const macroTrend = macroData?.trend ?? 'flat';
+    const map = new Map<string, SectorSignal>();
+    for (const sp of sectorPerfs) {
+      const score = calcSectorScore({
+        relPerf1W: sp.relPerf1W_ew, relPerf1M: sp.relPerf1M_ew, relPerf3M: sp.relPerf3M_ew,
+        rsi: sp.rsi, drawdown3M: sp.drawdown3M, drawdown6M: sp.drawdown6M, ma50Above: sp.ma50Above,
+        macroProfile: sp.sector.macroProfile, macroScore, macroTrend,
+      });
+      map.set(sp.sector.id, score.signal);
+    }
+    return map;
+  }, [sectorPerfs, macroData]);
+
+  // Exposition sectorielle — actions uniquement (crypto/fiat hors périmètre secteur)
+  const stockPositions = investmentPositions.filter((p) => p.asset_type === 'stock');
+  const exposureBySector = new Map<string, number>();
+  for (const p of stockPositions) {
+    const price = prices[p.ticker];
+    if (price == null) continue;
+    const priceCcy = detectCurrency(p.ticker);
+    const value = convertCurrency(p.quantity * price, priceCcy, baseCurrency, eurUsd);
+    const key = p.sector_id ?? 'none';
+    exposureBySector.set(key, (exposureBySector.get(key) ?? 0) + value);
+  }
+  const stockTotalValue = [...exposureBySector.values()].reduce((a, b) => a + b, 0);
+  const exposureSegments = [...exposureBySector.entries()]
+    .map(([key, value]) => {
+      const sector = key !== 'none' ? SECTORS.find((s) => s.id === key) : null;
+      return {
+        key,
+        label: sector?.name ?? 'Non catégorisé',
+        color: sector?.color ?? '#6e7681',
+        value,
+        pct: stockTotalValue > 0 ? (value / stockTotalValue) * 100 : 0,
+        signal: sector ? sectorSignalById.get(sector.id) ?? null : null,
+      };
+    })
+    .sort((a, b) => b.value - a.value);
+
+  // Risque agrégé — indépendant du filtre stock/crypto de la table
+  const investedTotals = computeTotals(investmentPositions, prices, baseCurrency, eurUsd);
+  const cashValueBase = fiatPositions.reduce(
+    (sum, p) => sum + convertCurrency(p.quantity, p.currency, baseCurrency, eurUsd), 0
+  );
+  const totalWithCash = investedTotals.totalValue + cashValueBase;
+  const investedPct = totalWithCash > 0 ? (investedTotals.totalValue / totalWithCash) * 100 : 0;
+
+  let stopLossTotal = 0;
+  let positionsWithoutStop = 0;
+  for (const p of investmentPositions) {
+    const price = prices[p.ticker];
+    if (price == null) continue;
+    if (!p.stop_price) { positionsWithoutStop++; continue; }
+    const priceCcy = detectCurrency(p.ticker);
+    const currentValue = convertCurrency(p.quantity * price, priceCcy, baseCurrency, eurUsd);
+    const stopValue = convertCurrency(p.quantity * p.stop_price, p.currency, baseCurrency, eurUsd);
+    stopLossTotal += Math.max(0, currentValue - stopValue);
+  }
+  const stopLossPct = investedTotals.totalValue > 0 ? (stopLossTotal / investedTotals.totalValue) * 100 : 0;
+
   return (
     <div className={styles.root}>
       {/* Summary bar */}
@@ -129,6 +198,31 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
             <span className={`${styles.value} ${styles.green}`}>
               +{fmtCurrency(totalDividendsBase, baseCurrency)}
             </span>
+          </div>
+        )}
+
+        {totalWithCash > 0 && (
+          <div className={styles.summaryItem}>
+            <span className={styles.label}>Investi / Cash</span>
+            <span className={styles.value}>
+              {investedPct.toFixed(0)}% / {(100 - investedPct).toFixed(0)}%
+            </span>
+          </div>
+        )}
+
+        {investedTotals.totalValue > 0 && (
+          <div className={styles.summaryItem}>
+            <span className={styles.label}>
+              Si tous les stops sautent <InfoTooltip text="Perte cumulée si toutes les positions avec un stop défini étaient clôturées à leur stop, au prix actuel. Les positions sans stop ne sont pas incluses (risque non borné)." />
+            </span>
+            <span className={`${styles.value} ${styles.red}`}>
+              -{fmtCurrency(stopLossTotal, baseCurrency)} ({fmtPct(-stopLossPct)})
+            </span>
+            {positionsWithoutStop > 0 && (
+              <span className={styles.riskNote}>
+                {positionsWithoutStop} position{positionsWithoutStop > 1 ? 's' : ''} sans stop — risque non borné
+              </span>
+            )}
           </div>
         )}
 
@@ -162,6 +256,31 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
           </button>
         </div>
       </div>
+
+      {exposureSegments.length > 0 && (
+        <div className={styles.exposure}>
+          <div className={styles.exposureLabel}>Exposition sectorielle (actions)</div>
+          <div className={styles.exposureTrack}>
+            {exposureSegments.map((seg) => (
+              <div
+                key={seg.key}
+                className={styles.exposureSegment}
+                style={{ width: `${seg.pct}%`, background: seg.color }}
+                data-tooltip={`${seg.label} — ${seg.pct.toFixed(1)}% (${fmtCurrency(seg.value, baseCurrency)})${seg.signal === 'exhaustion' ? ' · secteur en essoufflement' : ''}`}
+              />
+            ))}
+          </div>
+          <div className={styles.exposureLegend}>
+            {exposureSegments.map((seg) => (
+              <span key={seg.key} className={styles.exposureLegendItem}>
+                <span className={styles.exposureDot} style={{ background: seg.color }} />
+                {seg.label} {seg.pct.toFixed(0)}%
+                {seg.signal === 'exhaustion' && <span className={styles.exhaustionTag}>⚠ essoufflement</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isLoading && rawPositions.length === 0 ? (
         <p className={styles.empty}>Loading…</p>
@@ -208,7 +327,12 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id} className={styles.clickableRow} onClick={() => onRowClick(row.id)}>
-                    <td className={styles.ticker}>{displayTicker(row)}</td>
+                    <td className={styles.ticker}>
+                      {displayTicker(row)}
+                      {row.sector_id && sectorSignalById.get(row.sector_id) === 'exhaustion' && (
+                        <span className={styles.exhaustionBadge} data-tooltip="Secteur en essoufflement (exhaustion)">⚠</span>
+                      )}
+                    </td>
                     <td>{row.name || '—'}</td>
                     <td>
                       <span className={`${styles.badge} ${row.asset_type === 'crypto' ? styles.crypto : styles.stock}`}>
