@@ -38,12 +38,29 @@ async function runBackfill(raw: Point[][]): Promise<void> {
   if (rows.length === 0) return;
 
   const spyHist = raw[0] ?? [];
+  // scope='narrative' → scope_id est le ticker de l'ETF ; historiques fetchés
+  // à la demande (uniquement les ETF ayant des lignes à backfiller), mémoïsés.
+  const narrativeHists = new Map<string, Point[]>();
 
   for (const row of rows) {
-    if (row.scope !== 'sector') continue;
-    const sIdx = SECTORS.findIndex(s => s.id === row.scope_id);
-    if (sIdx < 0) continue;
-    const etfHist = raw[sIdx + 2] ?? []; // [SPY, RSP, ...ETF] → décalage +2
+    let etfHist: Point[];
+    if (row.scope === 'sector') {
+      const sIdx = SECTORS.findIndex(s => s.id === row.scope_id);
+      if (sIdx < 0) continue;
+      etfHist = raw[sIdx + 2] ?? []; // [SPY, RSP, ...ETF] → décalage +2
+    } else if (row.scope === 'narrative') {
+      if (!narrativeHists.has(row.scope_id)) {
+        try {
+          narrativeHists.set(row.scope_id, await fetchYahooHistory(row.scope_id, '6M'));
+        } catch {
+          narrativeHists.set(row.scope_id, []);
+        }
+      }
+      etfHist = narrativeHists.get(row.scope_id)!;
+    } else {
+      continue;
+    }
+    if (etfHist.length === 0) continue;
 
     const iEtf = findBarIndex(etfHist, row.date);
     const iSpy = findBarIndex(spyHist, row.date);
@@ -69,8 +86,9 @@ async function runBackfill(raw: Point[][]): Promise<void> {
 }
 
 // Job one-shot au démarrage : calcule les perfs forward (J+5/J+10/J+20 vs SPY)
-// des signaux loggés, en réutilisant le cache ['sector-raw'] (6M daily) déjà
-// alimenté par useAlertEngine → zéro requête supplémentaire.
+// des signaux loggés (secteurs et narratives-ETF), en réutilisant le cache
+// ['sector-raw'] (6M daily) déjà alimenté par useAlertEngine — seules les
+// narratives à backfiller déclenchent des requêtes supplémentaires.
 export function useSignalBackfill(): void {
   const queryClient = useQueryClient();
   const ranRef = useRef(false);

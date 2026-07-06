@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchSignalLogs } from '../../lib/db';
 import {
@@ -27,10 +28,16 @@ function HorizonCell({ stat }: { stat: HorizonStat }) {
   return <span className={perfClass(stat.avgRelPerf)}>{fmtPerf(stat.avgRelPerf)}</span>;
 }
 
+type Scope = 'sector' | 'narrative';
+
 export function SignalStats() {
+  // Stats jamais mélangées entre scopes : les bornes du score n'étant pas
+  // calibrées pour les ETF thématiques, agréger polluerait la seule mesure
+  // de fiabilité disponible.
+  const [scope, setScope] = useState<Scope>('sector');
   const { data: rows = [], isLoading } = useQuery({
-    queryKey: ['signal-logs', 'sector'],
-    queryFn: () => fetchSignalLogs('sector'),
+    queryKey: ['signal-logs', scope],
+    queryFn: () => fetchSignalLogs(scope),
     staleTime: 60_000,
   });
 
@@ -39,11 +46,28 @@ export function SignalStats() {
 
   return (
     <div className={styles.root}>
+      <div className={styles.scopeToggle}>
+        {([['sector', 'Secteurs'], ['narrative', 'Narratives']] as [Scope, string][]).map(([s, label]) => (
+          <button
+            key={s}
+            className={`${styles.scopeBtn} ${scope === s ? styles.scopeActive : ''}`}
+            onClick={() => setScope(s)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className={styles.intro}>
         <p className={styles.introText}>
-          Performance relative vs SPY après chaque signal secteur, mesurée à J+5 / J+10 / J+20.
+          Performance relative vs SPY après chaque signal {scope === 'sector' ? 'secteur' : 'narrative-ETF'},
+          mesurée à J+5 / J+10 / J+20.
           Le <strong>win%</strong> mesure la fiabilité (J+10). Pour <em>exhaustion</em> — un signal
           d'évitement — la réussite = <strong>sous-performance</strong> ensuite.
+          {scope === 'narrative' && (
+            <> Les bornes du score ont été calibrées sur les secteurs — ces stats mesurent
+            précisément si elles tiennent sur les ETF thématiques (plus volatils).</>
+          )}
         </p>
       </div>
 
@@ -52,8 +76,8 @@ export function SignalStats() {
       ) : totalLogged === 0 ? (
         <div className={styles.empty}>
           Aucun signal enregistré pour l'instant.<br />
-          Les statistiques se remplissent au fil des jours où un secteur émet un signal
-          (dip, reversal, accelerating, exhaustion), puis se calibrent après ~20 jours de bourse.
+          Les statistiques se remplissent au fil des jours où {scope === 'sector' ? 'un secteur' : 'une narrative-ETF'} émet
+          un signal (dip, reversal, accelerating, exhaustion), puis se calibrent après ~20 jours de bourse.
         </div>
       ) : (
         <div className={styles.tableWrap}>

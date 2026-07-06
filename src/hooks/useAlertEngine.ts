@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { useSectorPerfs } from './useSectorData';
-import { useNarrativePerfs } from './useNarrativePerfs';
+import { useNarrativeEtfPerfs } from './useNarrativeEtfPerfs';
 import { useMacroScore } from './useMacroScore';
 import { fetchYahooPrices, fetchYahooHistory } from '../lib/api/yahoo';
 import { calcEma, calcMa } from '../lib/indicators';
@@ -19,7 +19,7 @@ import {
 } from '../lib/db';
 import type { AlertRule } from '../types';
 import type { SectorPerf, EtfMetrics } from './useSectorData';
-import type { NarrativePerf } from './useNarrativePerfs';
+import type { NarrativeEtfPerf } from './useNarrativeEtfPerfs';
 import type { MacroScoreData } from './useMacroScore';
 import type { MacroProfile } from '../lib/sectors';
 
@@ -97,12 +97,33 @@ async function logSectorSignals(
   }
 }
 
+// Idem pour les narratives-ETF. scope_id = ticker de l'ETF (pas l'id DB) :
+// l'historique de fiabilité reste attaché à l'instrument réellement mesuré si
+// l'user change l'ETF de référence d'une narrative, et l'UNIQUE(date,scope,
+// scope_id) dédoublonne naturellement deux narratives partageant le même ETF.
+async function logNarrativeSignals(
+  narrativePerfs: NarrativeEtfPerf[],
+  macro: MacroScoreData | undefined,
+): Promise<void> {
+  if (!macro || narrativePerfs.length === 0) return;
+  const today = localDateString();
+  for (const np of narrativePerfs) {
+    const s = scoreEtf(np, np.macroProfile, macro);
+    if (!s.signal) continue;
+    try {
+      await insertSignalLog(today, 'narrative', np.narrative.ref_etf!, s.signal, s.total);
+    } catch {
+      // best-effort — ne bloque jamais le moteur d'alertes
+    }
+  }
+}
+
 // ── Evaluation ────────────────────────────────────────────────────────────────
 
 async function evaluateRules(
   rules: AlertRule[],
   sectorPerfs: SectorPerf[],
-  narrativePerfs: NarrativePerf[],
+  narrativePerfs: NarrativeEtfPerf[],
   macroScore: MacroScoreData | undefined,
   tickerPrices: Record<string, number | undefined>,
   maHistories: Record<string, number[]>,
@@ -282,8 +303,10 @@ async function evaluateRules(
     }
   }
 
-  // Phase 3 : piggyback — logging des signaux secteurs sur le même cycle debounce.
+  // Phase 3 : piggyback — logging des signaux secteurs et narratives-ETF sur
+  // le même cycle debounce.
   await logSectorSignals(sectorPerfs, macroScore);
+  await logNarrativeSignals(narrativePerfs, macroScore);
 }
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
@@ -301,7 +324,7 @@ export function useAlertEngine() {
   });
 
   const { data: sectorPerfs = [] } = useSectorPerfs('3M');
-  const { data: narrativePerfs = [] } = useNarrativePerfs('3M');
+  const { data: narrativePerfs = [] } = useNarrativeEtfPerfs('3M');
   const { data: macroScore } = useMacroScore();
 
   const tickerSymbols = [

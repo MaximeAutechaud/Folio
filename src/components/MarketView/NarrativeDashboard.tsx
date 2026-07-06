@@ -216,7 +216,6 @@ function LibraryPanel({ onClose }: { onClose: () => void }) {
   async function handleToggle(n: Narrative) {
     await toggleNarrativeActive(n.id, n.active === 0);
     queryClient.invalidateQueries({ queryKey: ['narratives-all'] });
-    queryClient.invalidateQueries({ queryKey: ['narrative-perfs'] });
     queryClient.invalidateQueries({ queryKey: ['narrative-etf-perfs'] });
     queryClient.invalidateQueries({ queryKey: ['narrative-pools'] });
     queryClient.invalidateQueries({ queryKey: ['narratives'] });
@@ -326,7 +325,6 @@ export function NarrativeDashboard() {
   const selectedPerf = scored.find(p => p.narrative.id === selectedId);
 
   function handleSaved() {
-    queryClient.invalidateQueries({ queryKey: ['narrative-perfs'] });
     queryClient.invalidateQueries({ queryKey: ['narrative-etf-perfs'] });
     queryClient.invalidateQueries({ queryKey: ['narrative-pools'] });
     queryClient.invalidateQueries({ queryKey: ['narratives'] });
@@ -338,7 +336,6 @@ export function NarrativeDashboard() {
     const { deleteNarrative } = await import('../../lib/db');
     if (!window.confirm(`Supprimer "${n.name}" ?`)) return;
     await deleteNarrative(n.id);
-    queryClient.invalidateQueries({ queryKey: ['narrative-perfs'] });
     queryClient.invalidateQueries({ queryKey: ['narrative-etf-perfs'] });
     queryClient.invalidateQueries({ queryKey: ['narrative-pools'] });
     queryClient.invalidateQueries({ queryKey: ['narratives-all'] });

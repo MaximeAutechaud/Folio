@@ -120,3 +120,31 @@
   z-index: 10;
 }
 [data-tooltip]:hover::after { opacity: 1; }
+
+/* ── Toggle de scope (secteurs / narratives-ETF) ── */
+.scopeToggle {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  width: fit-content;
+}
+
+.scopeBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.scopeBtn:hover { color: var(--text-primary); }
+.scopeActive {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}

@@ -12,11 +12,11 @@ Tauri 2 (Rust) + React + Vite + TypeScript. TanStack Query v5, Lightweight Chart
 - `positions` : id, ticker, name, asset_type (stock|crypto|fiat), currency, quantity, cost_basis, stop_price, target_price, target_price_2
 - `transactions` : position_id (FK CASCADE), type (buy|sell|swap_out|swap_in|split|bonus_share|dividend), linked_tx_id (paire swap), setup, note_context
 - `snapshots` : total_value, total_cost, recorded_at
-- `narratives` + `narrative_tickers` + `narrative_keywords` (migration v2)
+- `narratives` + `narrative_tickers` + `narrative_keywords` (migration v2). **Scission** : avec `ref_etf` → scorées comme les secteurs dans l'onglet Narratives (`useNarrativeEtfPerfs`, macroProfile hérité du parent sauf overrides) ; sans `ref_etf` → pools de candidats dans le drawer du `parent_sector` (`useNarrativePools`, tickers évalués individuellement vs l'ETF du secteur). Plus aucun scoring de panier synthétique. Sans ETF, `parent_sector` est requis (validé par NarrativeForm).
 - `alert_rules` + `alert_events` (migration v3). Colonne `direction` (`above`/`below`, ALTER guardé) : pour `price_target`, choisit `≥`/`≤` (null → `above`). `stop_loss` est toujours `≤`. Les alertes prix (`price_target`/`stop_loss`) sont **one-shot** : le moteur passe la règle `is_active=0` après déclenchement (ré-armable via le toggle du panneau) — cf. `useAlertEngine`.
 - `watchlist` + `watchlist_categories` (migrations v4/v5)
 - `dismissed_corporate_actions` (ticker, type, ex_date) : événements Yahoo (split/dividende) ignorés par l'user, pour ne plus les re-proposer (migration v8)
-- `signal_log` (date `YYYY-MM-DD`, scope, scope_id, signal, score, rel_perf_j5/j10/j20) : 1 ligne/secteur/jour (`UNIQUE(date,scope,scope_id)`), tracking de fiabilité des signaux (migration v9). Loggé par `useAlertEngine` (piggyback), perfs forward remplies par `useSignalBackfill`.
+- `signal_log` (date `YYYY-MM-DD`, scope, scope_id, signal, score, rel_perf_j5/j10/j20) : 1 ligne/scope_id/jour (`UNIQUE(date,scope,scope_id)`), tracking de fiabilité des signaux (migration v9). Scopes : `sector` (scope_id = id secteur) et `narrative` (scope_id = **ticker de l'ETF**, pas l'id DB — l'historique reste attaché à l'instrument mesuré). Loggé par `useAlertEngine` (piggyback), perfs forward remplies par `useSignalBackfill`. Les stats (`SignalStats`) ne mélangent **jamais** les scopes : bornes de score calibrées secteurs, non validées sur ETF thématiques.
 - `settings` : key/value
 - Migrations inline dans `db.ts` — v2/v3 guardées par `schema_version`, v4/v5/v8/v9 par existence de table dans `sqlite_master` (auto-répare les DBs mal estampillées par un ancien bug).
 
