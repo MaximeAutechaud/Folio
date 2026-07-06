@@ -3,7 +3,11 @@ import type { AssetType, PositionInput } from '../../types';
 import { searchYahoo, detectCurrency, type YahooSuggestion } from '../../lib/api/yahoo';
 import { searchCoinGecko, type CoinGeckoSuggestion } from '../../lib/api/coingecko';
 import { usePortfolioStore, computeTotals, resolvePositions, convertCurrency } from '../../store/portfolio';
+import { getSetting, setSetting } from '../../lib/db';
 import styles from './PositionForm.module.css';
+
+const RISK_PCT_SETTING = 'risk_pct';
+const DEFAULT_RISK_PCT = '1';
 
 interface Props {
   onSubmit: (input: PositionInput) => Promise<void>;
@@ -39,6 +43,7 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
   const [targetRaw, setTargetRaw] = useState(initial?.target_price ? String(initial.target_price) : '');
   const [target2Raw, setTarget2Raw] = useState(initial?.target_price_2 ? String(initial.target_price_2) : '');
   const [riskOpen, setRiskOpen] = useState(!!(initial?.stop_price));
+  const [riskPctRaw, setRiskPctRaw] = useState(DEFAULT_RISK_PCT);
   const mountedRef = useRef(false);
   // true = user has manually edited the field → stop changes no longer override it
   const t1ManualRef = useRef(false);
@@ -69,6 +74,26 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
   const riskPct = riskBase != null && totalValue > 0
     ? (riskBase / totalValue) * 100
     : null;
+
+  const riskPctSetting = parseFloat(riskPctRaw) || 0;
+  const riskBudgetBase = riskPctSetting > 0 && totalValue > 0
+    ? (riskPctSetting / 100) * totalValue
+    : null;
+  const riskBudgetPosCcy = riskBudgetBase != null
+    ? convertCurrency(riskBudgetBase, baseCurrency, form.currency, eurUsd)
+    : null;
+  const suggestedQtyRaw = R > 0 && riskBudgetPosCcy != null ? riskBudgetPosCcy / R : null;
+  const suggestedQty = suggestedQtyRaw != null && suggestedQtyRaw > 0
+    ? (form.asset_type === 'crypto'
+        ? Math.floor(suggestedQtyRaw * 1e6) / 1e6
+        : Math.floor(suggestedQtyRaw))
+    : null;
+
+  function applySuggestedQty() {
+    if (suggestedQty == null || suggestedQty <= 0) return;
+    setQtyRaw(String(suggestedQty));
+    set('quantity', suggestedQty);
+  }
 
   const decimals = form.asset_type === 'crypto' ? 6 : 2;
   const rPct = R > 0 && form.cost_basis > 0 ? ((R / form.cost_basis) * 100).toFixed(1) : null;
@@ -162,6 +187,10 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
 
   useEffect(() => () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
+
+  useEffect(() => {
+    getSetting(RISK_PCT_SETTING).then((v) => setRiskPctRaw(v ?? DEFAULT_RISK_PCT));
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -362,6 +391,24 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
               {riskOpen && (
                 <div className={styles.riskBody}>
                   <div className={styles.row}>
+                    <label className={styles.label}>
+                      Risque max (% du portefeuille) — <span className={styles.riskPctValue}>{riskPctRaw}%</span>
+                    </label>
+                    <input
+                      type="range"
+                      min={0}
+                      max={5}
+                      step={0.1}
+                      className={styles.slider}
+                      value={riskPctRaw}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setRiskPctRaw(v);
+                        void setSetting(RISK_PCT_SETTING, v);
+                      }}
+                    />
+                  </div>
+                  <div className={styles.row}>
                     <label className={styles.label}>Stop loss ({form.currency})</label>
                     <input
                       type="text"
@@ -378,6 +425,32 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
                       placeholder={stopSuggestion}
                     />
                   </div>
+                  {R > 0 && (
+                    suggestedQty != null ? (
+                      <p className={styles.riskHintRow}>
+                        <span>
+                          Budget {riskBudgetPosCcy!.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {form.currency}
+                          {' '}→ quantité suggérée : <strong>{suggestedQty}</strong>
+                        </span>
+                        <button type="button" className={styles.applyBtn} onClick={applySuggestedQty}>
+                          Appliquer
+                        </button>
+                      </p>
+                    ) : riskPctSetting <= 0 ? (
+                      <p className={styles.riskHint}>
+                        Règle un risque {'>'} 0 % pour calculer une quantité suggérée.
+                      </p>
+                    ) : (
+                      <p className={styles.riskHint}>
+                        Renseigne le prix de revient et le nombre de titres du portefeuille pour calculer une quantité suggérée.
+                      </p>
+                    )
+                  )}
+                  {R <= 0 && (
+                    <p className={styles.riskHint}>
+                      Renseigne un stop loss pour calculer une quantité suggérée à partir du budget de risque.
+                    </p>
+                  )}
                   {riskBase != null && (
                     <p className={styles.riskHint}>
                       Risque :{' '}
