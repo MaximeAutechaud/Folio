@@ -725,6 +725,16 @@ export async function fetchAlertEvents(limit = 50): Promise<AlertEvent[]> {
   );
 }
 
+export async function fetchAlertEventsSince(sinceTs: number): Promise<AlertEvent[]> {
+  const db = await getDb();
+  return db.select<AlertEvent[]>(
+    `SELECT * FROM alert_events
+     WHERE triggered_at >= $1 AND consecutive_days > 0
+     ORDER BY triggered_at DESC`,
+    [sinceTs]
+  );
+}
+
 export async function fetchUnacknowledgedCount(): Promise<number> {
   const db = await getDb();
   const rows = await db.select<{ count: number }[]>(

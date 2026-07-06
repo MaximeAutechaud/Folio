@@ -12,6 +12,7 @@ import { TradesView } from './components/TradesView/TradesView';
 import { AlertPanel } from './components/AlertPanel/AlertPanel';
 import { BriefingSettings } from './components/Briefing/BriefingSettings';
 import { CorporateActionModal } from './components/CorporateActionModal/CorporateActionModal';
+import { SessionRecap } from './components/SessionRecap/SessionRecap';
 import { usePortfolioStore } from './store/portfolio';
 import { usePrices } from './hooks/usePrices';
 import { useAlertEngine, useUnacknowledgedCount } from './hooks/useAlertEngine';
@@ -148,6 +149,8 @@ export default function App() {
 
   return (
     <Layout nav={nav} actions={actions}>
+      <SessionRecap snapshots={snapshots} />
+
       {activeTab === 'portfolio' ? (
         <>
           <PortfolioChart snapshots={snapshots} />
