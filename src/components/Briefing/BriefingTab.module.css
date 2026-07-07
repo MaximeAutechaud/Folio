@@ -1,0 +1,219 @@
+.root {
+  padding: 16px;
+  overflow-y: auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── Barre supérieure ─────────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.heading { display: flex; flex-direction: column; gap: 3px; }
+.title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+.genBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: rgba(31, 111, 235, 0.1);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.genBtn:hover { background: rgba(31, 111, 235, 0.18); }
+.genBtn:disabled { opacity: 0.55; cursor: default; }
+
+.spinner {
+  width: 12px; height: 12px;
+  border: 2px solid rgba(230, 237, 243, 0.25);
+  border-top-color: var(--text-primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── États vides / erreur ─────────────────────────────────────────── */
+.empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 40px 20px;
+}
+.emptyIcon { opacity: 0.4; }
+.emptyText { font-size: 12px; line-height: 1.6; max-width: 340px; }
+.linkBtn {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.errBanner {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 9px 12px;
+  border-radius: 6px;
+  background: rgba(248, 81, 73, 0.12);
+  color: var(--red);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+}
+
+/* ── Sections ─────────────────────────────────────────────────────── */
+.synthese {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cardLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.resume {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+
+/* Badges posture / régime */
+.badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 20px;
+  text-transform: uppercase;
+}
+.badgeNeutral { background: var(--bg-hover); color: var(--text-muted); border: 1px solid var(--border); }
+.badgeGreen   { background: rgba(63, 185, 80, 0.14); color: var(--green); border: 1px solid rgba(63, 185, 80, 0.35); }
+.badgeRed     { background: rgba(248, 81, 73, 0.14); color: var(--red);   border: 1px solid rgba(248, 81, 73, 0.35); }
+.badgeAccent  { background: rgba(31, 111, 235, 0.14); color: var(--accent); border: 1px solid rgba(31, 111, 235, 0.35); }
+
+/* Constats de risque */
+.constats { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.constat {
+  position: relative;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+.constat::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 7px;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+/* Secteurs à surveiller */
+.watchGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+.watchItem {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.watchName { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.watchReason { font-size: 11px; line-height: 1.45; color: var(--text-muted); }
+
+/* Points à regarder */
+.points { display: flex; flex-direction: column; gap: 10px; }
+.point {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+.pointNum {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(31, 111, 235, 0.1);
+  border-radius: 5px;
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+}
+.pointBody { display: flex; flex-direction: column; gap: 3px; }
+.pointTitle { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.pointDetail { font-size: 12px; line-height: 1.5; color: var(--text-primary); }
+.pointBasis {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+/* Avertissement pied de page */
+.disclaimer {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  padding: 2px 2px 6px;
+  font-style: italic;
+}

@@ -11,6 +11,7 @@ import { WatchlistView } from './components/WatchlistView/WatchlistView';
 import { TradesView } from './components/TradesView/TradesView';
 import { AlertPanel } from './components/AlertPanel/AlertPanel';
 import { BriefingSettings } from './components/Briefing/BriefingSettings';
+import { BriefingTab } from './components/Briefing/BriefingTab';
 import { CorporateActionModal } from './components/CorporateActionModal/CorporateActionModal';
 import { SessionRecap } from './components/SessionRecap/SessionRecap';
 import { usePortfolioStore } from './store/portfolio';
@@ -22,7 +23,7 @@ import { fetchSnapshots } from './lib/db';
 import type { PendingCorporateAction, PositionInput, TransactionInput } from './types';
 import styles from './App.module.css';
 
-type Tab = 'portfolio' | 'charts' | 'market' | 'watchlist' | 'trades';
+type Tab = 'portfolio' | 'charts' | 'market' | 'watchlist' | 'trades' | 'ia';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('portfolio');
@@ -94,11 +95,11 @@ export default function App() {
     setCorpActionModal(null);
   }
 
-  const TAB_LABELS: Record<Tab, string> = { portfolio: 'Portfolio', charts: 'Charts', market: 'Market', watchlist: 'Watchlist', trades: 'Trades' };
+  const TAB_LABELS: Record<Tab, string> = { portfolio: 'Portfolio', charts: 'Charts', market: 'Market', watchlist: 'Watchlist', trades: 'Trades', ia: 'IA' };
 
   const nav = (
     <>
-      {(['portfolio', 'charts', 'market', 'watchlist', 'trades'] as Tab[]).map((tab) => (
+      {(['portfolio', 'charts', 'market', 'watchlist', 'trades', 'ia'] as Tab[]).map((tab) => (
         <button
           key={tab}
           className={`${styles.tabBtn} ${activeTab === tab ? styles.tabActive : ''}`}
@@ -173,8 +174,13 @@ export default function App() {
         <MarketView />
       ) : activeTab === 'watchlist' ? (
         <WatchlistView />
-      ) : (
+      ) : activeTab === 'trades' ? (
         <TradesView />
+      ) : (
+        <BriefingTab
+          settingsOpen={briefingSettingsOpen}
+          onOpenSettings={() => setBriefingSettingsOpen(true)}
+        />
       )}
 
       {showForm && (
