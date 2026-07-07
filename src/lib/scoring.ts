@@ -98,8 +98,12 @@ function calcMacroAlignScore(
 // thèse du thème diverge du cycle de son secteur GICS. Sans override correct,
 // macroAlign (15% du score) pénalise systématiquement le thème au mauvais moment.
 export const NARRATIVE_MACRO_OVERRIDES: Record<string, MacroProfile> = {
-  GDX: 'defensive', // minières d'or — montent en risk-off, à l'inverse de XLB (risk_on)
-  NLR: 'neutral',   // nucléaire — demande structurelle datacenter, peu corrélé au cycle
+  GDX:  'defensive', // minières d'or — montent en risk-off, à l'inverse de XLB (risk_on)
+  NLR:  'neutral',   // nucléaire — demande structurelle datacenter, peu corrélé au cycle
+  MOO:  'neutral',   // agroalimentaire — demande structurelle, pas le cycle risk_on de XLB
+  SRVR: 'neutral',   // data centers — croissance tirée par l'IA, pas le profil défensif de XLRE
+  INDS: 'neutral',   // entrepôts logistiques — cycle e-commerce, pas le profil défensif de XLRE
+  UFO:  'risk_on',   // spatial — spéculatif/croissance, à l'inverse du profil défensif d'ITA
 };
 
 export function narrativeMacroProfile(refEtf: string, parentProfile: MacroProfile): MacroProfile {

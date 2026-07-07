@@ -111,7 +111,7 @@ export const NARRATIVE_SEED: SeedNarrative[] = [
     name: 'GLP-1 / Obésité',
     description: 'Médicaments obésité et diabète — LLY, NVO',
     color: '#ec4899',
-    ref_etf: null,
+    ref_etf: 'OZEM',
     parent_sector: 'xlv',
     tickers: [
       { ticker: 'LLY', name: 'Eli Lilly', exchange: 'NYSE' },
@@ -181,7 +181,7 @@ export const NARRATIVE_SEED: SeedNarrative[] = [
     name: 'Grid & Infrastructure',
     description: 'Modernisation réseau électrique US — 70% du réseau a +50 ans',
     color: '#94a3b8',
-    ref_etf: null,
+    ref_etf: 'GRID',
     parent_sector: 'xli',
     tickers: [
       { ticker: 'ETN', name: 'Eaton Corporation', exchange: 'NYSE' },
@@ -191,16 +191,230 @@ export const NARRATIVE_SEED: SeedNarrative[] = [
     ],
   },
   {
+    // Parent ita (et non xli) : profil macro defensive cohérent avec la thèse défense.
     name: 'Défense EU',
     description: 'Réarmement européen — tendance structurelle 15–20 ans',
     color: '#475569',
-    ref_etf: null,
-    parent_sector: 'xli',
+    ref_etf: 'EUAD',
+    parent_sector: 'ita',
     tickers: [
       { ticker: 'HO.PA',   name: 'Thales', exchange: 'Euronext Paris' },
       { ticker: 'RHM.DE',  name: 'Rheinmetall', exchange: 'XETRA' },
       { ticker: 'BAES.L',  name: 'BAE Systems', exchange: 'LSE' },
       { ticker: 'LDO.MI',  name: 'Leonardo', exchange: 'Borsa Italiana' },
+    ],
+  },
+
+  {
+    name: 'Infrastructure US',
+    description: 'Construction lourde, matériaux, équipement — cycle capex domestique',
+    color: '#a3e635',
+    ref_etf: 'PAVE',
+    parent_sector: 'xli',
+    tickers: [
+      { ticker: 'PWR', name: 'Quanta Services', exchange: 'NYSE' },
+      { ticker: 'VMC', name: 'Vulcan Materials', exchange: 'NYSE' },
+      { ticker: 'MLM', name: 'Martin Marietta', exchange: 'NYSE' },
+      { ticker: 'NUE', name: 'Nucor', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'Compagnies aériennes',
+    description: 'Transport aérien — cycle voyage, kérosène, pricing power',
+    color: '#38bdf8',
+    ref_etf: 'JETS',
+    parent_sector: 'xli',
+    tickers: [
+      { ticker: 'DAL', name: 'Delta Air Lines', exchange: 'NYSE' },
+      { ticker: 'UAL', name: 'United Airlines', exchange: 'NASDAQ' },
+      { ticker: 'LUV', name: 'Southwest Airlines', exchange: 'NYSE' },
+      { ticker: 'AAL', name: 'American Airlines', exchange: 'NASDAQ' },
+    ],
+  },
+
+  // ── Défense & Aérospatial ─────────────────────────────────────────────────
+  {
+    name: 'Defense Tech',
+    description: 'Défense nouvelle génération — logiciels, drones, autonomie',
+    color: '#9ca3af',
+    ref_etf: 'SHLD',
+    parent_sector: 'ita',
+    tickers: [
+      { ticker: 'PLTR', name: 'Palantir Technologies', exchange: 'NASDAQ' },
+      { ticker: 'LHX',  name: 'L3Harris Technologies', exchange: 'NYSE' },
+      { ticker: 'KTOS', name: 'Kratos Defense', exchange: 'NASDAQ' },
+      { ticker: 'AVAV', name: 'AeroVironment', exchange: 'NASDAQ' },
+    ],
+  },
+  {
+    name: 'Espace',
+    description: 'Lanceurs, satellites, communications spatiales',
+    color: '#a78bfa',
+    ref_etf: 'UFO',
+    parent_sector: 'ita',
+    tickers: [
+      { ticker: 'RKLB', name: 'Rocket Lab', exchange: 'NASDAQ' },
+      { ticker: 'ASTS', name: 'AST SpaceMobile', exchange: 'NASDAQ' },
+      { ticker: 'IRDM', name: 'Iridium Communications', exchange: 'NASDAQ' },
+      { ticker: 'VSAT', name: 'Viasat', exchange: 'NASDAQ' },
+    ],
+  },
+
+  // ── Consumer Discretionary ────────────────────────────────────────────────
+  {
+    name: 'Construction résidentielle',
+    description: 'Homebuilders US — sensibilité taux hypothécaires, déficit de logements',
+    color: '#f97316',
+    ref_etf: 'ITB',
+    parent_sector: 'xly',
+    tickers: [
+      { ticker: 'DHI', name: 'D.R. Horton', exchange: 'NYSE' },
+      { ticker: 'LEN', name: 'Lennar', exchange: 'NYSE' },
+      { ticker: 'NVR', name: 'NVR Inc.', exchange: 'NYSE' },
+      { ticker: 'PHM', name: 'PulteGroup', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'E-commerce',
+    description: 'Vente en ligne — plateformes, marketplaces, livraison',
+    color: '#fb7185',
+    ref_etf: 'ONLN',
+    parent_sector: 'xly',
+    tickers: [
+      { ticker: 'AMZN', name: 'Amazon', exchange: 'NASDAQ' },
+      { ticker: 'EBAY', name: 'eBay', exchange: 'NASDAQ' },
+      { ticker: 'CHWY', name: 'Chewy', exchange: 'NYSE' },
+      { ticker: 'DASH', name: 'DoorDash', exchange: 'NASDAQ' },
+    ],
+  },
+  {
+    name: 'Paris sportifs & iGaming',
+    description: 'Jeux d\'argent en ligne — légalisation progressive aux US',
+    color: '#e879f9',
+    ref_etf: 'BETZ',
+    parent_sector: 'xly',
+    tickers: [
+      { ticker: 'DKNG', name: 'DraftKings', exchange: 'NASDAQ' },
+      { ticker: 'FLUT', name: 'Flutter Entertainment', exchange: 'NYSE' },
+      { ticker: 'MGM',  name: 'MGM Resorts', exchange: 'NYSE' },
+      { ticker: 'CZR',  name: 'Caesars Entertainment', exchange: 'NASDAQ' },
+    ],
+  },
+
+  // ── Comm. Services ────────────────────────────────────────────────────────
+  {
+    name: 'Réseaux sociaux',
+    description: 'Plateformes sociales — publicité digitale, engagement',
+    color: '#f472b6',
+    ref_etf: 'SOCL',
+    parent_sector: 'xlc',
+    tickers: [
+      { ticker: 'META', name: 'Meta Platforms', exchange: 'NASDAQ' },
+      { ticker: 'PINS', name: 'Pinterest', exchange: 'NYSE' },
+      { ticker: 'SNAP', name: 'Snap Inc.', exchange: 'NYSE' },
+      { ticker: 'RDDT', name: 'Reddit', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'Gaming & eSports',
+    description: 'Jeux vidéo — éditeurs, plateformes, compétition',
+    color: '#c084fc',
+    ref_etf: 'ESPO',
+    parent_sector: 'xlc',
+    tickers: [
+      { ticker: 'RBLX', name: 'Roblox', exchange: 'NYSE' },
+      { ticker: 'EA',   name: 'Electronic Arts', exchange: 'NASDAQ' },
+      { ticker: 'TTWO', name: 'Take-Two Interactive', exchange: 'NASDAQ' },
+      { ticker: 'NTES', name: 'NetEase', exchange: 'NASDAQ' },
+    ],
+  },
+
+  // ── Consumer Staples ──────────────────────────────────────────────────────
+  // Secteur ingrat pour le thématique : PBJ est le seul ETF crédible.
+  {
+    name: 'Food & Beverage',
+    description: 'Alimentaire et boissons US — marques, pricing power',
+    color: '#fda4af',
+    ref_etf: 'PBJ',
+    parent_sector: 'xlp',
+    tickers: [
+      { ticker: 'KO',   name: 'Coca-Cola', exchange: 'NYSE' },
+      { ticker: 'PEP',  name: 'PepsiCo', exchange: 'NASDAQ' },
+      { ticker: 'MDLZ', name: 'Mondelez', exchange: 'NASDAQ' },
+      { ticker: 'HSY',  name: 'Hershey', exchange: 'NYSE' },
+    ],
+  },
+
+  // ── Real Estate ───────────────────────────────────────────────────────────
+  {
+    name: 'Data Centers REITs',
+    description: 'Immobilier data centers et tours télécom — demande IA',
+    color: '#60a5fa',
+    ref_etf: 'SRVR',
+    parent_sector: 'xlre',
+    tickers: [
+      { ticker: 'EQIX', name: 'Equinix', exchange: 'NASDAQ' },
+      { ticker: 'DLR',  name: 'Digital Realty', exchange: 'NYSE' },
+      { ticker: 'AMT',  name: 'American Tower', exchange: 'NYSE' },
+      { ticker: 'IRM',  name: 'Iron Mountain', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'REITs industriels',
+    description: 'Entrepôts et logistique — cycle e-commerce',
+    color: '#94a3b8',
+    ref_etf: 'INDS',
+    parent_sector: 'xlre',
+    tickers: [
+      { ticker: 'PLD',  name: 'Prologis', exchange: 'NYSE' },
+      { ticker: 'REXR', name: 'Rexford Industrial', exchange: 'NYSE' },
+      { ticker: 'STAG', name: 'STAG Industrial', exchange: 'NYSE' },
+      { ticker: 'FR',   name: 'First Industrial Realty', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'REITs résidentiels',
+    description: 'Logement locatif US — pénurie structurelle',
+    color: '#d4a72c',
+    ref_etf: 'REZ',
+    parent_sector: 'xlre',
+    tickers: [
+      { ticker: 'AVB',  name: 'AvalonBay Communities', exchange: 'NYSE' },
+      { ticker: 'EQR',  name: 'Equity Residential', exchange: 'NYSE' },
+      { ticker: 'INVH', name: 'Invitation Homes', exchange: 'NYSE' },
+      { ticker: 'MAA',  name: 'Mid-America Apartment', exchange: 'NYSE' },
+    ],
+  },
+
+  // ── Utilities ─────────────────────────────────────────────────────────────
+  // Peu d'ETF thématiques utilities : les thèses électricité (GRID, NLR, ICLN)
+  // sont déjà portées par d'autres secteurs. PHO couvre l'angle eau.
+  {
+    name: 'Eau',
+    description: 'Infrastructure et traitement de l\'eau — stress hydrique',
+    color: '#22d3ee',
+    ref_etf: 'PHO',
+    parent_sector: 'xlu',
+    tickers: [
+      { ticker: 'XYL',  name: 'Xylem', exchange: 'NYSE' },
+      { ticker: 'AWK',  name: 'American Water Works', exchange: 'NYSE' },
+      { ticker: 'ECL',  name: 'Ecolab', exchange: 'NYSE' },
+      { ticker: 'VLTO', name: 'Veralto', exchange: 'NYSE' },
+    ],
+  },
+
+  // ── Energy (suite) ────────────────────────────────────────────────────────
+  {
+    name: 'Uranium',
+    description: 'Mineurs d\'uranium — beta cyclique de la thèse nucléaire',
+    color: '#4ade80',
+    ref_etf: 'URA',
+    parent_sector: 'xle',
+    tickers: [
+      { ticker: 'CCJ', name: 'Cameco Corp.', exchange: 'NYSE' },
+      { ticker: 'NXE', name: 'NexGen Energy', exchange: 'NYSE' },
+      { ticker: 'UEC', name: 'Uranium Energy', exchange: 'NYSE' },
+      { ticker: 'DNN', name: 'Denison Mines', exchange: 'NYSE' },
     ],
   },
 
@@ -242,6 +456,32 @@ export const NARRATIVE_SEED: SeedNarrative[] = [
     ],
   },
 
+  {
+    name: 'Lithium & Batteries',
+    description: 'Chaîne batterie — lithium, cellules, cycle véhicule électrique',
+    color: '#2dd4bf',
+    ref_etf: 'LIT',
+    parent_sector: 'xlb',
+    tickers: [
+      { ticker: 'ALB', name: 'Albemarle', exchange: 'NYSE' },
+      { ticker: 'SQM', name: 'Sociedad Química y Minera', exchange: 'NYSE' },
+      { ticker: 'LAC', name: 'Lithium Americas', exchange: 'NYSE' },
+    ],
+  },
+  {
+    name: 'Agribusiness',
+    description: 'Équipement agricole, semences, engrais — sécurité alimentaire',
+    color: '#84cc16',
+    ref_etf: 'MOO',
+    parent_sector: 'xlb',
+    tickers: [
+      { ticker: 'DE',   name: 'Deere & Co.', exchange: 'NYSE' },
+      { ticker: 'CTVA', name: 'Corteva', exchange: 'NYSE' },
+      { ticker: 'ADM',  name: 'Archer-Daniels-Midland', exchange: 'NYSE' },
+      { ticker: 'NTR',  name: 'Nutrien', exchange: 'NYSE' },
+    ],
+  },
+
   // ── Financials ────────────────────────────────────────────────────────────
   {
     name: 'Banques US',
@@ -260,12 +500,52 @@ export const NARRATIVE_SEED: SeedNarrative[] = [
     name: 'Fintech',
     description: 'Paiements digitaux, crypto, néobanques',
     color: '#818cf8',
-    ref_etf: null,
+    ref_etf: 'FINX',
     parent_sector: 'xlf',
     tickers: [
       { ticker: 'SQ',   name: 'Block Inc.', exchange: 'NYSE' },
       { ticker: 'PYPL', name: 'PayPal', exchange: 'NASDAQ' },
       { ticker: 'COIN', name: 'Coinbase', exchange: 'NASDAQ' },
+      { ticker: 'HOOD', name: 'Robinhood Markets', exchange: 'NASDAQ' },
+    ],
+  },
+  {
+    name: 'Assurance US',
+    description: 'Assureurs P&C et multirisques — cycle de tarification',
+    color: '#fbbf24',
+    ref_etf: 'IAK',
+    parent_sector: 'xlf',
+    tickers: [
+      { ticker: 'PGR', name: 'Progressive', exchange: 'NYSE' },
+      { ticker: 'CB',  name: 'Chubb', exchange: 'NYSE' },
+      { ticker: 'TRV', name: 'Travelers', exchange: 'NYSE' },
+      { ticker: 'AIG', name: 'American International Group', exchange: 'NYSE' },
+    ],
+  },
+
+  // ── Blockchain & Crypto ───────────────────────────────────────────────────
+  {
+    name: 'Mineurs Bitcoin',
+    description: 'Mining BTC — levier sur le cours, pivot data centers IA',
+    color: '#f59e0b',
+    ref_etf: 'WGMI',
+    parent_sector: 'blok',
+    tickers: [
+      { ticker: 'MARA', name: 'MARA Holdings', exchange: 'NASDAQ' },
+      { ticker: 'RIOT', name: 'Riot Platforms', exchange: 'NASDAQ' },
+      { ticker: 'CLSK', name: 'CleanSpark', exchange: 'NASDAQ' },
+      { ticker: 'CIFR', name: 'Cipher Mining', exchange: 'NASDAQ' },
+    ],
+  },
+  {
+    name: 'Actifs numériques',
+    description: 'Exchanges, treasuries BTC, infrastructure crypto',
+    color: '#fb923c',
+    ref_etf: 'DAPP',
+    parent_sector: 'blok',
+    tickers: [
+      { ticker: 'COIN', name: 'Coinbase', exchange: 'NASDAQ' },
+      { ticker: 'MSTR', name: 'Strategy (MicroStrategy)', exchange: 'NASDAQ' },
       { ticker: 'HOOD', name: 'Robinhood Markets', exchange: 'NASDAQ' },
     ],
   },
