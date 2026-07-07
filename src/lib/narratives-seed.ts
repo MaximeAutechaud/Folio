@@ -174,20 +174,9 @@ export const NARRATIVE_SEED: SeedNarrative[] = [
   },
 
   // ── Industrials ──────────────────────────────────────────────────────────
-  {
-    name: 'Défense US',
-    description: 'Contractors défense américains — budget en hausse',
-    color: '#64748b',
-    ref_etf: 'ITA',
-    parent_sector: 'xli',
-    tickers: [
-      { ticker: 'LMT', name: 'Lockheed Martin', exchange: 'NYSE' },
-      { ticker: 'RTX', name: 'RTX Corp.', exchange: 'NYSE' },
-      { ticker: 'NOC', name: 'Northrop Grumman', exchange: 'NYSE' },
-      { ticker: 'GD',  name: 'General Dynamics', exchange: 'NYSE' },
-      { ticker: 'HII', name: 'Huntington Ingalls', exchange: 'NYSE' },
-    ],
-  },
+  // Pas de narrative « Défense US » : ITA est déjà un secteur à part entière
+  // dans lib/sectors.ts — la dupliquer ici créait un double scoring avec un
+  // profil macro contradictoire (defensive côté secteur, risk_on hérité de xli).
   {
     name: 'Grid & Infrastructure',
     description: 'Modernisation réseau électrique US — 70% du réseau a +50 ans',
