@@ -1,9 +1,10 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { usePortfolioStore, resolvePositions, computeTotals, convertCurrency } from '../store/portfolio';
 import { detectCurrency } from './api/yahoo';
-import { scoreSector } from '../hooks/useAlertEngine';
+import { scoreSector, scoreEtf } from '../hooks/useAlertEngine';
 import type { MacroScoreData } from '../hooks/useMacroScore';
 import type { SectorPerf } from '../hooks/useSectorData';
+import type { NarrativeEtfPerf } from '../hooks/useNarrativeEtfPerfs';
 
 // Snapshot fermé de l'état de l'app à l'instant T, assemblé depuis le store Zustand
 // + les caches TanStack déjà chauds (zéro requête réseau). Toutes les valeurs
@@ -22,6 +23,8 @@ export interface PositionSnapshot {
   ticker: string;
   nom: string;
   type: string;
+  secteur: string | null;           // secteur de rattachement (positions.sector_id) — croisement avec la rotation
+  secteurLabel: string | null;      // label du score de ce secteur (hot/warming/neutral/cooling)
   note?: string;                    // contexte / intention de l'user (présent seulement si renseigné)
   valeur: number | null;
   poidsPct: number | null;
@@ -53,11 +56,32 @@ export interface SectorSnapshot {
   rsi: number | null;
 }
 
+// Divergence thème/secteur, pré-calculée en code : la détection du pattern est
+// déterministe, le LLM ne fait que la verbaliser (doctrine : un thème fort dans
+// un secteur faible = thèse décorrélée, éligible opportunité ; un retardataire
+// dans un secteur fort = évitement, jamais une opportunité de rattrapage).
+export type ThemeDivergence = 'theme_fort_secteur_faible' | 'retardataire_secteur_fort' | null;
+
+export interface ThemeSnapshot {
+  nom: string;
+  etf: string;
+  score: number;
+  label: string;
+  signal: string | null;
+  rsi: number | null;
+  relPerf1M: number | null;     // vs SPY, comme les secteurs
+  vsParent1M: number | null;    // vs l'ETF du secteur parent : le thème tire-t-il son secteur ?
+  secteurParent: string | null;
+  secteurLabel: string | null;  // label du secteur parent (contexte de la divergence)
+  divergence: ThemeDivergence;
+}
+
 export interface BriefingSnapshot {
   meta: { date: string; deviseBase: string; eurUsd: number };
   macro: MacroSnapshot | null;
   portefeuille: PortfolioSnapshot | null;
   secteurs: SectorSnapshot[] | null;
+  themes: ThemeSnapshot[] | null;
 }
 
 function r2(x: number | null): number | null {
@@ -77,7 +101,21 @@ function buildMacro(macro: MacroScoreData | undefined): MacroSnapshot | null {
   };
 }
 
-function buildPortfolio(): PortfolioSnapshot | null {
+// nom + label de score par id de secteur — partagé entre les positions (rattachement
+// sectoriel) et les thèmes (contexte du parent). Vide si les caches ne sont pas chauds.
+function buildSectorCtx(
+  sectorPerfs: SectorPerf[] | undefined,
+  macro: MacroScoreData | undefined,
+): Record<string, { nom: string; label: string }> {
+  const out: Record<string, { nom: string; label: string }> = {};
+  if (!sectorPerfs || !macro) return out;
+  for (const sp of sectorPerfs) {
+    out[sp.sector.id] = { nom: sp.sector.name, label: scoreSector(sp, macro).label };
+  }
+  return out;
+}
+
+function buildPortfolio(sectorCtx: Record<string, { nom: string; label: string }>): PortfolioSnapshot | null {
   const { positions, prices, baseCurrency, eurUsd, transactions } = usePortfolioStore.getState();
   // Actions uniquement : ce briefing est centré rotation sectorielle TradFi. Le
   // crypto (et le fiat) sont hors périmètre — analyse crypto séparée à terme.
@@ -115,10 +153,14 @@ function buildPortfolio(): PortfolioSnapshot | null {
       if (risk > 0) rMultipleCourant = (price - entryQuote) / risk;
     }
 
+    const sec = p.sector_id ? sectorCtx[p.sector_id] : undefined;
+
     return {
       ticker: p.ticker,
       nom: p.name,
       type: p.asset_type,
+      secteur: sec?.nom ?? null,
+      secteurLabel: sec?.label ?? null,
       note: p.note ?? undefined,
       valeur: r2(valueBase),
       poidsPct: r2(poidsPct),
@@ -163,10 +205,73 @@ function buildSectors(
     .sort((a, b) => b.score - a.score);
 }
 
+// Entonnoir inversé : on sélectionne les thèmes notables par le bas (score,
+// signal, écart vs parent) puis on remonte au secteur parent pour qualifier la
+// trouvaille (confirmation / thèse décorrélée / retardataire à éviter).
+const THEME_CAP = 12;
+const VS_PARENT_NOTABLE = 3; // pts d'écart 1M vs l'ETF parent
+
+function buildThemes(
+  narrativePerfs: NarrativeEtfPerf[] | undefined,
+  sectorPerfs: SectorPerf[] | undefined,
+  macro: MacroScoreData | undefined,
+): ThemeSnapshot[] | null {
+  if (!narrativePerfs || narrativePerfs.length === 0 || !macro) return null;
+
+  const parentById = buildSectorCtx(sectorPerfs, macro);
+
+  return narrativePerfs
+    .map((np) => {
+      const s = scoreEtf(np, np.macroProfile, macro);
+      const parent = np.narrative.parent_sector ? parentById[np.narrative.parent_sector] : undefined;
+      const vsParent1M = np.relPerfVsParent1M;
+
+      let divergence: ThemeDivergence = null;
+      if (parent && vsParent1M != null) {
+        const themeFort = s.label === 'hot' || s.label === 'warming';
+        const parentFort = parent.label === 'hot' || parent.label === 'warming';
+        if (themeFort && !parentFort && vsParent1M >= VS_PARENT_NOTABLE) {
+          divergence = 'theme_fort_secteur_faible';
+        } else if (parentFort && vsParent1M <= -VS_PARENT_NOTABLE) {
+          divergence = 'retardataire_secteur_fort';
+        }
+      }
+
+      return {
+        nom: np.narrative.name,
+        etf: np.narrative.ref_etf!,
+        score: s.total,
+        label: s.label,
+        signal: s.signal,
+        rsi: np.rsi,
+        relPerf1M: r2(np.relPerf1M),
+        vsParent1M: r2(vsParent1M),
+        secteurParent: parent?.nom ?? null,
+        secteurLabel: parent?.label ?? null,
+        divergence,
+      };
+    })
+    // Notable = signal actif, ou label extrême, ou divergence vs parent.
+    .filter((t) =>
+      t.signal != null ||
+      t.label === 'hot' || t.label === 'cooling' ||
+      t.divergence != null
+    )
+    .sort((a, b) => b.score - a.score)
+    .slice(0, THEME_CAP);
+}
+
 export function buildBriefingSnapshot(queryClient: QueryClient): BriefingSnapshot {
   const { baseCurrency, eurUsd } = usePortfolioStore.getState();
   const macro = queryClient.getQueryData<MacroScoreData>(['macro-score']);
   const sectorPerfs = queryClient.getQueryData<SectorPerf[]>(['sector-perfs', '3M']);
+
+  // Les métriques qui nourrissent le score (relPerf 1W/1M/3M, RSI) sont
+  // indépendantes de la période sélectionnée dans l'onglet : n'importe quelle
+  // entrée de cache convient — on prend la première disponible (zéro réseau).
+  const narrativePerfs = (['3M', '1M', '1W'] as const)
+    .map((p) => queryClient.getQueryData<NarrativeEtfPerf[]>(['narrative-etf-perfs', p]))
+    .find((d) => d != null);
 
   return {
     meta: {
@@ -175,7 +280,8 @@ export function buildBriefingSnapshot(queryClient: QueryClient): BriefingSnapsho
       eurUsd: r2(eurUsd)!,
     },
     macro: buildMacro(macro),
-    portefeuille: buildPortfolio(),
+    portefeuille: buildPortfolio(buildSectorCtx(sectorPerfs, macro)),
     secteurs: buildSectors(sectorPerfs, macro),
+    themes: buildThemes(narrativePerfs, sectorPerfs, macro),
   };
 }

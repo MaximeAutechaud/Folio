@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getSetting, setSetting } from '../../lib/db';
-import { callAnthropic, ANTHROPIC_API_KEY_SETTING, ANTHROPIC_MODEL } from '../../lib/anthropic';
+import { callAnthropic, ANTHROPIC_API_KEY_SETTING, ANTHROPIC_MODEL, ANTHROPIC_MODEL_SETTING, ANTHROPIC_MODELS } from '../../lib/anthropic';
 import { buildBriefingSnapshot } from '../../lib/briefingSnapshot';
 import { BRIEFING_SYSTEM, BRIEFING_SCHEMA, buildBriefingUserMessage } from '../../lib/briefingPrompt';
 import styles from './BriefingSettings.module.css';
@@ -19,6 +19,7 @@ type TestState =
 export function BriefingSettings({ onClose }: Props) {
   const queryClient = useQueryClient();
   const [key, setKey] = useState('');
+  const [model, setModel] = useState<string>(ANTHROPIC_MODEL);
   const [loaded, setLoaded] = useState(false);
   const [saved, setSaved] = useState(false);
   const [test, setTest] = useState<TestState>({ kind: 'idle' });
@@ -30,7 +31,15 @@ export function BriefingSettings({ onClose }: Props) {
       setKey(v ?? '');
       setLoaded(true);
     });
+    getSetting(ANTHROPIC_MODEL_SETTING).then((v) => {
+      if (v) setModel(v);
+    });
   }, []);
+
+  async function handleModelChange(id: string) {
+    setModel(id);
+    await setSetting(ANTHROPIC_MODEL_SETTING, id);
+  }
 
   async function handleSave() {
     await setSetting(ANTHROPIC_API_KEY_SETTING, key.trim());
@@ -56,7 +65,7 @@ export function BriefingSettings({ onClose }: Props) {
       const text = await callAnthropic(buildBriefingUserMessage(snap), {
         system: BRIEFING_SYSTEM,
         jsonSchema: BRIEFING_SCHEMA,
-        maxTokens: 2048,
+        maxTokens: 8192, // inclut le thinking adaptatif
       });
       setGen({ kind: 'ok', text: JSON.stringify(JSON.parse(text), null, 2) });
     } catch (e) {
@@ -86,8 +95,20 @@ export function BriefingSettings({ onClose }: Props) {
           </label>
           <p className={styles.hint}>
             Stockée en local (SQLite), jamais envoyée ailleurs qu'à l'API Anthropic.
-            Modèle : <strong>{ANTHROPIC_MODEL}</strong>.
           </p>
+
+          <label className={styles.label}>
+            Modèle
+            <select
+              className={styles.input}
+              value={model}
+              onChange={(e) => handleModelChange(e.target.value)}
+            >
+              {ANTHROPIC_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </label>
 
           <div className={styles.row}>
             <button className={styles.btn} onClick={handleSave} disabled={!key.trim()}>
