@@ -102,20 +102,3 @@
 .statusOk  { background: rgba(63, 185, 80, 0.12);  color: var(--green); border: 1px solid rgba(63, 185, 80, 0.3); }
 .statusErr { background: rgba(248, 81, 73, 0.12);  color: var(--red);   border: 1px solid rgba(248, 81, 73, 0.3); }
 .statusInfo { color: var(--text-muted); }
-
-.divider { height: 1px; background: var(--border); margin: 2px 0; }
-
-.snapshot {
-  margin: 0;
-  max-height: 300px;
-  overflow: auto;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 10px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1.45;
-  color: var(--text-primary);
-  white-space: pre;
-}

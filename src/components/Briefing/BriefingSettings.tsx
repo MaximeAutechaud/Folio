@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { getSetting, setSetting } from '../../lib/db';
 import { callAnthropic, ANTHROPIC_API_KEY_SETTING, ANTHROPIC_MODEL, ANTHROPIC_MODEL_SETTING, ANTHROPIC_MODELS } from '../../lib/anthropic';
-import { buildBriefingSnapshot } from '../../lib/briefingSnapshot';
-import { BRIEFING_SYSTEM, BRIEFING_SCHEMA, buildBriefingUserMessage } from '../../lib/briefingPrompt';
 import styles from './BriefingSettings.module.css';
 
 interface Props {
@@ -17,14 +14,11 @@ type TestState =
   | { kind: 'err'; message: string };
 
 export function BriefingSettings({ onClose }: Props) {
-  const queryClient = useQueryClient();
   const [key, setKey] = useState('');
   const [model, setModel] = useState<string>(ANTHROPIC_MODEL);
   const [loaded, setLoaded] = useState(false);
   const [saved, setSaved] = useState(false);
   const [test, setTest] = useState<TestState>({ kind: 'idle' });
-  const [snapshot, setSnapshot] = useState<string | null>(null);
-  const [gen, setGen] = useState<TestState>({ kind: 'idle' });
 
   useEffect(() => {
     getSetting(ANTHROPIC_API_KEY_SETTING).then((v) => {
@@ -55,21 +49,6 @@ export function BriefingSettings({ onClose }: Props) {
       setTest({ kind: 'ok', text: text.trim() || '(vide)' });
     } catch (e) {
       setTest({ kind: 'err', message: e instanceof Error ? e.message : String(e) });
-    }
-  }
-
-  async function handleGenerate() {
-    setGen({ kind: 'running' });
-    try {
-      const snap = buildBriefingSnapshot(queryClient);
-      const text = await callAnthropic(buildBriefingUserMessage(snap), {
-        system: BRIEFING_SYSTEM,
-        jsonSchema: BRIEFING_SCHEMA,
-        maxTokens: 8192, // inclut le thinking adaptatif
-      });
-      setGen({ kind: 'ok', text: JSON.stringify(JSON.parse(text), null, 2) });
-    } catch (e) {
-      setGen({ kind: 'err', message: e instanceof Error ? e.message : String(e) });
     }
   }
 
@@ -133,28 +112,6 @@ export function BriefingSettings({ onClose }: Props) {
               Échec : {test.message}
             </div>
           )}
-
-          <div className={styles.divider} />
-
-          <button
-            className={styles.btn}
-            onClick={() => setSnapshot(JSON.stringify(buildBriefingSnapshot(queryClient), null, 2))}
-          >
-            Aperçu du snapshot (données envoyées)
-          </button>
-          {snapshot && <pre className={styles.snapshot}>{snapshot}</pre>}
-
-          <button
-            className={`${styles.btn} ${styles.btnPrimary}`}
-            onClick={handleGenerate}
-            disabled={!key.trim() || gen.kind === 'running'}
-          >
-            {gen.kind === 'running' ? 'Génération…' : 'Générer un briefing (test)'}
-          </button>
-          {gen.kind === 'err' && (
-            <div className={`${styles.status} ${styles.statusErr}`}>Échec : {gen.message}</div>
-          )}
-          {gen.kind === 'ok' && <pre className={styles.snapshot}>{gen.text}</pre>}
         </div>
       </div>
     </div>
