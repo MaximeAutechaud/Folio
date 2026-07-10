@@ -67,6 +67,7 @@ function relativeTime(ts: number): string {
 export function AlertPanel({ open, onClose }: Props) {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
+  const [editRule, setEditRule] = useState<AlertRule | null>(null);
   const [showAllHistory, setShowAllHistory] = useState(false);
   // Suppression en deux clics : premier clic arme le bouton 3s, second supprime.
   const [armedDeleteId, setArmedDeleteId] = useState<number | null>(null);
@@ -172,13 +173,22 @@ export function AlertPanel({ open, onClose }: Props) {
             ⏸
           </button>
           {deletable && (
-            <button
-              className={`${styles.iconBtn} ${styles.iconBtnDanger} ${armedDeleteId === rule.id ? styles.iconBtnArmed : ''}`}
-              onClick={() => handleDelete(rule)}
-              data-tooltip={armedDeleteId === rule.id ? 'Confirmer la suppression' : 'Supprimer'}
-            >
-              {armedDeleteId === rule.id ? 'sûr ?' : '✕'}
-            </button>
+            <>
+              <button
+                className={styles.iconBtn}
+                onClick={() => setEditRule(rule)}
+                data-tooltip="Modifier (seuil, direction)"
+              >
+                ✎
+              </button>
+              <button
+                className={`${styles.iconBtn} ${styles.iconBtnDanger} ${armedDeleteId === rule.id ? styles.iconBtnArmed : ''}`}
+                onClick={() => handleDelete(rule)}
+                data-tooltip={armedDeleteId === rule.id ? 'Confirmer la suppression' : 'Supprimer'}
+              >
+                {armedDeleteId === rule.id ? 'sûr ?' : '✕'}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -279,7 +289,13 @@ export function AlertPanel({ open, onClose }: Props) {
         </div>
       </div>
 
-      {showForm && <AlertForm onClose={() => setShowForm(false)} />}
+      {(showForm || editRule) && (
+        <AlertForm
+          key={editRule?.id ?? 'new'}
+          editRule={editRule ?? undefined}
+          onClose={() => { setShowForm(false); setEditRule(null); }}
+        />
+      )}
     </div>
   );
 }

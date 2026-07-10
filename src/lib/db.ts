@@ -639,6 +639,21 @@ export async function insertAlertRule(input: AlertRuleInput): Promise<number> {
   return result.lastInsertId as number;
 }
 
+// Édition des paramètres d'une règle (seuil/direction) — l'identité
+// (type/scope/scope_id) est immuable, l'historique d'événements reste attaché.
+// Ré-active la règle : modifier un seuil implique qu'on veut la voir tourner.
+export async function updateAlertRule(
+  id: number,
+  threshold: string | null,
+  direction: string | null
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    'UPDATE alert_rules SET threshold=$1, direction=$2, is_active=1 WHERE id=$3',
+    [threshold, direction, id]
+  );
+}
+
 export async function deleteAlertRule(id: number): Promise<void> {
   const db = await getDb();
   await db.execute('DELETE FROM alert_rules WHERE id = $1', [id]);

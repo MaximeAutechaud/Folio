@@ -1,14 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchNarratives, insertAlertRule } from '../../lib/db';
+import { fetchNarratives, insertAlertRule, updateAlertRule } from '../../lib/db';
 import { searchYahoo, fetchYahooPrices, type YahooSuggestion } from '../../lib/api/yahoo';
 import { SECTORS } from '../../lib/sectors';
-import type { AlertType, AlertScope, AlertRuleInput } from '../../types';
+import type { AlertType, AlertScope, AlertRule, AlertRuleInput } from '../../types';
 import styles from './AlertForm.module.css';
 
 interface Props {
   onClose: () => void;
   prefillTicker?: string;
+  /** mode édition : paramètres modifiables (seuil/direction), identité verrouillée */
+  editRule?: AlertRule;
 }
 
 type RsiSubScope = 'sector' | 'narrative';
@@ -33,18 +35,27 @@ const DEFAULT_THRESHOLD: Partial<Record<AlertType, string>> = {
   sector_score_threshold: '70',
 };
 
-export function AlertForm({ onClose, prefillTicker }: Props) {
+export function AlertForm({ onClose, prefillTicker, editRule }: Props) {
   const queryClient = useQueryClient();
+  const isEdit = editRule != null;
 
-  const initialType: AlertType = prefillTicker ? 'price_target' : 'rsi_overbought';
+  const initialType: AlertType = editRule ? editRule.type : prefillTicker ? 'price_target' : 'rsi_overbought';
   const [type, setType] = useState<AlertType>(initialType);
-  const [rsiSubScope, setRsiSubScope] = useState<RsiSubScope>('sector');
-  const [sectorId, setSectorId] = useState(SECTORS[0].id);
-  const [narrativeId, setNarrativeId] = useState('');
-  const [ticker, setTicker] = useState(prefillTicker ? prefillTicker.toUpperCase() : '');
-  const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD[initialType] ?? '');
-  const [emaDir, setEmaDir] = useState<EmaDir>('both');
-  const [priceDir, setPriceDir] = useState<PriceDir>('above');
+  const [rsiSubScope, setRsiSubScope] = useState<RsiSubScope>(editRule?.scope === 'narrative' ? 'narrative' : 'sector');
+  const [sectorId, setSectorId] = useState(editRule?.scope === 'sector' ? editRule.scope_id : SECTORS[0].id);
+  const [narrativeId, setNarrativeId] = useState(editRule?.scope === 'narrative' ? editRule.scope_id : '');
+  const [ticker, setTicker] = useState(
+    editRule?.scope === 'ticker' ? editRule.scope_id : prefillTicker ? prefillTicker.toUpperCase() : ''
+  );
+  const [threshold, setThreshold] = useState(
+    editRule && editRule.type !== 'ema_cross'
+      ? editRule.threshold ?? ''
+      : DEFAULT_THRESHOLD[initialType] ?? ''
+  );
+  const [emaDir, setEmaDir] = useState<EmaDir>(
+    editRule?.type === 'ema_cross' ? ((editRule.threshold as EmaDir) ?? 'both') : 'both'
+  );
+  const [priceDir, setPriceDir] = useState<PriceDir>(editRule?.direction === 'below' ? 'below' : 'above');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<YahooSuggestion[]>([]);
@@ -197,6 +208,12 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
     setSaving(true);
     setError(null);
     try {
+      if (isEdit) {
+        await updateAlertRule(editRule!.id, input.threshold, input.direction ?? null);
+        queryClient.invalidateQueries({ queryKey: ['alert-rules'] });
+        onClose();
+        return;
+      }
       // Garde anti-règle morte : un ticker qui ne résout aucun prix Yahoo ne
       // serait jamais évalué par le moteur (typo, id CoinGecko…).
       if (input.scope === 'ticker') {
@@ -224,7 +241,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
     <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={styles.modal}>
         <div className={styles.header}>
-          <span className={styles.title}>Nouvelle alerte</span>
+          <span className={styles.title}>{isEdit ? 'Modifier l\'alerte' : 'Nouvelle alerte'}</span>
           <button className={styles.close} onClick={onClose}>✕</button>
         </div>
 
@@ -235,6 +252,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
               className={styles.select}
               value={type}
               onChange={e => handleTypeChange(e.target.value as AlertType)}
+              disabled={isEdit}
             >
               {(Object.keys(TYPE_LABELS) as AlertType[]).map(t => (
                 <option key={t} value={t}>{TYPE_LABELS[t]}</option>
@@ -277,6 +295,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
                     type="button"
                     className={`${styles.seg} ${rsiSubScope === 'sector' ? styles.segActive : ''}`}
                     onClick={() => setRsiSubScope('sector')}
+                    disabled={isEdit}
                   >
                     Secteur
                   </button>
@@ -284,6 +303,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
                     type="button"
                     className={`${styles.seg} ${rsiSubScope === 'narrative' ? styles.segActive : ''}`}
                     onClick={() => setRsiSubScope('narrative')}
+                    disabled={isEdit}
                   >
                     Narrative
                   </button>
@@ -297,6 +317,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
                     className={styles.select}
                     value={sectorId}
                     onChange={e => setSectorId(e.target.value)}
+                    disabled={isEdit}
                   >
                     {SECTORS.map(s => (
                       <option key={s.id} value={s.id}>{s.name} ({s.etf})</option>
@@ -310,6 +331,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
                     className={styles.select}
                     value={narrativeId}
                     onChange={e => setNarrativeId(e.target.value)}
+                    disabled={isEdit}
                   >
                     {etfNarratives.map(n => (
                       <option key={n.id} value={String(n.id)}>
@@ -329,6 +351,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
                 className={styles.select}
                 value={sectorId}
                 onChange={e => setSectorId(e.target.value)}
+                disabled={isEdit}
               >
                 {SECTORS.map(s => (
                   <option key={s.id} value={s.id}>{s.name} ({s.etf})</option>
@@ -350,7 +373,8 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
                   onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                   onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
                   autoComplete="off"
-                  autoFocus={!prefillTicker}
+                  autoFocus={!prefillTicker && !isEdit}
+                  disabled={isEdit}
                 />
                 {showSuggestions && (
                   <ul className={styles.dropdown}>
@@ -436,7 +460,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
           <div className={styles.footer}>
             <button type="button" className={styles.cancel} onClick={onClose}>Annuler</button>
             <button type="submit" className={styles.submit} disabled={saving}>
-              {saving ? 'Vérification…' : 'Créer'}
+              {saving ? (isEdit ? 'Enregistrement…' : 'Vérification…') : isEdit ? 'Enregistrer' : 'Créer'}
             </button>
           </div>
         </form>

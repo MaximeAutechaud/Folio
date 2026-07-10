@@ -75,6 +75,12 @@
 .input:focus {
   border-color: var(--accent);
 }
+.select:disabled,
+.input:disabled,
+.seg:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
 .hint {
   font-size: 11px;
