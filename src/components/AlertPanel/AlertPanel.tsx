@@ -27,6 +27,7 @@ const TYPE_BADGE: Record<string, { label: string; color: string }> = {
   price_below_ma200:       { label: 'MA200',    color: '#f85149' },
   ema_cross:               { label: 'EMA ✕',   color: '#a78bfa' },
   sector_score_threshold:  { label: 'Score',    color: '#f59e0b' },
+  signal_change:           { label: 'Signal',   color: '#39c5cf' },
 };
 
 function ruleThresholdLabel(rule: AlertRule): string | null {
@@ -42,6 +43,7 @@ function ruleThresholdLabel(rule: AlertRule): string | null {
     return 'Golden + Death';
   }
   if (rule.type === 'price_below_ma200') return 'Prix < MA200';
+  if (rule.type === 'signal_change') return 'au changement';
   return null;
 }
 

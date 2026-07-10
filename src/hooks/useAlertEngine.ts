@@ -256,6 +256,44 @@ async function evaluateRules(
           continue;
         }
 
+      } else if (rule.type === 'signal_change') {
+        if (!macroScore) continue;
+
+        let score: SectorScore | null = null;
+        if (rule.scope === 'sector') {
+          const sp = sectorPerfs.find(s => s.sector.id === rule.scope_id);
+          if (sp) score = scoreSector(sp, macroScore);
+        } else if (rule.scope === 'narrative') {
+          const np = narrativePerfs.find(n => n.narrative.id === parseInt(rule.scope_id));
+          if (np) score = scoreEtf(np, np.macroProfile, macroScore);
+        }
+        if (!score) continue;
+
+        const currentSignal = score.signal ?? 'none';
+        currentValue = currentSignal;
+
+        if (!lastEvent) {
+          await insertBaselineAlertEvent(rule.id, currentSignal);
+          continue;
+        }
+
+        if (lastEvent.triggered_at >= todayStart && lastEvent.consecutive_days > 0) continue;
+
+        const prevSignal = lastEvent.value_at_trigger;
+        if (prevSignal === currentSignal) continue;
+
+        if (currentSignal === 'none') {
+          // Signal expiré : pas d'alerte, mais on re-baseline pour détecter
+          // la prochaine apparition.
+          await insertBaselineAlertEvent(rule.id, currentSignal);
+          continue;
+        }
+
+        conditionMet = true;
+        const transition = prevSignal === 'none' ? currentSignal : `${prevSignal} → ${currentSignal}`;
+        const warn = currentSignal === 'exhaustion' ? ' (évitement)' : '';
+        message = `${rule.label} · Signal ${transition}${warn} — score ${score.total}/100`;
+
       } else if (rule.type === 'sector_score_threshold') {
         if (lastEvent && lastEvent.triggered_at >= todayStart) continue;
         if (!macroScore) continue;

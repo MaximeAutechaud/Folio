@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchNarratives, insertAlertRule } from '../../lib/db';
+import { searchYahoo, fetchYahooPrices, type YahooSuggestion } from '../../lib/api/yahoo';
 import { SECTORS } from '../../lib/sectors';
 import type { AlertType, AlertScope, AlertRuleInput } from '../../types';
 import styles from './AlertForm.module.css';
@@ -15,6 +16,7 @@ type EmaDir = 'golden' | 'death' | 'both';
 type PriceDir = 'above' | 'below';
 
 const TYPE_LABELS: Record<AlertType, string> = {
+  signal_change:           'Signal émis (dip, reversal…)',
   rsi_overbought:          'RSI Overbought',
   rsi_oversold:            'RSI Oversold',
   macro_regime_change:     'Changement de régime macro',
@@ -44,6 +46,12 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
   const [emaDir, setEmaDir] = useState<EmaDir>('both');
   const [priceDir, setPriceDir] = useState<PriceDir>('above');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<YahooSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
 
   const { data: narratives = [] } = useQuery({
     queryKey: ['narratives'],
@@ -51,39 +59,67 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
     staleTime: 60_000,
   });
 
-  if (!narrativeId && narratives.length > 0) {
-    setNarrativeId(String(narratives[0].id));
+  // Seules les narratives avec ETF de référence sont évaluables par le moteur
+  // (useNarrativeEtfPerfs) — en proposer d'autres créerait des règles mortes.
+  const etfNarratives = narratives.filter(n => n.ref_etf);
+
+  if (!narrativeId && etfNarratives.length > 0) {
+    setNarrativeId(String(etfNarratives[0].id));
   }
 
   function handleTypeChange(t: AlertType) {
     setType(t);
     setThreshold(DEFAULT_THRESHOLD[t] ?? '');
+    setError(null);
   }
 
-  function buildInput(): AlertRuleInput | null {
-    if (type === 'rsi_overbought' || type === 'rsi_oversold') {
-      const thr = parseFloat(threshold);
-      if (isNaN(thr) || thr <= 0 || thr >= 100) return null;
+  function handleTickerChange(value: string) {
+    setTicker(value);
+    setError(null);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!value.trim()) { setSuggestions([]); setShowSuggestions(false); return; }
+    debounceRef.current = setTimeout(async () => {
+      const results = await searchYahoo(value).catch(() => []);
+      setSuggestions(results);
+      setShowSuggestions(results.length > 0);
+    }, 300);
+  }
+
+  function pickSuggestion(s: YahooSuggestion) {
+    setTicker(s.symbol);
+    setSuggestions([]);
+    setShowSuggestions(false);
+  }
+
+  // Retourne l'input prêt à insérer, ou un message d'erreur à afficher.
+  function buildInput(): AlertRuleInput | string {
+    if (type === 'rsi_overbought' || type === 'rsi_oversold' || type === 'signal_change') {
+      let thr: string | null = null;
+      if (type !== 'signal_change') {
+        const parsed = parseFloat(threshold);
+        if (isNaN(parsed) || parsed <= 0 || parsed >= 100) return 'Seuil RSI invalide — entre 1 et 99.';
+        thr = String(parsed);
+      }
 
       if (rsiSubScope === 'sector') {
         const sector = SECTORS.find(s => s.id === sectorId);
-        if (!sector) return null;
+        if (!sector) return 'Choisis un secteur.';
         return {
           type,
           scope: 'sector' as AlertScope,
           scope_id: sector.id,
           label: `${sector.name} (${sector.etf})`,
-          threshold: String(thr),
+          threshold: thr,
         };
       } else {
-        const narrative = narratives.find(n => String(n.id) === narrativeId);
-        if (!narrative) return null;
+        const narrative = etfNarratives.find(n => String(n.id) === narrativeId);
+        if (!narrative) return 'Choisis une narrative avec ETF de référence.';
         return {
           type,
           scope: 'narrative' as AlertScope,
           scope_id: String(narrative.id),
-          label: narrative.ref_etf ? `${narrative.name} (${narrative.ref_etf})` : narrative.name,
-          threshold: String(thr),
+          label: `${narrative.name} (${narrative.ref_etf})`,
+          threshold: thr,
         };
       }
     }
@@ -100,8 +136,9 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
 
     if (type === 'price_target' || type === 'stop_loss') {
       const sym = ticker.trim().toUpperCase();
+      if (!sym) return 'Ticker requis.';
       const thr = parseFloat(threshold);
-      if (!sym || isNaN(thr) || thr <= 0) return null;
+      if (isNaN(thr) || thr <= 0) return 'Prix invalide.';
       return {
         type,
         scope: 'ticker' as AlertScope,
@@ -114,7 +151,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
 
     if (type === 'price_below_ma200') {
       const sym = ticker.trim().toUpperCase();
-      if (!sym) return null;
+      if (!sym) return 'Ticker requis.';
       return {
         type,
         scope: 'ticker' as AlertScope,
@@ -126,7 +163,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
 
     if (type === 'ema_cross') {
       const sym = ticker.trim().toUpperCase();
-      if (!sym) return null;
+      if (!sym) return 'Ticker requis.';
       return {
         type,
         scope: 'ticker' as AlertScope,
@@ -138,9 +175,9 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
 
     if (type === 'sector_score_threshold') {
       const thr = parseFloat(threshold);
-      if (isNaN(thr) || thr < 0 || thr > 100) return null;
+      if (isNaN(thr) || thr < 0 || thr > 100) return 'Score invalide — entre 0 et 100.';
       const sector = SECTORS.find(s => s.id === sectorId);
-      if (!sector) return null;
+      if (!sector) return 'Choisis un secteur.';
       return {
         type,
         scope: 'sector' as AlertScope,
@@ -150,15 +187,25 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
       };
     }
 
-    return null;
+    return 'Type d\'alerte inconnu.';
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const input = buildInput();
-    if (!input) return;
+    if (typeof input === 'string') { setError(input); return; }
     setSaving(true);
+    setError(null);
     try {
+      // Garde anti-règle morte : un ticker qui ne résout aucun prix Yahoo ne
+      // serait jamais évalué par le moteur (typo, id CoinGecko…).
+      if (input.scope === 'ticker') {
+        const prices = await fetchYahooPrices([input.scope_id]);
+        if (prices[input.scope_id] == null) {
+          setError(`${input.scope_id} introuvable sur Yahoo — format requis : NVDA, AIR.PA, BTC-USD…`);
+          return;
+        }
+      }
       await insertAlertRule(input);
       queryClient.invalidateQueries({ queryKey: ['alert-rules'] });
       onClose();
@@ -168,8 +215,9 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
   }
 
   const isRsiType = type === 'rsi_overbought' || type === 'rsi_oversold';
+  const hasScopePicker = isRsiType || type === 'signal_change';
   const isTickerType = type === 'price_target' || type === 'stop_loss' || type === 'price_below_ma200' || type === 'ema_cross';
-  const needsNumericThreshold = type !== 'macro_regime_change' && type !== 'price_below_ma200' && type !== 'ema_cross';
+  const needsNumericThreshold = type !== 'macro_regime_change' && type !== 'price_below_ma200' && type !== 'ema_cross' && type !== 'signal_change';
   const isSectorScoped = isRsiType && rsiSubScope === 'sector' || type === 'sector_score_threshold';
 
   return (
@@ -194,6 +242,14 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
             </select>
           </label>
 
+          {type === 'signal_change' && (
+            <p className={styles.hint}>
+              Déclenche quand le secteur ou la narrative émet un nouveau signal
+              (dip, reversal, accelerating, exhaustion) ou en change. Exhaustion
+              est un signal d'évitement.
+            </p>
+          )}
+
           {type === 'macro_regime_change' && (
             <p className={styles.hint}>
               Déclenche une alerte à chaque changement de régime macro (Risk-On → Favorable → Neutre → Défavorable → Risk-Off).
@@ -212,7 +268,7 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
             </p>
           )}
 
-          {isRsiType && (
+          {hasScopePicker && (
             <>
               <label className={styles.label}>
                 Cible
@@ -255,9 +311,9 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
                     value={narrativeId}
                     onChange={e => setNarrativeId(e.target.value)}
                   >
-                    {narratives.map(n => (
+                    {etfNarratives.map(n => (
                       <option key={n.id} value={String(n.id)}>
-                        {n.name}{n.ref_etf ? ` (${n.ref_etf})` : ''}
+                        {n.name} ({n.ref_etf})
                       </option>
                     ))}
                   </select>
@@ -284,14 +340,34 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
           {isTickerType && (
             <label className={styles.label}>
               Ticker
-              <input
-                className={styles.input}
-                type="text"
-                placeholder="ex: NVDA, AAPL, AIR.PA"
-                value={ticker}
-                onChange={e => setTicker(e.target.value)}
-                autoFocus={!prefillTicker}
-              />
+              <div className={styles.autocompleteWrap}>
+                <input
+                  className={styles.input}
+                  type="text"
+                  placeholder="ex: NVDA, AAPL, AIR.PA"
+                  value={ticker}
+                  onChange={e => handleTickerChange(e.target.value)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                  onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                  autoComplete="off"
+                  autoFocus={!prefillTicker}
+                />
+                {showSuggestions && (
+                  <ul className={styles.dropdown}>
+                    {suggestions.map(s => (
+                      <li
+                        key={s.symbol}
+                        className={styles.dropdownItem}
+                        onMouseDown={() => pickSuggestion(s)}
+                      >
+                        <span className={styles.suggTicker}>{s.symbol}</span>
+                        <span className={styles.suggName}>{s.shortname}</span>
+                        <span className={styles.suggExch}>{s.exchDisp}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </label>
           )}
 
@@ -355,10 +431,12 @@ export function AlertForm({ onClose, prefillTicker }: Props) {
             </label>
           )}
 
+          {error && <p className={styles.error}>⚠ {error}</p>}
+
           <div className={styles.footer}>
             <button type="button" className={styles.cancel} onClick={onClose}>Annuler</button>
             <button type="submit" className={styles.submit} disabled={saving}>
-              {saving ? 'Enregistrement…' : 'Créer'}
+              {saving ? 'Vérification…' : 'Créer'}
             </button>
           </div>
         </form>
