@@ -52,6 +52,7 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
   const t1ManualRef = useRef(false);
   const t2ManualRef = useRef(false);
   const sectorManualRef = useRef(false);
+  const nameManualRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -177,11 +178,14 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
   }
 
   function pickSuggestion(s: Suggestion) {
+    // Écrase le name auto-rempli par une sélection précédente, mais préserve
+    // un nom réellement saisi par l'utilisateur (nameManualRef).
+    const keepName = nameManualRef.current;
     if (s.kind === 'stock') {
       setForm((prev) => ({
         ...prev,
         ticker: s.data.symbol,
-        name: prev.name || s.data.shortname || '',
+        name: keepName && prev.name ? prev.name : s.data.shortname || '',
         currency: detectCurrency(s.data.symbol),
       }));
     } else {
@@ -189,7 +193,7 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
       setForm((prev) => ({
         ...prev,
         ticker: s.data.id,
-        name: prev.name || `${s.data.name} (${s.data.symbol.toUpperCase()})`,
+        name: keepName && prev.name ? prev.name : `${s.data.name} (${s.data.symbol.toUpperCase()})`,
         currency: 'USD',
       }));
     }
@@ -348,7 +352,11 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
               id="name"
               className={styles.input}
               value={form.name}
-              onChange={(e) => set('name', e.target.value)}
+              onChange={(e) => {
+                // champ vidé = retour au remplissage auto à la prochaine sélection
+                nameManualRef.current = e.target.value !== '';
+                set('name', e.target.value);
+              }}
               placeholder="Apple Inc."
             />
           </div>
