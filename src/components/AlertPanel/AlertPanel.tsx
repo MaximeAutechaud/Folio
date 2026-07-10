@@ -78,6 +78,7 @@ export function AlertPanel({ open, onClose }: Props) {
 
   const unacknowledged = events.filter(e => !e.acknowledged);
   const userRules = rules.filter(r => !r.is_system);
+  const systemRules = rules.filter(r => r.is_system);
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ['alert-events'] });
@@ -108,6 +109,55 @@ export function AlertPanel({ open, onClose }: Props) {
   async function handleSnooze(rule: AlertRule) {
     await snoozeAlertRule(rule.id, 24);
     invalidate();
+  }
+
+  // deletable=false pour les règles système : leur cycle de vie appartient à la
+  // position (une suppression serait recréée au prochain save de la position).
+  function ruleRow(rule: AlertRule, deletable: boolean) {
+    const badge = TYPE_BADGE[rule.type] ?? { label: '?', color: '#6e7681' };
+    const isSnoozed = rule.snoozed_until != null && rule.snoozed_until > Math.floor(Date.now() / 1000);
+    return (
+      <div key={rule.id} className={`${styles.ruleRow} ${!rule.is_active ? styles.ruleInactive : ''}`}>
+        <span
+          className={styles.typeBadge}
+          style={{ background: badge.color + '22', color: badge.color, borderColor: badge.color + '44' }}
+        >
+          {badge.label}
+        </span>
+        <div className={styles.ruleInfo}>
+          <span className={styles.ruleLabel}>{rule.label}</span>
+          {ruleThresholdLabel(rule) && (
+            <span className={styles.ruleThreshold}>{ruleThresholdLabel(rule)}</span>
+          )}
+          {isSnoozed && <span className={styles.snoozed}>snoozé</span>}
+        </div>
+        <div className={styles.ruleActions}>
+          <button
+            className={`${styles.iconBtn} ${rule.is_active ? styles.iconBtnActive : ''}`}
+            onClick={() => handleToggle(rule)}
+            data-tooltip={rule.is_active ? 'Désactiver' : deletable ? 'Activer' : 'Ré-armer'}
+          >
+            {rule.is_active ? '●' : '○'}
+          </button>
+          <button
+            className={styles.iconBtn}
+            onClick={() => handleSnooze(rule)}
+            data-tooltip="Snooze 24h"
+          >
+            ⏸
+          </button>
+          {deletable && (
+            <button
+              className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+              onClick={() => handleDelete(rule)}
+              data-tooltip="Supprimer"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+    );
   }
 
   if (!open) return null;
@@ -187,51 +237,20 @@ export function AlertPanel({ open, onClose }: Props) {
               <div className={styles.empty}>Aucune règle configurée</div>
             )}
 
-            {userRules.map(rule => {
-              const badge = TYPE_BADGE[rule.type] ?? { label: '?', color: '#6e7681' };
-              const isSnoozed = rule.snoozed_until != null && rule.snoozed_until > Math.floor(Date.now() / 1000);
-              return (
-                <div key={rule.id} className={`${styles.ruleRow} ${!rule.is_active ? styles.ruleInactive : ''}`}>
-                  <span
-                    className={styles.typeBadge}
-                    style={{ background: badge.color + '22', color: badge.color, borderColor: badge.color + '44' }}
-                  >
-                    {badge.label}
-                  </span>
-                  <div className={styles.ruleInfo}>
-                    <span className={styles.ruleLabel}>{rule.label}</span>
-                    {ruleThresholdLabel(rule) && (
-                      <span className={styles.ruleThreshold}>{ruleThresholdLabel(rule)}</span>
-                    )}
-                    {isSnoozed && <span className={styles.snoozed}>snoozé</span>}
-                  </div>
-                  <div className={styles.ruleActions}>
-                    <button
-                      className={`${styles.iconBtn} ${rule.is_active ? styles.iconBtnActive : ''}`}
-                      onClick={() => handleToggle(rule)}
-                      data-tooltip={rule.is_active ? 'Désactiver' : 'Activer'}
-                    >
-                      {rule.is_active ? '●' : '○'}
-                    </button>
-                    <button
-                      className={styles.iconBtn}
-                      onClick={() => handleSnooze(rule)}
-                      data-tooltip="Snooze 24h"
-                    >
-                      ⏸
-                    </button>
-                    <button
-                      className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
-                      onClick={() => handleDelete(rule)}
-                      data-tooltip="Supprimer"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+            {userRules.map(rule => ruleRow(rule, true))}
           </section>
+
+          {/* System rules (stop/TP des positions) */}
+          {systemRules.length > 0 && (
+            <section className={styles.section}>
+              <div className={styles.sectionTitle}>Alertes de positions</div>
+              <p className={styles.sectionHint}>
+                Générées par les stops/objectifs de tes positions. One-shot : elles se
+                désactivent après déclenchement — ré-arme avec ●/○.
+              </p>
+              {systemRules.map(rule => ruleRow(rule, false))}
+            </section>
+          )}
         </div>
       </div>
 

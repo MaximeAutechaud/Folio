@@ -18,6 +18,13 @@ import {
   cleanupOrphanSystemAlertRules,
 } from '../lib/db';
 import { computePRU } from '../lib/pru';
+import { queryClient } from '../lib/queryClient';
+
+// Les saves/suppressions de positions créent ou purgent des règles d'alertes
+// système : le cache du panneau doit être rafraîchi hors cycle React Query.
+function invalidateAlertRules() {
+  queryClient.invalidateQueries({ queryKey: ['alert-rules'] });
+}
 
 export type BaseCurrency = 'EUR' | 'USD';
 
@@ -61,7 +68,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
         fetchAllTransactions(),
       ]);
       set({ positions, transactions, isLoading: false });
-      cleanupOrphanSystemAlertRules().catch(() => {});
+      cleanupOrphanSystemAlertRules().then(invalidateAlertRules).catch(() => {});
     } catch (e) {
       set({ error: String(e), isLoading: false });
     }
@@ -72,6 +79,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     const ticker = input.ticker.toUpperCase();
     if (input.stop_price) await upsertStopAlertRule(ticker, input.stop_price);
     await upsertTargetAlertRules(ticker, input.target_price ?? null, input.target_price_2 ?? null);
+    invalidateAlertRules();
     const newPosition: Position = {
       id,
       ...input,
@@ -103,6 +111,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
       await removeStopAlertRule(ticker);
     }
     await upsertTargetAlertRules(ticker, input.target_price ?? null, input.target_price_2 ?? null);
+    invalidateAlertRules();
     set((state) => ({
       positions: state.positions.map((p) =>
         p.id === id
@@ -126,6 +135,7 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
     if (pos && !get().positions.some((p) => p.id !== id && p.ticker === pos.ticker)) {
       await removeStopAlertRule(pos.ticker);
       await removeTargetAlertRules(pos.ticker);
+      invalidateAlertRules();
     }
     set((state) => {
       const transactions = { ...state.transactions };
