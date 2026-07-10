@@ -1,0 +1,142 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+}
+
+.dimmed {
+  background: rgba(1, 4, 9, 0.72);
+}
+
+.spotlight {
+  position: fixed;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 0 9999px rgba(1, 4, 9, 0.72), 0 0 12px rgba(88, 166, 255, 0.35);
+  pointer-events: none;
+  transition: top 0.25s ease, left 0.25s ease, width 0.25s ease, height 0.25s ease;
+}
+
+.tooltip {
+  position: fixed;
+  width: 360px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+  animation: tourFadeIn 0.18s ease;
+}
+
+@keyframes tourFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; }
+}
+
+.arrow {
+  position: absolute;
+  top: -6px;
+  width: 10px;
+  height: 10px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.counter {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.body {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+
+.tip {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--accent);
+  margin: 0 0 12px;
+  display: flex;
+  gap: 6px;
+}
+
+.tipMark {
+  flex-shrink: 0;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.skipBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.skipBtn:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.navBtns {
+  display: flex;
+  gap: 8px;
+}
+
+.prevBtn,
+.nextBtn {
+  font-size: 11.5px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+
+.prevBtn {
+  background: none;
+  color: var(--text-primary);
+}
+
+.prevBtn:hover {
+  background: var(--bg-hover);
+}
+
+.nextBtn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-primary);
+  font-weight: 600;
+}
+
+.nextBtn:hover {
+  filter: brightness(1.1);
+}

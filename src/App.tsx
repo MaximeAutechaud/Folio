@@ -6,7 +6,7 @@ import { PositionForm } from './components/PositionForm/PositionForm';
 import { PortfolioChart } from './components/PortfolioChart/PortfolioChart';
 import { PositionDrawer } from './components/Drawer/PositionDrawer';
 import { ChartsView } from './components/ChartsView/ChartsView';
-import { MarketView } from './components/MarketView/MarketView';
+import { MarketView, type MarketSubTab } from './components/MarketView/MarketView';
 import { WatchlistView } from './components/WatchlistView/WatchlistView';
 import { TradesView } from './components/TradesView/TradesView';
 import { AlertPanel } from './components/AlertPanel/AlertPanel';
@@ -14,12 +14,13 @@ import { BriefingSettings } from './components/Briefing/BriefingSettings';
 import { BriefingTab } from './components/Briefing/BriefingTab';
 import { CorporateActionModal } from './components/CorporateActionModal/CorporateActionModal';
 import { SessionRecap } from './components/SessionRecap/SessionRecap';
+import { OnboardingTour } from './components/OnboardingTour/OnboardingTour';
 import { usePortfolioStore } from './store/portfolio';
 import { usePrices } from './hooks/usePrices';
 import { useAlertEngine, useUnacknowledgedCount } from './hooks/useAlertEngine';
 import { useSignalBackfill } from './hooks/useSignalBackfill';
 import { useCorporateActionSync } from './hooks/useCorporateActionSync';
-import { fetchSnapshots } from './lib/db';
+import { fetchSnapshots, getSetting, setSetting } from './lib/db';
 import type { PendingCorporateAction, PositionInput, TransactionInput } from './types';
 import styles from './App.module.css';
 
@@ -32,6 +33,8 @@ export default function App() {
   const [drawerPositionId, setDrawerPositionId] = useState<number | null>(null);
 
   const [alertOpen, setAlertOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+  const [tourMarketSubTab, setTourMarketSubTab] = useState<MarketSubTab | null>(null);
   const [briefingSettingsOpen, setBriefingSettingsOpen] = useState(false);
   const [corpActionModal, setCorpActionModal] = useState<PendingCorporateAction | null>(null);
 
@@ -44,6 +47,16 @@ export default function App() {
   const storeTransactions = usePortfolioStore((s) => s.transactions);
 
   useEffect(() => { loadPositions(); }, []);
+
+  useEffect(() => {
+    getSetting('onboarding_done').then((v) => { if (v !== '1') setTourOpen(true); });
+  }, []);
+
+  function closeTour() {
+    setTourOpen(false);
+    setTourMarketSubTab(null);
+    setSetting('onboarding_done', '1');
+  }
 
   usePrices();
   useAlertEngine();
@@ -102,6 +115,7 @@ export default function App() {
       {(['portfolio', 'charts', 'market', 'watchlist', 'trades', 'ia'] as Tab[]).map((tab) => (
         <button
           key={tab}
+          data-tour={`tab-${tab}`}
           className={`${styles.tabBtn} ${activeTab === tab ? styles.tabActive : ''}`}
           onClick={() => setActiveTab(tab)}
         >
@@ -115,6 +129,7 @@ export default function App() {
     <>
       {activeTab === 'portfolio' && (
         <button
+          data-tour="sync"
           className={`${styles.syncBtn} ${corpActionSync.isSyncing ? styles.syncSpinning : ''}`}
           onClick={corpActionSync.syncNow}
           disabled={corpActionSync.isSyncing}
@@ -129,7 +144,7 @@ export default function App() {
           )}
         </button>
       )}
-      <button className={styles.bellBtn} onClick={() => setAlertOpen(v => !v)}>
+      <button data-tour="alerts" className={styles.bellBtn} onClick={() => setAlertOpen(v => !v)}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
           <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
@@ -144,6 +159,17 @@ export default function App() {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+      <button
+        className={styles.bellBtn}
+        onClick={() => setTourOpen(true)}
+        title="Visite guidée de l'application"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
       </button>
     </>
@@ -171,7 +197,7 @@ export default function App() {
       ) : activeTab === 'charts' ? (
         <ChartsView />
       ) : activeTab === 'market' ? (
-        <MarketView />
+        <MarketView forcedSubTab={tourMarketSubTab} />
       ) : activeTab === 'watchlist' ? (
         <WatchlistView />
       ) : activeTab === 'trades' ? (
@@ -202,6 +228,14 @@ export default function App() {
       <AlertPanel open={alertOpen} onClose={() => setAlertOpen(false)} />
 
       {briefingSettingsOpen && <BriefingSettings onClose={() => setBriefingSettingsOpen(false)} />}
+
+      {tourOpen && (
+        <OnboardingTour
+          onClose={closeTour}
+          onTabChange={setActiveTab}
+          onMarketSubTab={setTourMarketSubTab}
+        />
+      )}
 
       {corpActionModal && (() => {
         const modalPosition = positions.find((p) => p.id === corpActionModal.positionId);

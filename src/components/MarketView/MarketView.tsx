@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { SectorDashboard } from './SectorDashboard';
 import { NarrativeDashboard } from './NarrativeDashboard';
 import { MacroScore } from './MacroScore';
@@ -7,7 +7,7 @@ import { SignalStats } from './SignalStats';
 import { useMacroScore } from '../../hooks/useMacroScore';
 import styles from './MarketView.module.css';
 
-type MarketSubTab = 'macro' | 'secteurs' | 'narratives' | 'signaux';
+export type MarketSubTab = 'macro' | 'secteurs' | 'narratives' | 'signaux';
 
 const TABS: { id: MarketSubTab; label: string; hint: string }[] = [
   { id: 'macro',      label: 'Macro',      hint: 'régime & indicateurs' },
@@ -16,11 +16,20 @@ const TABS: { id: MarketSubTab; label: string; hint: string }[] = [
   { id: 'signaux',    label: 'Signaux',    hint: 'fiabilité historique' },
 ];
 
-export function MarketView() {
+interface Props {
+  /** piloté par la visite guidée — change le sous-onglet sans passer par le disclaimer macro */
+  forcedSubTab?: MarketSubTab | null;
+}
+
+export function MarketView({ forcedSubTab }: Props) {
   const [subTab, setSubTab] = useState<MarketSubTab>('macro');
   const [showMacroDisclaimer, setShowMacroDisclaimer] = useState(false);
   const macroDisclaimerShown = useRef(false);
   const { data: macroData } = useMacroScore();
+
+  useEffect(() => {
+    if (forcedSubTab) setSubTab(forcedSubTab);
+  }, [forcedSubTab]);
 
   function handleSubTabChange(tab: MarketSubTab) {
     if (
@@ -46,6 +55,7 @@ export function MarketView() {
         {TABS.map((t, i) => (
           <button
             key={t.id}
+            data-tour={`market-sub-${t.id}`}
             className={`${styles.subNavBtn} ${subTab === t.id ? styles.subNavActive : ''}`}
             onClick={() => handleSubTabChange(t.id)}
           >
