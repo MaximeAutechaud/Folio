@@ -14,6 +14,8 @@ import {
   upsertStopAlertRule,
   removeStopAlertRule,
   upsertTargetAlertRules,
+  removeTargetAlertRules,
+  cleanupOrphanSystemAlertRules,
 } from '../lib/db';
 import { computePRU } from '../lib/pru';
 
@@ -42,7 +44,7 @@ interface PortfolioState {
   refreshTransactions: (positionId: number) => Promise<void>;
 }
 
-export const usePortfolioStore = create<PortfolioState>((set) => ({
+export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   positions: [],
   prices: {},
   baseCurrency: 'EUR',
@@ -59,6 +61,7 @@ export const usePortfolioStore = create<PortfolioState>((set) => ({
         fetchAllTransactions(),
       ]);
       set({ positions, transactions, isLoading: false });
+      cleanupOrphanSystemAlertRules().catch(() => {});
     } catch (e) {
       set({ error: String(e), isLoading: false });
     }
@@ -86,6 +89,14 @@ export const usePortfolioStore = create<PortfolioState>((set) => ({
   updatePosition: async (id, input) => {
     await updatePosition(id, input);
     const ticker = input.ticker.toUpperCase();
+    // Changement de ticker : purge les alertes système de l'ancien ticker,
+    // sauf si une autre position le porte encore.
+    const prev = get().positions.find((p) => p.id === id);
+    if (prev && prev.ticker !== ticker &&
+        !get().positions.some((p) => p.id !== id && p.ticker === prev.ticker)) {
+      await removeStopAlertRule(prev.ticker);
+      await removeTargetAlertRules(prev.ticker);
+    }
     if (input.stop_price) {
       await upsertStopAlertRule(ticker, input.stop_price);
     } else {
@@ -108,7 +119,14 @@ export const usePortfolioStore = create<PortfolioState>((set) => ({
   },
 
   removePosition: async (id) => {
+    const pos = get().positions.find((p) => p.id === id);
     await deletePosition(id);
+    // Purge les alertes système (stop/TP) du ticker, sauf si une autre
+    // position le porte encore.
+    if (pos && !get().positions.some((p) => p.id !== id && p.ticker === pos.ticker)) {
+      await removeStopAlertRule(pos.ticker);
+      await removeTargetAlertRules(pos.ticker);
+    }
     set((state) => {
       const transactions = { ...state.transactions };
       delete transactions[id];

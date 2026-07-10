@@ -646,8 +646,11 @@ export async function deleteAlertRule(id: number): Promise<void> {
 
 export async function upsertStopAlertRule(ticker: string, stopPrice: number): Promise<void> {
   const db = await getDb();
+  // is_system=1 uniquement : une règle stop_loss créée manuellement sur le même
+  // ticker ne doit jamais être convertie en règle système (elle disparaîtrait du
+  // panneau, qui filtre les règles système).
   const existing = await db.select<{ id: number }[]>(
-    `SELECT id FROM alert_rules WHERE type='stop_loss' AND scope='ticker' AND scope_id=$1`,
+    `SELECT id FROM alert_rules WHERE type='stop_loss' AND scope='ticker' AND scope_id=$1 AND is_system=1`,
     [ticker]
   );
   if (existing.length > 0) {
@@ -667,7 +670,7 @@ export async function upsertStopAlertRule(ticker: string, stopPrice: number): Pr
 export async function removeStopAlertRule(ticker: string): Promise<void> {
   const db = await getDb();
   await db.execute(
-    `DELETE FROM alert_rules WHERE type='stop_loss' AND scope='ticker' AND scope_id=$1`,
+    `DELETE FROM alert_rules WHERE type='stop_loss' AND scope='ticker' AND scope_id=$1 AND is_system=1`,
     [ticker]
   );
 }
@@ -682,13 +685,13 @@ export async function upsertTargetAlertRules(
   for (const [slot, price] of [['tp1', tp1], ['tp2', tp2]] as [string, number | null][]) {
     if (price == null) {
       await db.execute(
-        `DELETE FROM alert_rules WHERE type='price_target' AND scope='ticker' AND scope_id=$1 AND slot=$2`,
+        `DELETE FROM alert_rules WHERE type='price_target' AND scope='ticker' AND scope_id=$1 AND slot=$2 AND is_system=1`,
         [ticker, slot]
       );
       continue;
     }
     const existing = await db.select<{ id: number }[]>(
-      `SELECT id FROM alert_rules WHERE type='price_target' AND scope='ticker' AND scope_id=$1 AND slot=$2`,
+      `SELECT id FROM alert_rules WHERE type='price_target' AND scope='ticker' AND scope_id=$1 AND slot=$2 AND is_system=1`,
       [ticker, slot]
     );
     const label = `${slot === 'tp1' ? 'TP1' : 'TP2'} — ${ticker}`;
@@ -705,6 +708,17 @@ export async function upsertTargetAlertRules(
       );
     }
   }
+}
+
+// Répare les règles système orphelines (position supprimée avant que
+// removePosition ne purge ses alertes stop/TP). Idempotent, appelé au démarrage.
+export async function cleanupOrphanSystemAlertRules(): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `DELETE FROM alert_rules
+     WHERE is_system=1 AND scope='ticker'
+       AND UPPER(scope_id) NOT IN (SELECT UPPER(ticker) FROM positions)`
+  );
 }
 
 export async function removeTargetAlertRules(ticker: string): Promise<void> {
