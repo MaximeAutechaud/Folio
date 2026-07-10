@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchAlertEvents,
@@ -47,6 +47,14 @@ function ruleThresholdLabel(rule: AlertRule): string | null {
   return null;
 }
 
+function formatSnoozeUntil(ts: number): string {
+  const d = new Date(ts * 1000);
+  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const today = new Date();
+  const sameDay = d.getDate() === today.getDate() && d.getMonth() === today.getMonth();
+  return sameDay ? `→ ${time}` : `→ ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${time}`;
+}
+
 function relativeTime(ts: number): string {
   const diff = Math.floor(Date.now() / 1000) - ts;
   if (diff < 60) return 'à l\'instant';
@@ -60,6 +68,9 @@ export function AlertPanel({ open, onClose }: Props) {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [showAllHistory, setShowAllHistory] = useState(false);
+  // Suppression en deux clics : premier clic arme le bouton 3s, second supprime.
+  const [armedDeleteId, setArmedDeleteId] = useState<number | null>(null);
+  const disarmRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const HISTORY_PREVIEW = 3;
 
@@ -79,6 +90,7 @@ export function AlertPanel({ open, onClose }: Props) {
   });
 
   const unacknowledged = events.filter(e => !e.acknowledged);
+  const acked = events.filter(e => e.acknowledged);
   const userRules = rules.filter(r => !r.is_system);
   const systemRules = rules.filter(r => r.is_system);
 
@@ -99,6 +111,14 @@ export function AlertPanel({ open, onClose }: Props) {
   }
 
   async function handleDelete(rule: AlertRule) {
+    if (armedDeleteId !== rule.id) {
+      setArmedDeleteId(rule.id);
+      if (disarmRef.current) clearTimeout(disarmRef.current);
+      disarmRef.current = setTimeout(() => setArmedDeleteId(null), 3000);
+      return;
+    }
+    if (disarmRef.current) clearTimeout(disarmRef.current);
+    setArmedDeleteId(null);
     await deleteAlertRule(rule.id);
     invalidate();
   }
@@ -108,8 +128,9 @@ export function AlertPanel({ open, onClose }: Props) {
     invalidate();
   }
 
-  async function handleSnooze(rule: AlertRule) {
-    await snoozeAlertRule(rule.id, 24);
+  async function handleSnooze(rule: AlertRule, isSnoozed: boolean) {
+    // Toggle : re-snooze 24h ou annulation immédiate (until = maintenant)
+    await snoozeAlertRule(rule.id, isSnoozed ? 0 : 24);
     invalidate();
   }
 
@@ -131,7 +152,9 @@ export function AlertPanel({ open, onClose }: Props) {
           {ruleThresholdLabel(rule) && (
             <span className={styles.ruleThreshold}>{ruleThresholdLabel(rule)}</span>
           )}
-          {isSnoozed && <span className={styles.snoozed}>snoozé</span>}
+          {isSnoozed && (
+            <span className={styles.snoozed}>snoozé {formatSnoozeUntil(rule.snoozed_until!)}</span>
+          )}
         </div>
         <div className={styles.ruleActions}>
           <button
@@ -142,19 +165,19 @@ export function AlertPanel({ open, onClose }: Props) {
             {rule.is_active ? '●' : '○'}
           </button>
           <button
-            className={styles.iconBtn}
-            onClick={() => handleSnooze(rule)}
-            data-tooltip="Snooze 24h"
+            className={`${styles.iconBtn} ${isSnoozed ? styles.iconBtnActive : ''}`}
+            onClick={() => handleSnooze(rule, isSnoozed)}
+            data-tooltip={isSnoozed ? 'Annuler le snooze' : 'Snooze 24h'}
           >
             ⏸
           </button>
           {deletable && (
             <button
-              className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+              className={`${styles.iconBtn} ${styles.iconBtnDanger} ${armedDeleteId === rule.id ? styles.iconBtnArmed : ''}`}
               onClick={() => handleDelete(rule)}
-              data-tooltip="Supprimer"
+              data-tooltip={armedDeleteId === rule.id ? 'Confirmer la suppression' : 'Supprimer'}
             >
-              ✕
+              {armedDeleteId === rule.id ? 'sûr ?' : '✕'}
             </button>
           )}
         </div>
@@ -198,21 +221,21 @@ export function AlertPanel({ open, onClose }: Props) {
             </section>
           )}
 
-          {unacknowledged.length === 0 && events.length > 0 && (
+          {acked.length > 0 && (
             <section className={styles.section}>
               <div className={styles.sectionTitle}>
                 Historique récent
-                {events.length > HISTORY_PREVIEW && (
+                {acked.length > HISTORY_PREVIEW && (
                   <button
                     className={styles.linkBtn}
                     onClick={() => setShowAllHistory(v => !v)}
                   >
-                    {showAllHistory ? 'Réduire' : `Voir tout (${events.length})`}
+                    {showAllHistory ? 'Réduire' : `Voir tout (${acked.length})`}
                   </button>
                 )}
               </div>
               <div className={showAllHistory ? styles.historyList : styles.section}>
-                {(showAllHistory ? events : events.slice(0, HISTORY_PREVIEW)).map(event => (
+                {(showAllHistory ? acked : acked.slice(0, HISTORY_PREVIEW)).map(event => (
                   <div key={event.id} className={`${styles.eventRow} ${styles.eventAcked}`}>
                     <div className={styles.eventContent}>
                       <span className={styles.eventTime}>{relativeTime(event.triggered_at)}</span>
@@ -231,7 +254,7 @@ export function AlertPanel({ open, onClose }: Props) {
           {/* Rules section */}
           <section className={styles.section}>
             <div className={styles.sectionTitle}>
-              Règles actives
+              Mes règles
               <button className={styles.addBtn} onClick={() => setShowForm(true)}>+ Nouvelle</button>
             </div>
 
