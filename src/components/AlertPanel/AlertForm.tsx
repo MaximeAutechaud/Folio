@@ -238,7 +238,7 @@ export function AlertForm({ onClose, prefillTicker, editRule }: Props) {
   const isSectorScoped = isRsiType && rsiSubScope === 'sector' || type === 'sector_score_threshold';
 
   return (
-    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className={styles.overlay}>
       <div className={styles.modal}>
         <div className={styles.header}>
           <span className={styles.title}>{isEdit ? 'Modifier l\'alerte' : 'Nouvelle alerte'}</span>

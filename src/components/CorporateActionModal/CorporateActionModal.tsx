@@ -87,7 +87,7 @@ export function CorporateActionModal({ action, position, transactions, onConfirm
   }
 
   return (
-    <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={styles.overlay}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <span>{title}</span>

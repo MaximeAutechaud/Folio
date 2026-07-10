@@ -219,7 +219,7 @@ export function TransactionForm({ position, onClose, defaultType, effectiveQty }
   }
 
   return (
-    <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={styles.overlay}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <span>Ajouter une transaction — {position.ticker.toUpperCase()}</span>

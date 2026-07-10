@@ -111,7 +111,7 @@ export function NarrativeForm({ narrative, onClose, onSaved }: Props) {
   }
 
   return (
-    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className={styles.overlay}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <span>{editMode ? 'Modifier la narrative' : 'Nouvelle narrative'}</span>
