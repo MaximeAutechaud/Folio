@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Layout } from './components/Layout/Layout';
 import { Dashboard } from './components/Dashboard/Dashboard';
@@ -23,6 +23,9 @@ import { useCorporateActionSync } from './hooks/useCorporateActionSync';
 import { fetchSnapshots, getSetting, setSetting } from './lib/db';
 import { exportDatabase, pickBackupFile } from './lib/backup';
 import { RestoreModal } from './components/RestoreModal/RestoreModal';
+import { ConfirmDelete } from './components/ConfirmDelete/ConfirmDelete';
+import { computeDeleteImpact } from './lib/deleteImpact';
+import { computePRU } from './lib/pru';
 import type { PendingCorporateAction, PositionInput, TransactionInput } from './types';
 import styles from './App.module.css';
 
@@ -43,6 +46,7 @@ export default function App() {
     { state: 'idle' } | { state: 'running' } | { state: 'done'; path: string } | { state: 'error'; message: string }
   >({ state: 'idle' });
   const [restorePath, setRestorePath] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
 
   const positions = usePortfolioStore((s) => s.positions);
   const loadPositions = usePortfolioStore((s) => s.loadPositions);
@@ -57,6 +61,17 @@ export default function App() {
   useEffect(() => {
     getSetting('onboarding_done').then((v) => { if (v !== '1') setTourOpen(true); });
   }, []);
+
+  // Ce que coûterait la suppression demandée — calculé à l'ouverture de la
+  // modale, à partir du ledger déjà en mémoire (loadPositions charge tout).
+  const pendingDelete = useMemo(() => {
+    if (pendingDeleteId == null) return null;
+    const position = positions.find((p) => p.id === pendingDeleteId);
+    if (!position) return null;
+    const txs = storeTransactions[position.id] ?? [];
+    const { quantity } = computePRU(txs, position.quantity, position.cost_basis);
+    return { position, impact: computeDeleteImpact(position, txs, quantity) };
+  }, [pendingDeleteId, positions, storeTransactions]);
 
   async function handleImport() {
     try {
@@ -266,7 +281,7 @@ export default function App() {
               snapshots={snapshots}
               onAddClick={() => { setEditingId(null); setShowForm(true); }}
               onEdit={handleEdit}
-              onRemove={removePosition}
+              onRemove={setPendingDeleteId}
               onRowClick={(id) => setDrawerPositionId(drawerPositionId === id ? null : id)}
               pendingActions={corpActionSync.pendingActions}
               onCorporateActionClick={setCorpActionModal}
@@ -308,6 +323,14 @@ export default function App() {
 
       {briefingSettingsOpen && <BriefingSettings onClose={() => setBriefingSettingsOpen(false)} />}
       {restorePath && <RestoreModal path={restorePath} onClose={() => setRestorePath(null)} />}
+      {pendingDelete && (
+        <ConfirmDelete
+          position={pendingDelete.position}
+          impact={pendingDelete.impact}
+          onConfirm={() => removePosition(pendingDelete.position.id)}
+          onClose={() => setPendingDeleteId(null)}
+        />
+      )}
 
       {tourOpen && (
         <OnboardingTour
