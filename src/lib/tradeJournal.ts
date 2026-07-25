@@ -33,7 +33,13 @@ export interface ClosedTrade {
   entryDate: number;
   exitDate: number;
   daysHeld: number;
+  /** P&L hors frais — (sortie − entrée) × qty */
+  pnlGross: number;
+  /** Frais d'entrée au prorata des lots consommés + frais de sortie */
+  fees: number;
+  /** P&L net de frais — c'est lui qui alimente les stats et l'expectancy */
   pnl: number;
+  /** Rendement net, rapporté au capital engagé frais d'entrée inclus */
   pnlPct: number;
   rMultiple: number | null;
   initialStop: number | null;
@@ -72,6 +78,8 @@ function parseContext(raw: string | null | undefined): NoteContext {
 interface BuyLot {
   qty: number;
   price: number;
+  /** Frais d'acquisition ramenés à l'unité — suivent le lot en cas de vente partielle */
+  feePerShare: number;
   setup: string | null;
   date: number;
   currency: string;
@@ -80,10 +88,24 @@ interface BuyLot {
   regime: string | null;
 }
 
+// Applique un ratio à tous les lots ouverts : la quantité est multipliée, le prix
+// et les frais unitaires divisés — le coût total du lot est invariant. Sert aux
+// splits comme aux actions gratuites (cf. CLAUDE.md : même mathématique).
+function applyRatio(queue: BuyLot[], ratio: number): void {
+  if (!(ratio > 0)) return;
+  for (const lot of queue) {
+    lot.qty *= ratio;
+    lot.price /= ratio;
+    lot.feePerShare /= ratio;
+  }
+}
+
 // Pairs buy/swap_in lots with sell transactions (FIFO).
 // initialQty/initialPRU/initialCurrency/initialDate represent the position state
 // before transaction tracking began (stored on the position record itself).
 // swap_out is skipped — price is an exchange rate, not fiat.
+// split/bonus_share réajustent les lots ouverts ; dividend est un no-op sur le
+// P&L de trade (revenu suivi séparément).
 export function buildClosedTrades(
   ticker: string,
   positionName: string,
@@ -102,6 +124,8 @@ export function buildClosedTrades(
     queue.push({
       qty: initialQty,
       price: initialPRU,
+      // Le PRU stocké intègre déjà les frais historiques — pas de double comptage.
+      feePerShare: 0,
       setup: null,
       date: initialDate,
       currency: initialCurrency,
@@ -120,6 +144,7 @@ export function buildClosedTrades(
       queue.push({
         qty: tx.quantity,
         price: tx.price,
+        feePerShare: tx.quantity > 1e-10 ? (tx.fee ?? 0) / tx.quantity : 0,
         setup: tx.setup ?? null,
         date: tx.created_at,
         currency: tx.currency,
@@ -127,6 +152,20 @@ export function buildClosedTrades(
         macroScore: ctx.macroScore ?? null,
         regime: ctx.regime ?? null,
       });
+    } else if (tx.type === 'split') {
+      // tx.price = ratio (2.0 = 2:1 forward, 0.5 = regroupement), tx.quantity = 0
+      applyRatio(queue, tx.price);
+    } else if (tx.type === 'bonus_share') {
+      // tx.quantity = actions gratuites reçues → dilution équivalente à un split
+      // de ratio (détenu + gratuites) / détenu.
+      const held = queue.reduce((s, l) => s + l.qty, 0);
+      if (held > 1e-10 && tx.quantity > 0) {
+        const newHeld = held + tx.quantity;
+        applyRatio(queue, newHeld / held);
+        // Frais éventuels ajoutés au pool de coût, comme dans computePRU.
+        const feePerShare = (tx.fee ?? 0) / newHeld;
+        if (feePerShare > 0) for (const lot of queue) lot.feePerShare += feePerShare;
+      }
     } else if (tx.type === 'sell') {
       let remaining = tx.quantity;
       const consumed: { qty: number; lot: BuyLot }[] = [];
@@ -148,11 +187,21 @@ export function buildClosedTrades(
       const mostRecent = consumed[consumed.length - 1].lot;
       const { initialStop } = mostRecent;
 
-      const pnl = totalQty * (tx.price - avgEntry);
-      const pnlPct = ((tx.price - avgEntry) / avgEntry) * 100;
+      // Frais d'entrée : uniquement la part des lots réellement consommés.
+      const entryFee = consumed.reduce((s, c) => s + c.qty * c.lot.feePerShare, 0);
+      // Frais de sortie : au prorata si la vente dépasse les lots disponibles.
+      const exitFee = (tx.fee ?? 0) * (tx.quantity > 1e-10 ? totalQty / tx.quantity : 1);
+      const fees = entryFee + exitFee;
+
+      const pnlGross = totalQty * (tx.price - avgEntry);
+      const pnl = pnlGross - fees;
+      // Capital réellement engagé = prix payé + frais d'entrée.
+      const invested = totalQty * avgEntry + entryFee;
+      const pnlPct = invested > 0 ? (pnl / invested) * 100 : 0;
+      // R net : les frais mangent une part du risque initial, autant le voir.
       const rMultiple =
         initialStop != null && avgEntry > initialStop
-          ? (tx.price - avgEntry) / (avgEntry - initialStop)
+          ? pnl / (totalQty * (avgEntry - initialStop))
           : null;
 
       result.push({
@@ -167,6 +216,8 @@ export function buildClosedTrades(
         entryDate: consumed[0].lot.date,
         exitDate: tx.created_at,
         daysHeld: Math.max(0, Math.floor((tx.created_at - consumed[0].lot.date) / 86400)),
+        pnlGross,
+        fees,
         pnl,
         pnlPct,
         rMultiple,

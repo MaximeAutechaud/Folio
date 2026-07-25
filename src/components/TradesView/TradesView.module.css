@@ -97,6 +97,28 @@
   vertical-align: middle;
 }
 
+.table td[data-tooltip] { position: relative; }
+
+.table td[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% - 2px);
+  right: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 20;
+}
+
+.table td[data-tooltip]:hover::after { opacity: 1; }
+
 .table tbody tr:last-child td {
   border-bottom: none;
 }

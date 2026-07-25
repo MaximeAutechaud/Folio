@@ -179,7 +179,9 @@ function ClosedTrades({ trades }: { trades: ClosedTrade[] }) {
     return (
       <div className={styles.empty}>
         Aucun trade clôturé.
-        <span className={styles.emptyHint}>Les ventes sur des positions avec stop loss apparaîtront ici.</span>
+        <span className={styles.emptyHint}>
+          Les ventes apparaissent ici dès lors qu'un stop était défini sur la position au moment de l'achat.
+        </span>
       </div>
     );
   }
@@ -196,7 +198,8 @@ function ClosedTrades({ trades }: { trades: ClosedTrade[] }) {
             <th>Durée</th>
             <th>PRU</th>
             <th>Prix sortie</th>
-            <th>P&L</th>
+            <th>Frais</th>
+            <th>P&L net</th>
             <th>R</th>
           </tr>
         </thead>
@@ -217,7 +220,13 @@ function ClosedTrades({ trades }: { trades: ClosedTrade[] }) {
                 <td className={styles.mono}>{t.daysHeld}j</td>
                 <td className={styles.mono}>{fmtCcy(t.entryPrice, t.currency)}</td>
                 <td className={styles.mono}>{fmtCcy(t.exitPrice, t.currency)}</td>
-                <td className={styles.mono}>
+                <td className={`${styles.mono} ${styles.muted}`}>
+                  {t.fees > 0 ? `−${fmtCcy(t.fees, t.currency)}` : '—'}
+                </td>
+                <td
+                  className={styles.mono}
+                  data-tooltip={`Brut ${fmtCcy(t.pnlGross, t.currency)} − frais ${fmtCcy(t.fees, t.currency)}`}
+                >
                   <span className={isPos ? styles.pos : styles.neg}>{fmtPct(t.pnlPct)}</span>
                   <span className={`${styles.sub} ${isPos ? styles.pos : styles.neg}`}>
                     <br />{fmtCcy(t.pnl, t.currency)}
@@ -370,7 +379,7 @@ export function TradesView() {
   const closedTrades = useMemo(
     () =>
       rawPositions
-        .filter((p) => p.stop_price != null && p.asset_type !== 'fiat')
+        .filter((p) => p.asset_type !== 'fiat')
         .flatMap((p) =>
           buildClosedTrades(
             p.ticker,
@@ -382,6 +391,13 @@ export function TradesView() {
             p.created_at,
           )
         )
+        // Le journal ne retient que les trades préparés avec un stop. Le critère
+        // est le stop figé dans `note_context` à l'achat (`initialStop`), pas le
+        // `stop_price` courant de la position : celui-ci est mutable, et le
+        // prendre comme filtre faisait disparaître rétroactivement des trades
+        // clôturés dès qu'on nettoyait le stop d'une ligne — donc bouger le
+        // win rate et l'expectancy sans qu'aucun trade n'ait changé.
+        .filter((t) => t.initialStop != null)
         .sort((a, b) => b.exitDate - a.exitDate),
     [rawPositions, storeTransactions],
   );

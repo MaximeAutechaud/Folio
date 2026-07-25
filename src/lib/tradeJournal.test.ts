@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildClosedTrades, computeStats, type ClosedTrade } from './tradeJournal';
+import { computePRU } from './pru';
 import type { Transaction, TransactionType } from '../types';
 
 const DAY = 86400;
@@ -154,13 +155,194 @@ describe('buildClosedTrades — appariement FIFO', () => {
   });
 });
 
+describe('buildClosedTrades — frais', () => {
+  it('sans frais, net = brut', () => {
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0),
+      tx('sell', 10, 120, DAY),
+    ]);
+    expect(trades[0].pnlGross).toBe(200);
+    expect(trades[0].fees).toBe(0);
+    expect(trades[0].pnl).toBe(200);
+  });
+
+  it('aller-retour au même prix avec frais → perte', () => {
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0, { fee: 5 }),
+      tx('sell', 10, 100, DAY, { fee: 5 }),
+    ]);
+    expect(trades[0].pnlGross).toBe(0);
+    expect(trades[0].fees).toBeCloseTo(10, 10);
+    expect(trades[0].pnl).toBeCloseTo(-10, 10);
+    expect(trades[0].pnlPct).toBeLessThan(0);
+  });
+
+  it('vente partielle ne consomme que la part de frais d entrée du lot vendu', () => {
+    // 10 @ 100 avec 10€ de frais → 1€/action. Vente de 4 → 4€ de frais d'entrée.
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0, { fee: 10 }),
+      tx('sell', 4, 120, DAY, { fee: 2 }),
+    ]);
+    expect(trades[0].fees).toBeCloseTo(4 + 2, 10);
+    expect(trades[0].pnl).toBeCloseTo(80 - 6, 10);
+  });
+
+  it('deux lots à frais différents → prorata FIFO', () => {
+    // Lot A : 10 @ 100, frais 10 (1/action). Lot B : 10 @ 200, frais 30 (3/action).
+    // Vente de 15 → 10 du lot A (10€) + 5 du lot B (15€) = 25€ de frais d'entrée.
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0, { fee: 10 }),
+      tx('buy', 10, 200, DAY, { fee: 30 }),
+      tx('sell', 15, 180, 2 * DAY, { fee: 5 }),
+    ]);
+    expect(trades[0].fees).toBeCloseTo(25 + 5, 10);
+  });
+
+  it('rendement % rapporté au capital engagé, frais d entrée inclus', () => {
+    // 10 @ 100 + 10 de frais = 1010 engagés. Sortie 110 × 10 − 0 = 1100.
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0, { fee: 10 }),
+      tx('sell', 10, 110, DAY),
+    ]);
+    expect(trades[0].pnl).toBeCloseTo(90, 10);
+    expect(trades[0].pnlPct).toBeCloseTo((90 / 1010) * 100, 10);
+  });
+
+  it('le R est net de frais', () => {
+    // Entrée 100, stop 90 → 1R = 10€/action, 100€ pour 10 actions.
+    // Sortie 120 → brut 200 (=2R), frais 20 → net 180 = 1.8R
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0, { fee: 10, note_context: '{"initialStop":90}' }),
+      tx('sell', 10, 120, DAY, { fee: 10 }),
+    ]);
+    expect(trades[0].rMultiple).toBeCloseTo(1.8, 10);
+  });
+
+  it('frais de sortie au prorata quand la vente dépasse les lots disponibles', () => {
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 5, 100, 0),
+      tx('sell', 10, 120, DAY, { fee: 10 }), // seules 5 actions existent
+    ]);
+    expect(trades[0].qty).toBe(5);
+    expect(trades[0].fees).toBeCloseTo(5, 10);
+  });
+});
+
+describe('buildClosedTrades — corporate actions', () => {
+  it('split 2:1 avant la vente → PRU et quantité ajustés', () => {
+    // 10 @ 100 puis split 2:1 → 20 @ 50. Vente des 20 à 60 → +200
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0),
+      tx('split', 0, 2, DAY),
+      tx('sell', 20, 60, 2 * DAY),
+    ]);
+    expect(trades).toHaveLength(1);
+    expect(trades[0].qty).toBe(20);
+    expect(trades[0].entryPrice).toBeCloseTo(50, 10);
+    expect(trades[0].pnl).toBeCloseTo(200, 10);
+  });
+
+  it('regroupement 1:2 (ratio 0.5) → quantité divisée, PRU doublé', () => {
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0),
+      tx('split', 0, 0.5, DAY),
+      tx('sell', 5, 220, 2 * DAY),
+    ]);
+    expect(trades[0].entryPrice).toBeCloseTo(200, 10);
+    expect(trades[0].pnl).toBeCloseTo(100, 10);
+  });
+
+  it('le split conserve les frais d entrée du lot', () => {
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0, { fee: 10 }),
+      tx('split', 0, 2, DAY),
+      tx('sell', 20, 50, 2 * DAY),
+    ]);
+    // Sortie au PRU post-split → brut nul, seuls les 10€ de frais restent.
+    expect(trades[0].pnlGross).toBeCloseTo(0, 10);
+    expect(trades[0].fees).toBeCloseTo(10, 10);
+  });
+
+  it('split ignoré si ratio nul ou négatif', () => {
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0),
+      tx('split', 0, 0, DAY),
+      tx('sell', 10, 120, 2 * DAY),
+    ]);
+    expect(trades[0].entryPrice).toBe(100);
+    expect(trades[0].pnl).toBe(200);
+  });
+
+  it('action gratuite → dilue le PRU des lots ouverts', () => {
+    // 10 @ 100 (coût 1000) + 1 action gratuite → 11 actions, PRU 1000/11
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0),
+      tx('bonus_share', 1, 0, DAY),
+      tx('sell', 11, 100, 2 * DAY),
+    ]);
+    expect(trades[0].qty).toBeCloseTo(11, 10);
+    expect(trades[0].entryPrice).toBeCloseTo(1000 / 11, 10);
+    expect(trades[0].pnl).toBeCloseTo(100, 10); // la 11e action est du pur gain
+  });
+
+  it('action gratuite dilue tous les lots ouverts au prorata', () => {
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0),
+      tx('buy', 10, 200, DAY),
+      tx('bonus_share', 2, 0, 2 * DAY), // 20 détenues → 22
+      tx('sell', 22, 150, 3 * DAY),
+    ]);
+    // Coût total inchangé (3000), 22 actions vendues à 150 → 3300
+    expect(trades[0].qty).toBeCloseTo(22, 10);
+    expect(trades[0].pnl).toBeCloseTo(300, 10);
+  });
+
+  it('action gratuite sans lot ouvert → ignorée', () => {
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('bonus_share', 5, 0, 0),
+      tx('sell', 5, 100, DAY),
+    ]);
+    expect(trades).toEqual([]);
+  });
+
+  it('le dividende ne touche ni la quantité ni le PRU', () => {
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      tx('buy', 10, 100, 0),
+      tx('dividend', 10, 3, DAY), // 3€/action × 10 actions
+      tx('sell', 10, 120, 2 * DAY),
+    ]);
+    expect(trades).toHaveLength(1);
+    expect(trades[0].qty).toBe(10);
+    expect(trades[0].entryPrice).toBe(100);
+    expect(trades[0].pnl).toBe(200);
+  });
+
+  it('cohérence avec computePRU sur split + action gratuite + frais', () => {
+    const ledger = [
+      tx('buy', 10, 100, 0, { fee: 10 }),
+      tx('split', 0, 2, DAY),
+      tx('bonus_share', 2, 0, 2 * DAY),
+    ];
+    const { quantity, costBasis } = computePRU(ledger);
+    const trades = buildClosedTrades('AIR.PA', 'Air Liquide', [
+      ...ledger,
+      tx('sell', quantity, 80, 3 * DAY),
+    ]);
+    expect(trades[0].qty).toBeCloseTo(quantity, 10);
+    // Le PRU de computePRU intègre les frais d'achat ; ici entryPrice est hors
+    // frais et fees les porte à part — la somme doit se retrouver.
+    const investedFromTrade = trades[0].qty * trades[0].entryPrice + trades[0].fees;
+    expect(investedFromTrade).toBeCloseTo(quantity * costBasis, 8);
+  });
+});
+
 describe('computeStats', () => {
   function trade(overrides: Partial<ClosedTrade>): ClosedTrade {
     return {
       id: 't', ticker: 'AIR.PA', positionName: 'Air Liquide', setup: null,
       entryPrice: 100, exitPrice: 110, qty: 1, currency: 'EUR',
       entryDate: 0, exitDate: DAY, daysHeld: 1,
-      pnl: 10, pnlPct: 10, rMultiple: null, initialStop: null,
+      pnlGross: 10, fees: 0, pnl: 10, pnlPct: 10, rMultiple: null, initialStop: null,
       macroScore: null, regime: null,
       ...overrides,
     };
