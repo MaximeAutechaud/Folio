@@ -12,7 +12,7 @@
 - Prix actions & ETF via Yahoo Finance v8/finance/chart (un appel par ticker, pas de batch)
 - Prix crypto via CoinGecko simple/price (IDs CoinGecko stockés directement comme ticker)
 - Taux de change EURUSD via Yahoo Finance (EURUSD=X), rafraîchi toutes les 60s, fallback query2 puis Frankfurter (ECB)
-- Multi-devise par position (EUR, USD, GBP…) avec conversion dans une devise de base toggleable (EUR/USD)
+- Devise par position limitée à EUR et USD (seul le taux EURUSD est disponible), conversion dans une devise de base toggleable (EUR/USD). Toute autre devise est refusée à la saisie — cf. `SUPPORTED_CURRENCIES` dans `store/portfolio.ts`
 - Dashboard : valeur totale, coût total, P&L global + par ligne, filtre ALL/STOCK/CRYPTO
 - Strip de périodes P&L dans la summary bar (1W / 1M / 3M / YTD / 1Y) calculée depuis les snapshots locaux
 - Drawer latéral au clic sur une ligne : prix d'entrée, valeur actuelle, P&L, break-even, jours détenus, historique transactions, stop/TP1/TP2 + distance au stop

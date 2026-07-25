@@ -224,6 +224,16 @@ export const usePortfolioStore = create<PortfolioState>((set, get) => ({
   },
 }));
 
+// Seules devises réellement convertibles : on ne dispose que du taux EURUSD.
+// Toute autre devise serait traitée comme de l'USD (valorisation fausse et
+// silencieuse) — la saisie est donc bloquée en amont (PositionForm) et les
+// positions héritées sont signalées (Dashboard).
+export const SUPPORTED_CURRENCIES = ['EUR', 'USD'] as const;
+
+export function isSupportedCurrency(currency: string): currency is BaseCurrency {
+  return (SUPPORTED_CURRENCIES as readonly string[]).includes(currency);
+}
+
 // Convert an amount from `from` currency to `to` currency using EURUSD rate
 export function convertCurrency(amount: number, from: string, to: string, eurUsd: number): number {
   if (from === to) return amount;

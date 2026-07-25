@@ -10,6 +10,14 @@ describe('detectCurrency', () => {
     expect(detectCurrency('ITX.MC')).toBe('EUR');   // Madrid
   });
 
+  it('places européennes hors zone euro — devise propre, pas EUR', () => {
+    expect(detectCurrency('NESN.SW')).toBe('CHF');  // Zurich
+    expect(detectCurrency('ROG.VX')).toBe('CHF');
+    expect(detectCurrency('VOLV-B.ST')).toBe('SEK'); // Stockholm
+    expect(detectCurrency('NOVO-B.CO')).toBe('DKK'); // Copenhague
+    expect(detectCurrency('EQNR.OL')).toBe('NOK');   // Oslo
+  });
+
   it('autres suffixes connus', () => {
     expect(detectCurrency('SHEL.L')).toBe('GBP');
     expect(detectCurrency('SHOP.TO')).toBe('CAD');

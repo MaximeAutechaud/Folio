@@ -10,7 +10,13 @@ export interface YahooSuggestion {
 // Detect currency from Yahoo ticker suffix
 export function detectCurrency(ticker: string): string {
   const t = ticker.toUpperCase();
-  if (/\.(PA|AS|BR|DE|MI|MC|HE|LS|ST|CO|OL|VI|SW|VX)$/.test(t)) return 'EUR';
+  // Zone euro uniquement — les places nordiques et suisses ont leur propre
+  // devise et étaient auparavant mappées EUR à tort (valorisation fausse).
+  if (/\.(PA|AS|BR|DE|MI|MC|HE|LS|VI)$/.test(t)) return 'EUR';
+  if (/\.(SW|VX)$/.test(t)) return 'CHF';
+  if (/\.ST$/.test(t)) return 'SEK';
+  if (/\.CO$/.test(t)) return 'DKK';
+  if (/\.OL$/.test(t)) return 'NOK';
   if (/\.(L|IL)$/.test(t)) return 'GBP';
   if (/\.(TO|V)$/.test(t)) return 'CAD';
   if (/\.AX$/.test(t)) return 'AUD';

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { convertCurrency, computeTotals, resolvePositions } from './portfolio';
+import {
+  convertCurrency, computeTotals, resolvePositions,
+  isSupportedCurrency, SUPPORTED_CURRENCIES,
+} from './portfolio';
 import type { Position, Transaction } from '../types';
 
 function pos(overrides: Partial<Position>): Position {
@@ -45,9 +48,32 @@ describe('convertCurrency', () => {
   // Scope assumé EUR/USD only (décision 2026-07-10) : toute devise non-EUR
   // est traitée comme USD. Ce test documente la limitation — s'il casse,
   // c'est que le scope a changé et que les vrais taux sont branchés.
+  // La saisie d'une telle devise est bloquée en amont (isSupportedCurrency).
   it('limitation connue : une devise non-EUR est traitée comme USD', () => {
     expect(convertCurrency(100, 'GBP', 'USD', EURUSD)).toBe(100);
     expect(convertCurrency(100, 'GBP', 'EUR', EURUSD)).toBeCloseTo(100 / EURUSD, 10);
+  });
+});
+
+describe('isSupportedCurrency', () => {
+  it('EUR et USD sont supportées', () => {
+    expect(isSupportedCurrency('EUR')).toBe(true);
+    expect(isSupportedCurrency('USD')).toBe(true);
+  });
+
+  it('toute autre devise ne l est pas — pas de taux disponible', () => {
+    for (const c of ['GBP', 'CHF', 'JPY', 'CAD', 'AUD', 'SEK', 'DKK', 'NOK', 'HKD']) {
+      expect(isSupportedCurrency(c)).toBe(false);
+    }
+  });
+
+  it('sensible à la casse — on ne devine pas', () => {
+    expect(isSupportedCurrency('eur')).toBe(false);
+    expect(isSupportedCurrency('')).toBe(false);
+  });
+
+  it('couvre exactement SUPPORTED_CURRENCIES', () => {
+    expect([...SUPPORTED_CURRENCIES]).toEqual(['EUR', 'USD']);
   });
 });
 

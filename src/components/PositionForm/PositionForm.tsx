@@ -2,7 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import type { AssetType, PositionInput } from '../../types';
 import { searchYahoo, detectCurrency, type YahooSuggestion } from '../../lib/api/yahoo';
 import { searchCoinGecko, type CoinGeckoSuggestion } from '../../lib/api/coingecko';
-import { usePortfolioStore, computeTotals, resolvePositions, convertCurrency } from '../../store/portfolio';
+import {
+  usePortfolioStore, computeTotals, resolvePositions, convertCurrency,
+  SUPPORTED_CURRENCIES, isSupportedCurrency,
+} from '../../store/portfolio';
 import { getSetting, setSetting } from '../../lib/db';
 import { useMacroScore } from '../../hooks/useMacroScore';
 import { evaluateEntryChecks } from '../../lib/entryChecks';
@@ -31,7 +34,13 @@ const EMPTY: PositionInput = {
   target_price_2: null,
 };
 
-const CURRENCIES = ['EUR', 'USD', 'GBP', 'CAD', 'AUD', 'JPY', 'CHF'];
+// Folio ne dispose que du taux EURUSD : proposer d'autres devises reviendrait à
+// les valoriser comme de l'USD sans le dire. En édition on garde la devise déjà
+// stockée dans la liste pour ne pas la réécrire en douce.
+function currencyOptions(current: string): string[] {
+  const base = [...SUPPORTED_CURRENCIES];
+  return isSupportedCurrency(current) || !current ? base : [...base, current];
+}
 
 type Suggestion =
   | { kind: 'stock'; data: YahooSuggestion }
@@ -235,6 +244,9 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
     if (!form.ticker.trim()) return setError('Ticker is required');
     if (form.asset_type !== 'fiat' && form.quantity <= 0) return setError('Quantity must be > 0');
     if (form.cost_basis < 0) return setError('Cost basis must be ≥ 0');
+    if (!isSupportedCurrency(form.currency)) {
+      return setError(`Devise ${form.currency} non supportée — Folio ne convertit que EUR et USD.`);
+    }
     setSaving(true);
     setError(null);
     try {
@@ -296,7 +308,7 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
                   set('cost_basis', 1);
                 }}
               >
-                {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                {SUPPORTED_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             ) : (
               <div className={styles.autocompleteWrap}>
@@ -412,8 +424,10 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
                   value={form.currency}
                   onChange={(e) => set('currency', e.target.value)}
                 >
-                  {CURRENCIES.map((c) => (
-                    <option key={c} value={c}>{c}</option>
+                  {currencyOptions(form.currency).map((c) => (
+                    <option key={c} value={c}>
+                      {c}{isSupportedCurrency(c) ? '' : ' (non supportée)'}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -574,6 +588,16 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
             />
           </div>
 
+          {!isSupportedCurrency(form.currency) && (
+            <ul className={styles.warnings}>
+              <li className={styles.warningItem}>
+                ⚠ Devise {form.currency} non supportée — Folio ne convertit que EUR et USD.
+                Cette ligne serait valorisée au taux 1:1 avec l'USD, donc fausse.
+                Cherchez la cotation du titre sur une place EUR ou USD.
+              </li>
+            </ul>
+          )}
+
           {entryWarnings.length > 0 && (
             <ul className={styles.warnings}>
               {entryWarnings.map((w) => (
@@ -588,7 +612,11 @@ export function PositionForm({ onSubmit, onClose, initial, editMode = false }: P
             <button type="button" className={styles.cancelBtn} onClick={onClose}>
               Cancel
             </button>
-            <button type="submit" className={styles.submitBtn} disabled={saving}>
+            <button
+              type="submit"
+              className={styles.submitBtn}
+              disabled={saving || !isSupportedCurrency(form.currency)}
+            >
               {saving ? 'Saving…' : editMode ? 'Save' : 'Add'}
             </button>
           </div>

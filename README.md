@@ -13,7 +13,8 @@ Application desktop de suivi de portefeuille d'investissement — actions, ETF e
 
 - **Portefeuille multi-actifs** — actions, ETF (Yahoo Finance) et crypto (CoinGecko)
 - **Prix en temps réel** — rafraîchissement automatique toutes les 60 secondes
-- **Multi-devise** — EUR, USD, GBP… conversion automatique avec taux de change live
+- **EUR / USD** — conversion automatique via le taux EURUSD live. Ce sont les deux seules devises
+  supportées : une ligne cotée en GBP, CHF, JPY… est refusée à la saisie plutôt que valorisée à tort
 - **P&L global et par ligne** — valeur actuelle, plus-value, rendement %
 - **Historique** — graphique d'évolution de la valeur du portefeuille dans le temps
 - **Périodes** — P&L sur 1W / 1M / 3M / YTD / 1Y dès que l'historique est disponible
