@@ -36,6 +36,92 @@ export function calcMacroScore(inputs: MacroInputs): number {
   );
 }
 
+// ── Fenêtres glissantes ──────────────────────────────────────────────────────
+// Centralisées ici plutôt que dupliquées dans useMacroScore : le moteur
+// d'alertes en a besoin pour recalculer le macro à une date de clôture passée,
+// et deux implémentations divergeraient tôt ou tard.
+
+export const DAY = 86400;
+export type Point = { time: number; value: number };
+
+function perfBetween(h: Point[]): number | null {
+  if (h.length < 2) return null;
+  const start = h[0].value;
+  return start ? ((h[h.length - 1].value - start) / start) * 100 : null;
+}
+
+/**
+ * Performance sur `windowDays`, la fenêtre se terminant `endDaysAgo` jours avant
+ * `nowSec`. `nowSec` explicite permet de rejouer le calcul à une date passée —
+ * indispensable pour que le log et une reconstruction donnent le même resultat.
+ */
+export function perfWindow(
+  h: Point[], windowDays: number, endDaysAgo = 0, nowSec = Date.now() / 1000,
+): number | null {
+  if (h.length < 2) return null;
+  const end = nowSec - endDaysAgo * DAY;
+  const start = end - windowDays * DAY;
+  return perfBetween(h.filter(p => p.time >= start && p.time <= end));
+}
+
+/** Dernière clôture connue à `daysAgo` jours avant `nowSec`. */
+export function valueAt(
+  h: Point[], daysAgo: number, nowSec = Date.now() / 1000,
+): number | null {
+  if (h.length === 0) return null;
+  const target = nowSec - daysAgo * DAY;
+  let v: number | null = null;
+  for (const p of h) {
+    if (p.time <= target) v = p.value;
+    else break;
+  }
+  return v ?? h[0].value;
+}
+
+export interface MacroAsOf {
+  score: number;
+  scorePrev: number | null;
+  trend: 'up' | 'down' | 'flat';
+}
+
+/**
+ * Score macro tel qu'il était à `nowSec`, et sa tendance vs une semaine avant.
+ * Mêmes fenêtres que le calcul live (`useMacroScore`), la seule différence
+ * étant la date de référence : à `nowSec = maintenant` les deux coïncident.
+ */
+export function computeMacroAt(
+  hist: Record<string, Point[]>, nowSec: number,
+): MacroAsOf {
+  const inputs = (back: number): MacroInputs => {
+    const tnx = valueAt(hist['^TNX'] ?? [], back, nowSec);
+    const irx = valueAt(hist['^IRX'] ?? [], back, nowSec);
+    const spy = perfWindow(hist['SPY'] ?? [], 30, back, nowSec);
+    const iwm = perfWindow(hist['IWM'] ?? [], 30, back, nowSec);
+    return {
+      vix: valueAt(hist['^VIX'] ?? [], back, nowSec),
+      yieldCurve: tnx != null && irx != null ? tnx - irx : null,
+      hyg1M: perfWindow(hist['HYG'] ?? [], 30, back, nowSec),
+      gld1M: perfWindow(hist['GLD'] ?? [], 30, back, nowSec),
+      copper1M: perfWindow(hist['HG=F'] ?? [], 30, back, nowSec),
+      dxy1M: perfWindow(hist['DX-Y.NYB'] ?? [], 30, back, nowSec),
+      iwmVsSpy: iwm != null && spy != null ? iwm - spy : null,
+    };
+  };
+
+  const score = calcMacroScore(inputs(0));
+  // Il faut ~37 jours d'historique pour qu'une fenêtre 1M finissant il y a une
+  // semaine existe reellement (meme garde que useMacroScore).
+  const earliest = hist['SPY']?.[0]?.time ?? Infinity;
+  const scorePrev = (nowSec - earliest) / DAY >= 37 ? calcMacroScore(inputs(7)) : null;
+
+  const trend: MacroAsOf['trend'] =
+    scorePrev == null ? 'flat' :
+    score - scorePrev >= 3 ? 'up' :
+    score - scorePrev <= -3 ? 'down' : 'flat';
+
+  return { score, scorePrev, trend };
+}
+
 export function regimeFromScore(score: number): Regime {
   return score >= 75 ? 'risk-on'     :
          score >= 55 ? 'favorable'   :

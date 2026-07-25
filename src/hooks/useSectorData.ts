@@ -45,8 +45,11 @@ export type Point = { time: number; value: number };
 export const SECTOR_TICKERS = ['SPY', 'RSP', ...SECTORS.map(s => s.etf)];
 const STALE = 5 * 60 * 1000;
 
-export function sliceByDays(history: Point[], daysBack: number): Point[] {
-  const cutoff = Date.now() / 1000 - daysBack * 86400;
+// `nowSec` explicite : permet de rejouer le calcul a une date de cloture passee
+// (moteur d'alertes, reconstruction d'historique). Par defaut = maintenant, donc
+// comportement inchange pour l'affichage.
+export function sliceByDays(history: Point[], daysBack: number, nowSec = Date.now() / 1000): Point[] {
+  const cutoff = nowSec - daysBack * 86400;
   const idx = history.findIndex(p => p.time >= cutoff);
   return idx <= 0 ? history : history.slice(idx);
 }
@@ -66,12 +69,14 @@ export interface BenchWindows {
   m3: number | null;
 }
 
-export function calcBenchWindows(raw: Point[], daysBack: number): BenchWindows {
+export function calcBenchWindows(
+  raw: Point[], daysBack: number, nowSec = Date.now() / 1000,
+): BenchWindows {
   return {
-    period: calcPerf(sliceByDays(raw, daysBack)),
-    w1: calcPerf(sliceByDays(raw, 7)),
-    m1: calcPerf(sliceByDays(raw, 31)),
-    m3: calcPerf(sliceByDays(raw, 93)),
+    period: calcPerf(sliceByDays(raw, daysBack, nowSec)),
+    w1: calcPerf(sliceByDays(raw, 7, nowSec)),
+    m1: calcPerf(sliceByDays(raw, 31, nowSec)),
+    m3: calcPerf(sliceByDays(raw, 93, nowSec)),
   };
 }
 
@@ -83,16 +88,17 @@ export function computeEtfMetrics(
   spy: BenchWindows,
   rsp: BenchWindows,
   daysBack: number,
+  nowSec = Date.now() / 1000,
 ): EtfMetrics {
-  const hist = sliceByDays(raw, daysBack);
+  const hist = sliceByDays(raw, daysBack, nowSec);
 
   const etfPeriodPerf = calcPerf(hist);
   const relPeriodPerf =
     etfPeriodPerf != null && spy.period != null ? etfPeriodPerf - spy.period : null;
 
-  const etf1W = calcPerf(sliceByDays(raw, 7));
-  const etf1M = calcPerf(sliceByDays(raw, 31));
-  const etf3M = calcPerf(sliceByDays(raw, 93));
+  const etf1W = calcPerf(sliceByDays(raw, 7, nowSec));
+  const etf1M = calcPerf(sliceByDays(raw, 31, nowSec));
+  const etf3M = calcPerf(sliceByDays(raw, 93, nowSec));
 
   // Display/sort: relative to SPY (cap-weight)
   const relPerf1W = etf1W != null && spy.w1 != null ? etf1W - spy.w1 : null;
@@ -117,7 +123,7 @@ export function computeEtfMetrics(
   }
 
   // RSI on the trailing 3M window (preserves prior behaviour now that raw is 6M)
-  const raw3M = sliceByDays(raw, 93);
+  const raw3M = sliceByDays(raw, 93, nowSec);
   const rsi = calcRsi(raw3M.map(p => p.value));
 
   const current = raw.length ? raw[raw.length - 1].value : null;

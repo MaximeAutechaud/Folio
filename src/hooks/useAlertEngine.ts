@@ -1,7 +1,7 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
-import { useSectorPerfs } from './useSectorData';
+import { useSectorPerfs, SECTOR_TICKERS } from './useSectorData';
 import { useNarrativeEtfPerfs } from './useNarrativeEtfPerfs';
 import { useMacroScore } from './useMacroScore';
 import { fetchYahooPrices, fetchYahooHistory } from '../lib/api/yahoo';
@@ -11,6 +11,9 @@ import type { SectorScore } from '../lib/scoring';
 import {
   detectNewSignals, formatSignalMessage, parseSignalFilter, type ScopeSignal,
 } from '../lib/signalAlerts';
+import {
+  computeSettledSignals, lastSettledSession, type SettledSignal,
+} from '../lib/settledSignals';
 import {
   fetchAlertEventsForRuleSince,
   fetchAlertRules,
@@ -105,8 +108,7 @@ async function notify(message: string): Promise<void> {
  */
 async function evaluateAllSectorsRules(
   rules: AlertRule[],
-  sectorPerfs: SectorPerf[],
-  macro: MacroScoreData | undefined,
+  settled: { date: string; signals: SettledSignal[] } | null,
   todayStart: number,
   now: number,
   onNewEvent: () => void,
@@ -117,12 +119,12 @@ async function evaluateAllSectorsRules(
       && r.is_active
       && !(r.snoozed_until && r.snoozed_until > now),
   );
-  if (broad.length === 0 || !macro || sectorPerfs.length === 0) return;
+  if (broad.length === 0 || !settled || settled.signals.length === 0) return;
 
-  const today = localDateString();
   let previous: Record<string, string>;
   try {
-    previous = await fetchPreviousSignals('sector', today);
+    // Référence = dernier signal enregistré AVANT la séance évaluée.
+    previous = await fetchPreviousSignals('sector', settled.date);
   } catch {
     return; // sans référence, tout paraîtrait nouveau
   }
@@ -133,10 +135,9 @@ async function evaluateAllSectorsRules(
   // existera demain. Équivalent du baseline des règles mono-scope.
   if (Object.keys(previous).length === 0) return;
 
-  const current: ScopeSignal[] = sectorPerfs.map((sp) => {
-    const s = scoreSector(sp, macro);
-    return { scopeId: sp.sector.id, label: sp.sector.name, signal: s.signal, score: s.total };
-  });
+  const current: ScopeSignal[] = settled.signals.map((s) => ({
+    scopeId: s.sectorId, label: s.label, signal: s.signal, score: s.score,
+  }));
 
   for (const rule of broad) {
     try {
@@ -148,7 +149,7 @@ async function evaluateAllSectorsRules(
       );
 
       for (const d of detections) {
-        const message = formatSignalMessage(d);
+        const message = `${formatSignalMessage(d)} · séance du ${settled.date}`;
         // value_at_trigger porte le scope_id : c'est lui qui dédoublonne au
         // cycle suivant, la table ne gardant qu'un dernier événement par règle.
         await insertAlertEvent(rule.id, 1, d.scopeId, message);
@@ -165,16 +166,13 @@ async function evaluateAllSectorsRules(
 // (dip/reversal/accelerating/exhaustion). Upsert idempotent — les rejeux dans la
 // journée réécrivent juste la classification (voir insertSignalLog).
 async function logSectorSignals(
-  sectorPerfs: SectorPerf[],
-  macro: MacroScoreData | undefined,
+  settled: { date: string; signals: SettledSignal[] } | null,
 ): Promise<void> {
-  if (!macro || sectorPerfs.length === 0) return;
-  const today = localDateString();
-  for (const sp of sectorPerfs) {
-    const s = scoreSector(sp, macro);
+  if (!settled) return;
+  for (const s of settled.signals) {
     if (!s.signal) continue;
     try {
-      await insertSignalLog(today, 'sector', sp.sector.id, s.signal, s.total);
+      await insertSignalLog(settled.date, 'sector', s.sectorId, s.signal, s.score);
     } catch {
       // best-effort — ne bloque jamais le moteur d'alertes
     }
@@ -211,6 +209,7 @@ async function evaluateRules(
   macroScore: MacroScoreData | undefined,
   tickerPrices: Record<string, number | undefined>,
   maHistories: Record<string, number[]>,
+  settled: { date: string; signals: SettledSignal[] } | null,
   onNewEvent: () => void,
 ): Promise<void> {
   const now = Math.floor(Date.now() / 1000);
@@ -432,11 +431,11 @@ async function evaluateRules(
   // hors du tronc commun). L'ordre vis-à-vis de la phase 3 est indifférent :
   // la référence est lue avec `date < aujourd'hui`, la ligne du jour ne la
   // masque pas.
-  await evaluateAllSectorsRules(rules, sectorPerfs, macroScore, todayStart, now, onNewEvent);
+  await evaluateAllSectorsRules(rules, settled, todayStart, now, onNewEvent);
 
   // Phase 3 : piggyback — logging des signaux secteurs et narratives-ETF sur
   // le même cycle debounce.
-  await logSectorSignals(sectorPerfs, macroScore);
+  await logSectorSignals(settled);
   await logNarrativeSignals(narrativePerfs, macroScore);
 }
 
@@ -457,6 +456,28 @@ export function useAlertEngine() {
   const { data: sectorPerfs = [] } = useSectorPerfs('3M');
   const { data: narrativePerfs = [] } = useNarrativeEtfPerfs('3M');
   const { data: macroScore } = useMacroScore();
+
+  // Même clé de cache que useSectorData : aucune requête supplémentaire.
+  const { data: sectorRaw } = useQuery({
+    queryKey: ['sector-raw'],
+    queryFn: () => Promise.all(SECTOR_TICKERS.map(t => fetchYahooHistory(t, '6M'))),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Signaux de la dernière séance CLOSE — c'est eux qu'on consigne et qui
+  // déclenchent les alertes. L'affichage, lui, reste en intraday : mesuré en
+  // séance, ~19 % des signaux n'existent plus à la clôture (cf. settledSignals).
+  const settled = useMemo(() => {
+    if (!sectorRaw || !macroScore?.histories) return null;
+    const sectorHistories: Record<string, { time: number; value: number }[]> = {};
+    SECTOR_TICKERS.forEach((t, i) => { sectorHistories[t] = sectorRaw[i] ?? []; });
+    const session = lastSettledSession(sectorHistories['SPY'] ?? []);
+    if (!session) return null;
+    return {
+      date: session.date,
+      signals: computeSettledSignals(sectorHistories, macroScore.histories, session.time),
+    };
+  }, [sectorRaw, macroScore]);
 
   const tickerSymbols = [
     ...new Set(
@@ -527,9 +548,9 @@ export function useAlertEngine() {
     runningRef.current = true;
     lastRunRef.current = now;
 
-    evaluateRules(rules, sectorPerfs, narrativePerfs, macroScore, tickerPrices, maHistories, invalidate)
+    evaluateRules(rules, sectorPerfs, narrativePerfs, macroScore, tickerPrices, maHistories, settled, invalidate)
       .finally(() => { runningRef.current = false; });
-  }, [rules, sectorPerfs, narrativePerfs, macroScore, tickerPrices, maHistories, invalidate]);
+  }, [rules, sectorPerfs, narrativePerfs, macroScore, tickerPrices, maHistories, settled, invalidate]);
 }
 
 export function useUnacknowledgedCount() {

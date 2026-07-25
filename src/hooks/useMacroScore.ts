@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchYahooPrices, fetchYahooHistory } from '../lib/api/yahoo';
-import { norm, calcMacroScore, regimeFromScore, MACRO_WEIGHTS } from '../lib/macroScore';
+import {
+  norm, calcMacroScore, regimeFromScore, MACRO_WEIGHTS, perfWindow, valueAt, DAY,
+} from '../lib/macroScore';
 
 export type { Regime } from '../lib/macroScore';
 export type Signal = 'bullish' | 'neutral' | 'bearish';
@@ -24,16 +26,13 @@ export interface MacroScoreData {
   trend: 'up' | 'down' | 'flat';
   regime: ReturnType<typeof regimeFromScore>;
   indicators: MacroIndicator[];
+  /** Historiques journaliers bruts, par ticker — reutilises par le moteur
+   *  d'alertes pour recalculer le macro a une date de cloture passee sans
+   *  refetcher. */
+  histories: Record<string, { time: number; value: number }[]>;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function calcPerf(h: { time: number; value: number }[]): number | null {
-  if (h.length < 2) return null;
-  const start = h[0].value;
-  if (!start) return null;
-  return ((h[h.length - 1].value - start) / start) * 100;
-}
 
 function fmtPct(n: number): string {
   return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
@@ -46,30 +45,6 @@ function toSignal(s: number): Signal {
 function weekDeltaBp(h: { time: number; value: number }[]): number | null {
   if (h.length < 6) return null;
   return Math.round((h[h.length - 1].value - h[h.length - 6].value) * 100);
-}
-
-const DAY = 86400;
-
-// Trailing-window perf: % change over `windowDays`, ending `endDaysAgo` days ago.
-// Lets us measure a true trailing-1M momentum both now (endDaysAgo=0) and as of
-// a week ago (endDaysAgo=7) from a single ~3M daily history.
-function perfWindow(h: { time: number; value: number }[], windowDays: number, endDaysAgo = 0): number | null {
-  if (h.length < 2) return null;
-  const end = Date.now() / 1000 - endDaysAgo * DAY;
-  const start = end - windowDays * DAY;
-  return calcPerf(h.filter(p => p.time >= start && p.time <= end));
-}
-
-// Daily close as of `daysAgo` days ago (last bar at or before that point).
-function valueAt(h: { time: number; value: number }[], daysAgo: number): number | null {
-  if (h.length === 0) return null;
-  const target = Date.now() / 1000 - daysAgo * DAY;
-  let v: number | null = null;
-  for (const p of h) {
-    if (p.time <= target) v = p.value;
-    else break;
-  }
-  return v ?? h[0].value;
 }
 
 // ── Tickers fetchés ───────────────────────────────────────────────────────────
@@ -328,7 +303,7 @@ export function useMacroScore() {
         },
       ];
 
-      return { score, scorePrev, trend, regime, indicators };
+      return { score, scorePrev, trend, regime, indicators, histories: hist };
     },
     staleTime: 5 * 60 * 1000,
     refetchInterval: 5 * 60 * 1000,
