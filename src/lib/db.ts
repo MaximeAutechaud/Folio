@@ -6,6 +6,9 @@ const SCHEMA_VERSION = '5';
 
 const DB_URL = import.meta.env.DEV ? 'sqlite:folio-dev.db' : 'sqlite:folio.db';
 
+/** Nom du fichier seul — le dossier est résolu côté Rust (`app_config_dir`). */
+export const DB_FILE_NAME = DB_URL.slice('sqlite:'.length);
+
 let _dbPromise: Promise<Database> | null = null;
 
 async function getDb(): Promise<Database> {
@@ -442,6 +445,27 @@ export async function fetchSnapshots(limitDays = 90): Promise<Snapshot[]> {
     'SELECT * FROM snapshots WHERE recorded_at >= $1 ORDER BY recorded_at ASC',
     [since]
   );
+}
+
+// Copie cohérente de la base vers `destPath` via `VACUUM INTO` : SQLite replie
+// le WAL et écrit un fichier compacté, sans avoir à fermer la connexion ni à
+// deviner quels fichiers annexes (-wal, -shm) copier. Échoue si le fichier de
+// destination existe déjà — l'appelant garantit un nom unique.
+// `destPath` est interpolé (VACUUM n'accepte pas de paramètre lié) : les quotes
+// simples sont doublées, seule séquence à échapper dans un littéral SQLite.
+export async function backupDatabaseTo(destPath: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(`VACUUM INTO '${destPath.replace(/'/g, "''")}'`);
+}
+
+// Ferme le pool et oublie la connexion mémorisée : indispensable avant de
+// remplacer le fichier sous SQLite. Tout appel ultérieur à getDb() rouvrirait
+// la base — l'appelant est censé recharger la page juste après.
+export async function closeDatabase(): Promise<void> {
+  if (!_dbPromise) return;
+  const db = await _dbPromise;
+  _dbPromise = null;
+  await db.close();
 }
 
 export async function insertSnapshot(totalValue: number, totalCost: number): Promise<void> {

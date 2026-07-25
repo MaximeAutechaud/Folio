@@ -21,6 +21,8 @@ import { useAlertEngine, useUnacknowledgedCount } from './hooks/useAlertEngine';
 import { useSignalBackfill } from './hooks/useSignalBackfill';
 import { useCorporateActionSync } from './hooks/useCorporateActionSync';
 import { fetchSnapshots, getSetting, setSetting } from './lib/db';
+import { exportDatabase, pickBackupFile } from './lib/backup';
+import { RestoreModal } from './components/RestoreModal/RestoreModal';
 import type { PendingCorporateAction, PositionInput, TransactionInput } from './types';
 import styles from './App.module.css';
 
@@ -37,6 +39,10 @@ export default function App() {
   const [tourMarketSubTab, setTourMarketSubTab] = useState<MarketSubTab | null>(null);
   const [briefingSettingsOpen, setBriefingSettingsOpen] = useState(false);
   const [corpActionModal, setCorpActionModal] = useState<PendingCorporateAction | null>(null);
+  const [backup, setBackup] = useState<
+    { state: 'idle' } | { state: 'running' } | { state: 'done'; path: string } | { state: 'error'; message: string }
+  >({ state: 'idle' });
+  const [restorePath, setRestorePath] = useState<string | null>(null);
 
   const positions = usePortfolioStore((s) => s.positions);
   const loadPositions = usePortfolioStore((s) => s.loadPositions);
@@ -51,6 +57,35 @@ export default function App() {
   useEffect(() => {
     getSetting('onboarding_done').then((v) => { if (v !== '1') setTourOpen(true); });
   }, []);
+
+  async function handleImport() {
+    try {
+      const path = await pickBackupFile();
+      if (path) setRestorePath(path);
+    } catch (e) {
+      setBackup({ state: 'error', message: String(e) });
+    }
+  }
+
+  async function handleBackup() {
+    if (backup.state === 'running') return;
+    setBackup({ state: 'running' });
+    try {
+      const path = await exportDatabase();
+      setBackup({ state: 'done', path });
+    } catch (e) {
+      setBackup({ state: 'error', message: String(e) });
+    }
+  }
+
+  // Le bandeau de confirmation s'efface seul ; une erreur reste affichée tant
+  // que l'utilisateur ne l'a pas fermée — une sauvegarde ratée qui disparaît
+  // toute seule, c'est une sauvegarde qu'on croit avoir.
+  useEffect(() => {
+    if (backup.state !== 'done') return;
+    const t = setTimeout(() => setBackup({ state: 'idle' }), 8000);
+    return () => clearTimeout(t);
+  }, [backup]);
 
   function closeTour() {
     setTourOpen(false);
@@ -163,6 +198,35 @@ export default function App() {
       </button>
       <button
         className={styles.bellBtn}
+        onClick={handleBackup}
+        disabled={backup.state === 'running'}
+        title="Sauvegarder la base dans le dossier Téléchargements"
+      >
+        {backup.state === 'done' ? (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        ) : (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        )}
+      </button>
+      <button
+        className={styles.bellBtn}
+        onClick={handleImport}
+        title="Importer une sauvegarde (remplace les données actuelles)"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </button>
+      <button
+        className={styles.bellBtn}
         onClick={() => setTourOpen(true)}
         title="Visite guidée de l'application"
       >
@@ -177,6 +241,19 @@ export default function App() {
 
   return (
     <Layout nav={nav} actions={actions}>
+      {backup.state === 'done' && (
+        <div className={styles.backupToast}>
+          <span className={styles.backupOk}>✓ Sauvegarde écrite</span>
+          <code className={styles.backupPath}>{backup.path}</code>
+        </div>
+      )}
+      {backup.state === 'error' && (
+        <div className={`${styles.backupToast} ${styles.backupFail}`}>
+          <span>⚠ Sauvegarde échouée — {backup.message}</span>
+          <button className={styles.backupClose} onClick={() => setBackup({ state: 'idle' })}>×</button>
+        </div>
+      )}
+
       <SessionRecap snapshots={snapshots} />
 
       {activeTab === 'portfolio' ? (
@@ -228,6 +305,7 @@ export default function App() {
       <AlertPanel open={alertOpen} onClose={() => setAlertOpen(false)} />
 
       {briefingSettingsOpen && <BriefingSettings onClose={() => setBriefingSettingsOpen(false)} />}
+      {restorePath && <RestoreModal path={restorePath} onClose={() => setRestorePath(null)} />}
 
       {tourOpen && (
         <OnboardingTour

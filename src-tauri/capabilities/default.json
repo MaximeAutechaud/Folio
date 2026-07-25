@@ -9,6 +9,8 @@
     "sql:allow-execute",
     "sql:allow-select",
     "sql:allow-load",
+    "sql:allow-close",
+    "dialog:allow-open",
     "notification:default"
   ]
 }

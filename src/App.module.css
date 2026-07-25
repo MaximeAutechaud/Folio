@@ -94,3 +94,46 @@
   text-align: center;
   line-height: 12px;
 }
+
+.backupToast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 5px;
+  font-size: 12px;
+  background: rgba(63, 185, 80, 0.08);
+  border: 1px solid rgba(63, 185, 80, 0.35);
+  color: var(--text-secondary, var(--text-muted));
+}
+
+.backupOk {
+  font-weight: 700;
+  color: var(--green);
+}
+
+.backupPath {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.backupFail {
+  background: rgba(248, 81, 73, 0.08);
+  border-color: rgba(248, 81, 73, 0.4);
+  color: var(--red);
+  justify-content: space-between;
+}
+
+.backupClose {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 4px;
+}
