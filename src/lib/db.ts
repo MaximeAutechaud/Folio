@@ -1091,6 +1091,46 @@ export async function updateSignalLogPerf(
   );
 }
 
+/**
+ * Remplace intégralement l'historique de signaux d'un scope.
+ *
+ * Contrairement à `insertSignalLog`, cette fonction écrit **aussi** les
+ * `rel_perf_*`. C'est l'exception assumée à la règle « les perfs forward
+ * n'appartiennent qu'au backfill » : une reconstruction dispose de tout
+ * l'historique et calcule les perfs elle-même, alors que le backfill n'a que
+ * 6 mois de données et ne pourrait jamais renseigner les lignes anciennes.
+ *
+ * Insertion par lots : le pool sqlx facture un aller-retour IPC par `execute`,
+ * et une reconstruction produit des milliers de lignes.
+ */
+export async function replaceSignalLogScope(
+  scope: string,
+  rows: {
+    date: string; scopeId: string; signal: string; score: number;
+    relPerfJ5: number | null; relPerfJ10: number | null; relPerfJ20: number | null;
+  }[],
+): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM signal_log WHERE scope = $1', [scope]);
+
+  const CHUNK = 150;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const COLS = 8;
+    const values: unknown[] = [];
+    const placeholders = chunk.map((r, j) => {
+      values.push(r.date, scope, r.scopeId, r.signal, r.score, r.relPerfJ5, r.relPerfJ10, r.relPerfJ20);
+      const slots = Array.from({ length: COLS }, (_, k) => `$${j * COLS + k + 1}`);
+      return `(${slots.join(', ')})`;
+    }).join(',');
+    await db.execute(
+      `INSERT INTO signal_log (date, scope, scope_id, signal, score, rel_perf_j5, rel_perf_j10, rel_perf_j20)
+       VALUES ${placeholders}`,
+      values,
+    );
+  }
+}
+
 export async function fetchSignalLogs(scope: string): Promise<SignalLogRow[]> {
   const db = await getDb();
   return db.select<SignalLogRow[]>(

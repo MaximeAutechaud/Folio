@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchSignalLogs } from '../../lib/db';
+import { useSignalRebuild } from '../../hooks/useSignalRebuild';
 import {
   computeSignalStats,
   SIGNAL_META,
@@ -44,8 +45,19 @@ export function SignalStats() {
   const stats = computeSignalStats(rows);
   const totalLogged = stats.reduce((s, x) => s + x.total, 0);
 
+  const rebuild = useSignalRebuild();
+  const [confirmRebuild, setConfirmRebuild] = useState(false);
+  const busy = rebuild.progress.phase === 'fetching'
+    || rebuild.progress.phase === 'computing'
+    || rebuild.progress.phase === 'writing';
+
+  // Jours de releve reellement couverts : rend visible que la statistique
+  // repose sur des seances observees, pas sur une duree calendaire.
+  const sessionDays = new Set(rows.map((r) => r.date)).size;
+
   return (
     <div className={styles.root}>
+      <div className={styles.headerRow}>
       <div className={styles.scopeToggle}>
         {([['sector', 'Secteurs'], ['narrative', 'Narratives']] as [Scope, string][]).map(([s, label]) => (
           <button
@@ -57,11 +69,68 @@ export function SignalStats() {
           </button>
         ))}
       </div>
+        <button
+          className={styles.rebuildBtn}
+          onClick={() => setConfirmRebuild(true)}
+          disabled={busy}
+          data-tooltip="Recalculer tout l'historique des signaux depuis les cours de cloture"
+        >
+          {busy ? rebuild.progress.message : "↻ Reconstruire l'historique"}
+        </button>
+      </div>
+
+      {busy && (
+        <div className={styles.progressWrap}>
+          <div className={styles.progressBar} style={{ width: `${Math.round(rebuild.progress.ratio * 100)}%` }} />
+        </div>
+      )}
+
+      {rebuild.progress.phase === 'done' && rebuild.progress.result && (
+        <div className={styles.rebuildDone}>
+          ✓ {rebuild.progress.result.sessions} séances reconstruites du {rebuild.progress.result.from} au{' '}
+          {rebuild.progress.result.to} — {rebuild.progress.result.sectorRows} lignes secteurs,{' '}
+          {rebuild.progress.result.narrativeRows} lignes narratives.
+          <button className={styles.dismiss} onClick={rebuild.reset}>×</button>
+        </div>
+      )}
+
+      {rebuild.progress.phase === 'error' && (
+        <div className={styles.rebuildError}>
+          ⚠ {rebuild.progress.message}
+          <button className={styles.dismiss} onClick={rebuild.reset}>×</button>
+        </div>
+      )}
+
+      {confirmRebuild && (
+        <div className={styles.confirmOverlay}>
+          <div className={styles.confirmBox}>
+            <div className={styles.confirmTitle}>Reconstruire l'historique des signaux ?</div>
+            <p className={styles.confirmBody}>
+              Les {rows.length} lignes actuelles seront <strong>remplacées</strong> par un historique
+              recalculé sur deux ans à partir des cours de clôture.
+            </p>
+            <p className={styles.confirmBody}>
+              C'est le but : les lignes existantes mélangent des mesures prises en séance, des dates
+              de week-end et des trous. Mais l'opération est irréversible — assure-toi d'avoir une
+              sauvegarde récente.
+            </p>
+            <div className={styles.confirmActions}>
+              <button className={styles.cancelBtn} onClick={() => setConfirmRebuild(false)}>Annuler</button>
+              <button
+                className={styles.dangerBtn}
+                onClick={() => { setConfirmRebuild(false); rebuild.run(); }}
+              >
+                Reconstruire
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className={styles.intro}>
         <p className={styles.introText}>
           Performance relative vs SPY après chaque signal {scope === 'sector' ? 'secteur' : 'narrative-ETF'},
-          mesurée à J+5 / J+10 / J+20.
+          mesurée à J+5 / J+10 / J+20, sur {sessionDays} séances relevées.
           Le <strong>win%</strong> mesure la fiabilité (J+10). Pour <em>exhaustion</em> — un signal
           d'évitement — la réussite = <strong>sous-performance</strong> ensuite.
           {scope === 'narrative' && (

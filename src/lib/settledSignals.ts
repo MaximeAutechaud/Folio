@@ -1,7 +1,7 @@
 import { computeEtfMetrics, calcBenchWindows, type Point } from '../hooks/useSectorData';
 import { computeMacroAt } from './macroScore';
 import { calcSectorScore, type SectorSignal } from './scoring';
-import { SECTORS } from './sectors';
+import { SECTORS, type MacroProfile } from './sectors';
 
 /**
  * Signal d'un secteur pour une séance donnée, calculé **sur la clôture**.
@@ -22,6 +22,15 @@ export interface SettledSignal {
   label: string;
   signal: SectorSignal;
   score: number;
+}
+
+/** Instrument scoré : un secteur, ou une narrative via son ETF de référence. */
+export interface ScorableEtf {
+  /** Identifiant consigné dans signal_log.scope_id. */
+  id: string;
+  label: string;
+  etf: string;
+  macroProfile: MacroProfile;
 }
 
 /** Fin de séance (UTC) de la date `YYYY-MM-DD`. */
@@ -54,9 +63,21 @@ export function lastSettledSession(
   return null;
 }
 
-/** Ne garde que les bougies jusqu'à la séance visée — aucune donnée future. */
-export function truncate(series: Point[], atTime: number): Point[] {
-  return series.filter(p => p.time <= atTime);
+/**
+ * Fenêtre se terminant à la séance visée. Aucune bougie future — c'est le
+ * garde-fou anti look-ahead.
+ *
+ * `spanDays` borne aussi le début, et ce n'est pas cosmétique : `computeEtfMetrics`
+ * calcule `drawdown6M` comme l'écart au plus haut de **toute la série reçue**.
+ * Lui passer deux ans d'un bloc donnerait un « plus haut 6 mois » sur deux ans,
+ * donc un drawdown faux. En direct le problème n'existe pas (la série fetchée
+ * fait déjà 6M), mais toute reconstruction doit fournir une fenêtre glissante.
+ */
+export const SECTOR_WINDOW_DAYS = 183;
+
+export function truncate(series: Point[], atTime: number, spanDays?: number): Point[] {
+  const from = spanDays != null ? atTime - spanDays * 86400 : -Infinity;
+  return series.filter(p => p.time <= atTime && p.time >= from);
 }
 
 /**
@@ -71,8 +92,21 @@ export function computeSettledSignals(
   macroHistories: Record<string, Point[]>,
   atTime: number,
 ): SettledSignal[] {
-  const spy = truncate(sectorHistories['SPY'] ?? [], atTime);
-  const rsp = truncate(sectorHistories['RSP'] ?? [], atTime);
+  return computeSettledFor(
+    SECTORS.map(s => ({ id: s.id, label: s.name, etf: s.etf, macroProfile: s.macroProfile })),
+    sectorHistories, macroHistories, atTime,
+  );
+}
+
+/** Même calcul, pour un ensemble quelconque d'instruments (secteurs, narratives). */
+export function computeSettledFor(
+  entries: ScorableEtf[],
+  histories: Record<string, Point[]>,
+  macroHistories: Record<string, Point[]>,
+  atTime: number,
+): SettledSignal[] {
+  const spy = truncate(histories['SPY'] ?? [], atTime, SECTOR_WINDOW_DAYS);
+  const rsp = truncate(histories['RSP'] ?? [], atTime, SECTOR_WINDOW_DAYS);
   if (spy.length < 60) return [];
 
   const macro = computeMacroAt(
@@ -86,8 +120,8 @@ export function computeSettledSignals(
   const rspBench = calcBenchWindows(rsp, 93, atTime);
 
   const out: SettledSignal[] = [];
-  for (const sector of SECTORS) {
-    const raw = truncate(sectorHistories[sector.etf] ?? [], atTime);
+  for (const entry of entries) {
+    const raw = truncate(histories[entry.etf] ?? [], atTime, SECTOR_WINDOW_DAYS);
     if (raw.length < 60) continue;
     const m = computeEtfMetrics(raw, spyBench, rspBench, 93, atTime);
     const score = calcSectorScore({
@@ -98,11 +132,11 @@ export function computeSettledSignals(
       drawdown3M: m.drawdown3M,
       drawdown6M: m.drawdown6M,
       ma50Above: m.ma50Above,
-      macroProfile: sector.macroProfile,
+      macroProfile: entry.macroProfile,
       macroScore: macro.score,
       macroTrend: macro.trend,
     });
-    out.push({ sectorId: sector.id, label: sector.name, signal: score.signal, score: score.total });
+    out.push({ sectorId: entry.id, label: entry.label, signal: score.signal, score: score.total });
   }
   return out;
 }
