@@ -137,3 +137,9 @@
   line-height: 1;
   padding: 0 4px;
 }
+
+/* Regroupe sauvegarde + import pour que la visite guidée les surligne ensemble. */
+.actionGroup {
+  display: flex;
+  align-items: center;
+}

@@ -86,8 +86,8 @@ const STEPS: TourStep[] = [
     target: 'tab-trades',
     tab: 'trades',
     title: 'Trades — ta discipline',
-    body: "Une position devient un trade dès qu'un stop loss est défini. Suivi du risque et de la distance au stop, puis à la clôture : win rate et P&L moyen par setup.",
-    tip: "Renseigne le champ setup à chaque achat — c'est lui qui révèle quels setups te font vraiment gagner.",
+    body: "Une position devient un trade dès qu'un stop loss est défini. Suivi du risque et de la distance au stop, puis à la clôture : win rate, R moyen et P&L net de frais par setup.",
+    tip: "Pose le stop AVANT de saisir l'achat : le journal retient le stop tel qu'il était à ce moment-là, et un achat enregistré sans stop n'entrera jamais dans tes statistiques.",
   },
   {
     target: 'tab-ia',
@@ -101,6 +101,12 @@ const STEPS: TourStep[] = [
     title: 'Alertes',
     body: "Règles de prix (objectif, stop) et de score secteur. Les alertes prix sont one-shot : déclenchées une fois puis désactivées, ré-armables depuis ce panneau.",
     tip: "Pose une alerte sur chaque stop et chaque TP1 : l'app surveille pour toi, inutile de garder l'écran ouvert.",
+  },
+  {
+    target: 'backup',
+    title: 'Sauvegarde et import',
+    body: "Tout vit dans un seul fichier SQLite sur ta machine : aucun cloud, mais aussi aucun filet. La flèche descendante en écrit une copie horodatée dans ton dossier Téléchargements ; la montante réimporte une sauvegarde, après t'avoir montré ce qu'elle contient.",
+    tip: "Aucune sauvegarde automatique pour l'instant : prends l'habitude d'exporter avant toute grosse manipulation, et range une copie ailleurs que sur ce disque.",
   },
 ];
 
