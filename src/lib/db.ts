@@ -117,6 +117,7 @@ async function runMigrations(db: Database): Promise<void> {
   // Après les correctifs de colonnes ci-dessus : migrateToV12 insère une règle
   // qui référence `is_system`, absente des bases créées avant ce patch.
   await migrateToV12(db);
+  await migrateToV13(db);
 
   // positions: second take-profit target (Phase 1 extension)
   const tp2Col = await db.select<{ name: string }[]>(
@@ -403,12 +404,40 @@ async function migrateToV12(db: Database): Promise<void> {
   // NÉGATIVE à J+5 comme à J+10 (secteurs : 44 % puis 38 % de gagnants). Il
   // reste consultable dans l'onglet Market — il ne mérite pas d'interruption.
   await db.execute(
+    // is_system = 0 : le panneau masque ✎ et ✕ sur les regles systeme, dont le
+    // cycle de vie appartient a une position (stop/TP recrees au save). Celle-ci
+    // n'est recreee par rien — la marquer systeme la rendrait non modifiable.
     `INSERT INTO alert_rules (type, scope, scope_id, label, threshold, is_active, is_system, signal_filter)
-     VALUES ('signal_change', 'all_sectors', '', 'Signaux secteurs', NULL, 1, 1, 'reversal')`
+     VALUES ('signal_change', 'all_sectors', '', 'Signaux secteurs', NULL, 1, 0, 'reversal')`
   );
 
   await db.execute(
     `INSERT INTO settings (key, value) VALUES ('schema_version', '12')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
+// Repare la regle « Signaux secteurs » creee par la premiere version de v12 :
+// elle etait marquee is_system, ce qui la rendait ni modifiable ni supprimable
+// dans le panneau. Normalise aussi son filtre s'il porte encore le defaut
+// d'origine — jamais un filtre choisi par l'utilisateur.
+async function migrateToV13(db: Database): Promise<void> {
+  const rows = await db.select<{ value: string }[]>(
+    `SELECT value FROM settings WHERE key='schema_version'`
+  );
+  if (parseInt(rows[0]?.value ?? '0') >= 13) return;
+
+  await db.execute(
+    `UPDATE alert_rules SET is_system = 0
+     WHERE type='signal_change' AND scope='all_sectors'`
+  );
+  await db.execute(
+    `UPDATE alert_rules SET signal_filter = 'reversal'
+     WHERE type='signal_change' AND scope='all_sectors' AND signal_filter = 'reversal,dip'`
+  );
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '13')
      ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   );
 }
