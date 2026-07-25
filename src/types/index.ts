@@ -137,7 +137,8 @@ export interface NarrativeKeyword {
 }
 
 export type AlertType = 'rsi_overbought' | 'rsi_oversold' | 'macro_regime_change' | 'price_target' | 'stop_loss' | 'price_below_ma200' | 'ema_cross' | 'sector_score_threshold' | 'signal_change';
-export type AlertScope = 'sector' | 'narrative' | 'macro' | 'ticker';
+// 'all_sectors' : une seule regle couvrant les 11 secteurs (signal_change).
+export type AlertScope = 'sector' | 'narrative' | 'macro' | 'ticker' | 'all_sectors';
 
 export interface AlertRule {
   id: number;
@@ -152,6 +153,8 @@ export interface AlertRule {
   is_system: number;
   slot: string | null;
   direction: string | null;
+  /** signal_change : liste CSV des signaux qui declenchent. null = tous. */
+  signal_filter: string | null;
 }
 
 export interface AlertRuleInput {
@@ -161,6 +164,7 @@ export interface AlertRuleInput {
   label: string;
   threshold: string | null;
   direction?: string | null;
+  signal_filter?: string | null;
 }
 
 export interface AlertEvent {

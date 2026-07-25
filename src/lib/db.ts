@@ -114,6 +114,10 @@ async function runMigrations(db: Database): Promise<void> {
     await db.execute(`ALTER TABLE alert_rules ADD COLUMN direction TEXT`);
   }
 
+  // Après les correctifs de colonnes ci-dessus : migrateToV12 insère une règle
+  // qui référence `is_system`, absente des bases créées avant ce patch.
+  await migrateToV12(db);
+
   // positions: second take-profit target (Phase 1 extension)
   const tp2Col = await db.select<{ name: string }[]>(
     `SELECT name FROM pragma_table_info('positions') WHERE name='target_price_2'`
@@ -376,6 +380,31 @@ async function migrateToV10(db: Database): Promise<void> {
   await db.execute(`ALTER TABLE positions ADD COLUMN note TEXT`);
   await db.execute(
     `INSERT INTO settings (key, value) VALUES ('schema_version', '10')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
+// alert_rules.signal_filter : liste CSV des signaux qui déclenchent une règle
+// signal_change (null = tous, donc les règles existantes ne changent pas de
+// comportement). Colonne dédiée plutôt qu'une surcharge de `threshold`,
+// inutilisé pour ce type. Crée aussi la règle système « Signaux secteurs ».
+async function migrateToV12(db: Database): Promise<void> {
+  const col = await db.select<{ name: string }[]>(
+    `SELECT name FROM pragma_table_info('alert_rules') WHERE name='signal_filter'`
+  );
+  if (col.length > 0) return;
+  await db.execute(`ALTER TABLE alert_rules ADD COLUMN signal_filter TEXT`);
+
+  // Portée volontairement limitée aux secteurs : les narratives sont un
+  // ensemble ouvert (l'user en ajoute autant qu'il veut) et servent à exploiter
+  // un signal, pas à le déclencher. Une règle par narrative noierait le signal.
+  await db.execute(
+    `INSERT INTO alert_rules (type, scope, scope_id, label, threshold, is_active, is_system, signal_filter)
+     VALUES ('signal_change', 'all_sectors', '', 'Signaux secteurs', NULL, 1, 1, 'reversal,dip')`
+  );
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '12')
      ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   );
 }
@@ -658,9 +687,10 @@ export async function fetchAlertRules(): Promise<AlertRule[]> {
 export async function insertAlertRule(input: AlertRuleInput): Promise<number> {
   const db = await getDb();
   const result = await db.execute(
-    `INSERT INTO alert_rules (type, scope, scope_id, label, threshold, direction)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [input.type, input.scope, input.scope_id, input.label, input.threshold, input.direction ?? null]
+    `INSERT INTO alert_rules (type, scope, scope_id, label, threshold, direction, signal_filter)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [input.type, input.scope, input.scope_id, input.label, input.threshold,
+     input.direction ?? null, input.signal_filter ?? null]
   );
   return result.lastInsertId as number;
 }
@@ -671,12 +701,13 @@ export async function insertAlertRule(input: AlertRuleInput): Promise<number> {
 export async function updateAlertRule(
   id: number,
   threshold: string | null,
-  direction: string | null
+  direction: string | null,
+  signalFilter: string | null = null,
 ): Promise<void> {
   const db = await getDb();
   await db.execute(
-    'UPDATE alert_rules SET threshold=$1, direction=$2, is_active=1 WHERE id=$3',
-    [threshold, direction, id]
+    'UPDATE alert_rules SET threshold=$1, direction=$2, signal_filter=$3, is_active=1 WHERE id=$4',
+    [threshold, direction, signalFilter, id]
   );
 }
 
@@ -803,6 +834,44 @@ export async function fetchAlertEventsSince(sinceTs: number): Promise<AlertEvent
      ORDER BY triggered_at DESC`,
     [sinceTs]
   );
+}
+
+/**
+ * Événements déjà émis par une règle depuis `sinceTs`. Sert la déduplication
+ * des règles à portée large, dont `value_at_trigger` porte le scope_id : le
+ * moteur tourne toutes les 60 s alors que la mémoire (signal_log) n'est écrite
+ * qu'une fois par jour.
+ */
+export async function fetchAlertEventsForRuleSince(
+  ruleId: number, sinceTs: number
+): Promise<AlertEvent[]> {
+  const db = await getDb();
+  return db.select<AlertEvent[]>(
+    `SELECT * FROM alert_events
+     WHERE rule_id = $1 AND triggered_at >= $2 AND consecutive_days > 0`,
+    [ruleId, sinceTs]
+  );
+}
+
+/**
+ * Dernier signal enregistré par scope pour un périmètre donné, en ignorant les
+ * lignes du jour `today` : c'est l'état « de la veille » auquel comparer la
+ * classification courante. Un scope absent n'avait aucun signal.
+ */
+export async function fetchPreviousSignals(
+  scope: string, today: string
+): Promise<Record<string, string>> {
+  const db = await getDb();
+  const rows = await db.select<{ scope_id: string; signal: string; date: string }[]>(
+    `SELECT scope_id, signal, date FROM signal_log
+     WHERE scope = $1 AND date < $2
+     ORDER BY date ASC`,
+    [scope, today]
+  );
+  // Trié par date croissante : la dernière écriture gagne.
+  const out: Record<string, string> = {};
+  for (const r of rows) out[r.scope_id] = r.signal;
+  return out;
 }
 
 export async function fetchUnacknowledgedCount(): Promise<number> {

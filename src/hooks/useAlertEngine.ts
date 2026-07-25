@@ -9,7 +9,12 @@ import { calcEma, calcMa } from '../lib/indicators';
 import { calcSectorScore } from '../lib/scoring';
 import type { SectorScore } from '../lib/scoring';
 import {
+  detectNewSignals, formatSignalMessage, parseSignalFilter, type ScopeSignal,
+} from '../lib/signalAlerts';
+import {
+  fetchAlertEventsForRuleSince,
   fetchAlertRules,
+  fetchPreviousSignals,
   fetchUnacknowledgedCount,
   getLastAlertEvent,
   insertAlertEvent,
@@ -77,6 +82,85 @@ function localDateString(d = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+async function notify(message: string): Promise<void> {
+  try {
+    let granted = await isPermissionGranted();
+    if (!granted) {
+      const perm = await requestPermission();
+      granted = perm === 'granted';
+    }
+    if (granted) await sendNotification({ title: 'Folio', body: message });
+  } catch {
+    // Notifications non supportées ou refusées — silencieux
+  }
+}
+
+/**
+ * Règles `signal_change` de portée `all_sectors` : une seule règle surveille les
+ * 11 secteurs et peut émettre plusieurs événements par cycle, ce que le tronc
+ * commun (un message par règle) ne sait pas faire.
+ *
+ * Périmètre volontairement limité aux secteurs. Les narratives sont un ensemble
+ * ouvert et servent à décider *comment* exploiter un signal, pas à le déclencher.
+ */
+async function evaluateAllSectorsRules(
+  rules: AlertRule[],
+  sectorPerfs: SectorPerf[],
+  macro: MacroScoreData | undefined,
+  todayStart: number,
+  now: number,
+  onNewEvent: () => void,
+): Promise<void> {
+  const broad = rules.filter(
+    (r) => r.type === 'signal_change'
+      && r.scope === 'all_sectors'
+      && r.is_active
+      && !(r.snoozed_until && r.snoozed_until > now),
+  );
+  if (broad.length === 0 || !macro || sectorPerfs.length === 0) return;
+
+  const today = localDateString();
+  let previous: Record<string, string>;
+  try {
+    previous = await fetchPreviousSignals('sector', today);
+  } catch {
+    return; // sans référence, tout paraîtrait nouveau
+  }
+
+  // Aucun historique : tous les signaux en cours paraîtraient « nouveaux » et
+  // partiraient en rafale (installation neuve, restauration d'une vieille
+  // sauvegarde). La phase 3 écrit la ligne du jour juste après — la référence
+  // existera demain. Équivalent du baseline des règles mono-scope.
+  if (Object.keys(previous).length === 0) return;
+
+  const current: ScopeSignal[] = sectorPerfs.map((sp) => {
+    const s = scoreSector(sp, macro);
+    return { scopeId: sp.sector.id, label: sp.sector.name, signal: s.signal, score: s.total };
+  });
+
+  for (const rule of broad) {
+    try {
+      const events = await fetchAlertEventsForRuleSince(rule.id, todayStart);
+      const alreadyNotified = new Set(events.map((e) => e.value_at_trigger));
+
+      const detections = detectNewSignals(
+        current, previous, parseSignalFilter(rule.signal_filter), alreadyNotified,
+      );
+
+      for (const d of detections) {
+        const message = formatSignalMessage(d);
+        // value_at_trigger porte le scope_id : c'est lui qui dédoublonne au
+        // cycle suivant, la table ne gardant qu'un dernier événement par règle.
+        await insertAlertEvent(rule.id, 1, d.scopeId, message);
+        onNewEvent();
+        await notify(message);
+      }
+    } catch {
+      continue;
+    }
+  }
+}
+
 // Phase 3 : enregistre 1 ligne/secteur/jour dès qu'un secteur émet un signal
 // (dip/reversal/accelerating/exhaustion). Upsert idempotent — les rejeux dans la
 // journée réécrivent juste la classification (voir insertSignalLog).
@@ -136,6 +220,9 @@ async function evaluateRules(
   for (const rule of rules) {
     if (!rule.is_active) continue;
     if (rule.snoozed_until && rule.snoozed_until > now) continue;
+    // Les règles à portée large émettent plusieurs événements par cycle : elles
+    // ne passent pas par le tronc commun (un seul message par règle).
+    if (rule.scope === 'all_sectors') continue;
 
     let conditionMet = false;
     let currentValue = '';
@@ -340,6 +427,12 @@ async function evaluateRules(
       // Notifications non supportées ou refusées — silencieux
     }
   }
+
+  // Phase 2b : règles à portée large (un événement par secteur détecté, donc
+  // hors du tronc commun). L'ordre vis-à-vis de la phase 3 est indifférent :
+  // la référence est lue avec `date < aujourd'hui`, la ligne du jour ne la
+  // masque pas.
+  await evaluateAllSectorsRules(rules, sectorPerfs, macroScore, todayStart, now, onNewEvent);
 
   // Phase 3 : piggyback — logging des signaux secteurs et narratives-ETF sur
   // le même cycle debounce.

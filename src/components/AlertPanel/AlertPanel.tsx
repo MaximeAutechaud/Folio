@@ -10,6 +10,7 @@ import {
   snoozeAlertRule,
 } from '../../lib/db';
 import { AlertForm } from './AlertForm';
+import { parseSignalFilter, SIGNAL_LABELS, WATCHABLE_SIGNALS } from '../../lib/signalAlerts';
 import type { AlertRule } from '../../types';
 import styles from './AlertPanel.module.css';
 
@@ -43,7 +44,13 @@ function ruleThresholdLabel(rule: AlertRule): string | null {
     return 'Golden + Death';
   }
   if (rule.type === 'price_below_ma200') return 'Prix < MA200';
-  if (rule.type === 'signal_change') return 'au changement';
+  if (rule.type === 'signal_change') {
+    const wanted = parseSignalFilter(rule.signal_filter);
+    const scope = rule.scope === 'all_sectors' ? 'tous secteurs · ' : '';
+    return wanted.length === WATCHABLE_SIGNALS.length
+      ? `${scope}au changement`
+      : scope + wanted.map((s) => SIGNAL_LABELS[s]).join(', ');
+  }
   return null;
 }
 

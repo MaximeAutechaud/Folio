@@ -3,6 +3,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchNarratives, insertAlertRule, updateAlertRule } from '../../lib/db';
 import { searchYahoo, fetchYahooPrices, type YahooSuggestion } from '../../lib/api/yahoo';
 import { SECTORS } from '../../lib/sectors';
+import {
+  parseSignalFilter, serializeSignalFilter, SIGNAL_LABELS, WATCHABLE_SIGNALS,
+  type WatchableSignal,
+} from '../../lib/signalAlerts';
 import type { AlertType, AlertScope, AlertRule, AlertRuleInput } from '../../types';
 import styles from './AlertForm.module.css';
 
@@ -16,6 +20,7 @@ interface Props {
 type RsiSubScope = 'sector' | 'narrative';
 type EmaDir = 'golden' | 'death' | 'both';
 type PriceDir = 'above' | 'below';
+type SignalScope = RsiSubScope | 'all_sectors';
 
 const TYPE_LABELS: Record<AlertType, string> = {
   signal_change:           'Signal émis (dip, reversal…)',
@@ -56,6 +61,15 @@ export function AlertForm({ onClose, prefillTicker, editRule }: Props) {
     editRule?.type === 'ema_cross' ? ((editRule.threshold as EmaDir) ?? 'both') : 'both'
   );
   const [priceDir, setPriceDir] = useState<PriceDir>(editRule?.direction === 'below' ? 'below' : 'above');
+  // Portee des regles signal_change : 'all_sectors' couvre les 11 secteurs d'un
+  // coup. Volontairement pas d'equivalent narratives (ensemble ouvert).
+  const [signalScope, setSignalScope] = useState<SignalScope>(
+    editRule?.scope === 'all_sectors' ? 'all_sectors'
+      : editRule?.scope === 'narrative' ? 'narrative' : 'all_sectors'
+  );
+  const [signalFilter, setSignalFilter] = useState<WatchableSignal[]>(
+    parseSignalFilter(editRule?.signal_filter)
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<YahooSuggestion[]>([]);
@@ -104,6 +118,17 @@ export function AlertForm({ onClose, prefillTicker, editRule }: Props) {
 
   // Retourne l'input prêt à insérer, ou un message d'erreur à afficher.
   function buildInput(): AlertRuleInput | string {
+    if (type === 'signal_change' && signalScope === 'all_sectors') {
+      return {
+        type,
+        scope: 'all_sectors' as AlertScope,
+        scope_id: '',
+        label: 'Signaux secteurs',
+        threshold: null,
+        signal_filter: serializeSignalFilter(signalFilter),
+      };
+    }
+
     if (type === 'rsi_overbought' || type === 'rsi_oversold' || type === 'signal_change') {
       let thr: string | null = null;
       if (type !== 'signal_change') {
@@ -111,8 +136,10 @@ export function AlertForm({ onClose, prefillTicker, editRule }: Props) {
         if (isNaN(parsed) || parsed <= 0 || parsed >= 100) return 'Seuil RSI invalide — entre 1 et 99.';
         thr = String(parsed);
       }
+      const filter = type === 'signal_change' ? serializeSignalFilter(signalFilter) : null;
+      const scopeChoice = type === 'signal_change' ? signalScope : rsiSubScope;
 
-      if (rsiSubScope === 'sector') {
+      if (scopeChoice === 'sector') {
         const sector = SECTORS.find(s => s.id === sectorId);
         if (!sector) return 'Choisis un secteur.';
         return {
@@ -121,6 +148,7 @@ export function AlertForm({ onClose, prefillTicker, editRule }: Props) {
           scope_id: sector.id,
           label: `${sector.name} (${sector.etf})`,
           threshold: thr,
+          signal_filter: filter,
         };
       } else {
         const narrative = etfNarratives.find(n => String(n.id) === narrativeId);
@@ -131,6 +159,7 @@ export function AlertForm({ onClose, prefillTicker, editRule }: Props) {
           scope_id: String(narrative.id),
           label: `${narrative.name} (${narrative.ref_etf})`,
           threshold: thr,
+          signal_filter: filter,
         };
       }
     }
@@ -209,7 +238,9 @@ export function AlertForm({ onClose, prefillTicker, editRule }: Props) {
     setError(null);
     try {
       if (isEdit) {
-        await updateAlertRule(editRule!.id, input.threshold, input.direction ?? null);
+        await updateAlertRule(
+          editRule!.id, input.threshold, input.direction ?? null, input.signal_filter ?? null,
+        );
         queryClient.invalidateQueries({ queryKey: ['alert-rules'] });
         onClose();
         return;
@@ -232,10 +263,12 @@ export function AlertForm({ onClose, prefillTicker, editRule }: Props) {
   }
 
   const isRsiType = type === 'rsi_overbought' || type === 'rsi_oversold';
-  const hasScopePicker = isRsiType || type === 'signal_change';
+  const hasScopePicker = isRsiType;
+  const isSignalType = type === 'signal_change';
   const isTickerType = type === 'price_target' || type === 'stop_loss' || type === 'price_below_ma200' || type === 'ema_cross';
   const needsNumericThreshold = type !== 'macro_regime_change' && type !== 'price_below_ma200' && type !== 'ema_cross' && type !== 'signal_change';
   const isSectorScoped = isRsiType && rsiSubScope === 'sector' || type === 'sector_score_threshold';
+  const signalNarrative = isSignalType && signalScope === 'narrative';
 
   return (
     <div className={styles.overlay}>
@@ -260,12 +293,100 @@ export function AlertForm({ onClose, prefillTicker, editRule }: Props) {
             </select>
           </label>
 
-          {type === 'signal_change' && (
-            <p className={styles.hint}>
-              Déclenche quand le secteur ou la narrative émet un nouveau signal
-              (dip, reversal, accelerating, exhaustion) ou en change. Exhaustion
-              est un signal d'évitement.
-            </p>
+          {isSignalType && (
+            <>
+              <label className={styles.label}>
+                Cible
+                <div className={styles.segmented}>
+                  <button
+                    type="button"
+                    className={`${styles.seg} ${signalScope === 'all_sectors' ? styles.segActive : ''}`}
+                    onClick={() => setSignalScope('all_sectors')}
+                    disabled={isEdit}
+                  >
+                    Tous les secteurs
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.seg} ${signalScope === 'sector' ? styles.segActive : ''}`}
+                    onClick={() => setSignalScope('sector')}
+                    disabled={isEdit}
+                  >
+                    Un secteur
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.seg} ${signalScope === 'narrative' ? styles.segActive : ''}`}
+                    onClick={() => setSignalScope('narrative')}
+                    disabled={isEdit}
+                  >
+                    Une narrative
+                  </button>
+                </div>
+              </label>
+
+              {signalScope === 'sector' && (
+                <label className={styles.label}>
+                  Secteur
+                  <select
+                    className={styles.select}
+                    value={sectorId}
+                    onChange={e => setSectorId(e.target.value)}
+                    disabled={isEdit}
+                  >
+                    {SECTORS.map(s => (
+                      <option key={s.id} value={s.id}>{s.name} ({s.etf})</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              {signalNarrative && (
+                <label className={styles.label}>
+                  Narrative
+                  <select
+                    className={styles.select}
+                    value={narrativeId}
+                    onChange={e => setNarrativeId(e.target.value)}
+                    disabled={isEdit}
+                  >
+                    {etfNarratives.map(n => (
+                      <option key={n.id} value={String(n.id)}>
+                        {n.name} ({n.ref_etf})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              <label className={styles.label}>
+                Signaux surveillés
+                <div className={styles.segmented}>
+                  {WATCHABLE_SIGNALS.map(sig => {
+                    const on = signalFilter.includes(sig);
+                    return (
+                      <button
+                        key={sig}
+                        type="button"
+                        className={`${styles.seg} ${on ? styles.segActive : ''}`}
+                        onClick={() => setSignalFilter(prev =>
+                          prev.includes(sig) ? prev.filter(x => x !== sig) : [...prev, sig]
+                        )}
+                      >
+                        {SIGNAL_LABELS[sig]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </label>
+
+              <p className={styles.hint}>
+                Déclenche à l'apparition d'un signal, ou quand il en remplace un autre —
+                une fois par secteur et par jour. Exhaustion est un signal d'évitement.
+                {signalScope === 'all_sectors' && " Sur l'historique récent : environ 2 notifications par jour pour Reversal + Dip."}
+                {signalNarrative && ' Les narratives émettent environ 3× plus de signaux que les secteurs.'}
+              </p>
+            </>
           )}
 
           {type === 'macro_regime_change' && (
