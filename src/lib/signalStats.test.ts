@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeSignalStats, isWin, LOW_SAMPLE_THRESHOLD, SIGNAL_KINDS } from './signalStats';
+import { computeSignalStats, isWin, toEpisodes, LOW_SAMPLE_THRESHOLD, SIGNAL_KINDS } from './signalStats';
 import type { SignalLogRow } from '../types';
 
 let nextId = 1;
@@ -117,5 +117,107 @@ describe('computeSignalStats', () => {
   it('ignore les signaux inconnus (ex. futur signal_change loggé par erreur)', () => {
     const stats = computeSignalStats([row('signal_change', 50, { j5: 1 })]);
     for (const s of stats) expect(s.total).toBe(0);
+  });
+});
+
+// ── Épisodes ──────────────────────────────────────────────────────────────────
+
+function day(
+  date: string, scopeId: string, signal: string,
+  perfs: { j5?: number | null } = {}, scope = 'sector',
+): SignalLogRow {
+  return {
+    id: nextId++, date, scope, scope_id: scopeId, signal, score: 70,
+    rel_perf_j5: perfs.j5 ?? null, rel_perf_j10: null, rel_perf_j20: null,
+  };
+}
+
+describe('toEpisodes', () => {
+  it('un signal qui tient plusieurs jours compte pour une seule detection', () => {
+    const ep = toEpisodes([
+      day('2026-07-01', 'xlk', 'reversal'),
+      day('2026-07-02', 'xlk', 'reversal'),
+      day('2026-07-03', 'xlk', 'reversal'),
+    ]);
+    expect(ep).toHaveLength(1);
+    expect(ep[0].date).toBe('2026-07-01');
+  });
+
+  it('un changement de signal ouvre un nouvel episode', () => {
+    const ep = toEpisodes([
+      day('2026-07-01', 'xlk', 'dip'),
+      day('2026-07-02', 'xlk', 'reversal'),
+    ]);
+    expect(ep.map((r) => r.signal)).toEqual(['dip', 'reversal']);
+  });
+
+  it('un signal interrompu puis revenu compte deux fois', () => {
+    // Le moteur a tourne le 02 (xle a une ligne) mais xlk n'en a pas :
+    // son signal avait bien cesse.
+    const ep = toEpisodes([
+      day('2026-07-01', 'xlk', 'reversal'),
+      day('2026-07-02', 'xle', 'dip'),
+      day('2026-07-03', 'xlk', 'reversal'),
+    ]);
+    expect(ep.filter((r) => r.scope_id === 'xlk')).toHaveLength(2);
+  });
+
+  it('un jour sans aucune ecriture ne coupe pas l episode (app fermee)', () => {
+    // Rien du tout le 02 : on ne sait pas si le signal a cesse, on prolonge.
+    const ep = toEpisodes([
+      day('2026-07-01', 'xlk', 'reversal'),
+      day('2026-07-03', 'xlk', 'reversal'),
+    ]);
+    expect(ep).toHaveLength(1);
+  });
+
+  it('les scopes ne se contaminent pas', () => {
+    const ep = toEpisodes([
+      day('2026-07-01', 'xlk', 'reversal'),
+      day('2026-07-01', 'xle', 'reversal'),
+      day('2026-07-02', 'xlk', 'reversal'),
+      day('2026-07-02', 'xle', 'dip'),
+    ]);
+    expect(ep.map((r) => `${r.scope_id}:${r.signal}`).sort())
+      .toEqual(['xle:dip', 'xle:reversal', 'xlk:reversal']);
+  });
+
+  it('meme scope_id dans deux scopes differents = deux series', () => {
+    const ep = toEpisodes([
+      day('2026-07-01', 'ita', 'reversal'),
+      day('2026-07-02', 'ita', 'reversal'),
+      day('2026-07-02', 'ita', 'dip', {}, 'narrative'),
+    ]);
+    expect(ep).toHaveLength(2);
+  });
+
+  it('log vide', () => {
+    expect(toEpisodes([])).toEqual([]);
+  });
+});
+
+describe('computeSignalStats — comptage par episode', () => {
+  it('n reflete les detections, pas les jours cumules', () => {
+    // Une seule detection tenue 4 jours : la perf du jour d apparition compte.
+    const stats = computeSignalStats([
+      day('2026-07-01', 'xlk', 'reversal', { j5: 2 }),
+      day('2026-07-02', 'xlk', 'reversal', { j5: 2.1 }),
+      day('2026-07-03', 'xlk', 'reversal', { j5: 1.9 }),
+      day('2026-07-04', 'xlk', 'reversal', { j5: 2.2 }),
+    ]);
+    const rev = stats.find((s) => s.signal === 'reversal')!;
+    expect(rev.total).toBe(1);
+    expect(rev.j5.n).toBe(1);
+    expect(rev.j5.avgRelPerf).toBeCloseTo(2, 10);
+  });
+
+  it('un mouvement unique ne peut plus valider un signal a lui seul', () => {
+    // 6 jours de persistance sur un seul secteur : sous l ancien comptage,
+    // n=6 franchissait presque le seuil d echantillon faible.
+    const rows = ['01', '02', '03', '04', '05', '06'].map((d) =>
+      day(`2026-07-${d}`, 'xlk', 'reversal', { j5: 3 }));
+    const rev = computeSignalStats(rows).find((s) => s.signal === 'reversal')!;
+    expect(rev.total).toBe(1);
+    expect(rev.lowSample).toBe(true);
   });
 });

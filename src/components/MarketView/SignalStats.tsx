@@ -85,7 +85,7 @@ export function SignalStats() {
             <thead>
               <tr>
                 <th className={styles.thLeft}>Signal</th>
-                <th>n</th>
+                <th data-tooltip="Nombre de detections distinctes. Un signal qui tient plusieurs jours compte une fois : les fenetres de perf se chevaucheraient sinon, et un seul mouvement suffirait a valider un signal.">n</th>
                 <th data-tooltip="Score d'opportunité moyen au moment du signal">Score moy.</th>
                 <th data-tooltip="% de cas où le signal a « réussi » à J+10">Win% J+10</th>
                 <th>relPerf J+5</th>
