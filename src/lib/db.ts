@@ -398,9 +398,13 @@ async function migrateToV12(db: Database): Promise<void> {
   // Portée volontairement limitée aux secteurs : les narratives sont un
   // ensemble ouvert (l'user en ajoute autant qu'il veut) et servent à exploiter
   // un signal, pas à le déclencher. Une règle par narrative noierait le signal.
+  //
+  // Filtre `reversal` seul : mesuré sur signal_log, le dip a une espérance
+  // NÉGATIVE à J+5 comme à J+10 (secteurs : 44 % puis 38 % de gagnants). Il
+  // reste consultable dans l'onglet Market — il ne mérite pas d'interruption.
   await db.execute(
     `INSERT INTO alert_rules (type, scope, scope_id, label, threshold, is_active, is_system, signal_filter)
-     VALUES ('signal_change', 'all_sectors', '', 'Signaux secteurs', NULL, 1, 1, 'reversal,dip')`
+     VALUES ('signal_change', 'all_sectors', '', 'Signaux secteurs', NULL, 1, 1, 'reversal')`
   );
 
   await db.execute(
