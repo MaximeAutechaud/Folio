@@ -2,7 +2,10 @@ import Database from '@tauri-apps/plugin-sql';
 import type { Position, PositionInput, Snapshot, Transaction, TransactionInput, Narrative, NarrativeInput, NarrativeTicker, NarrativeTickerInput, NarrativeKeyword, AlertRule, AlertRuleInput, AlertEvent, WatchlistItem, WatchlistCategory, SignalLogRow } from '../types';
 import { NARRATIVE_SEED } from './narratives-seed';
 
-const SCHEMA_VERSION = '5';
+// Pas de constante « version courante » : chaque migrateToVN écrit son propre
+// numéro en dur. Une constante partagée finit toujours par être mise à jour en
+// bloc, et une vieille migration estamperait alors la base à la version
+// courante en sautant toutes les suivantes.
 
 const DB_URL = import.meta.env.DEV ? 'sqlite:folio-dev.db' : 'sqlite:folio.db';
 
@@ -284,9 +287,8 @@ async function migrateToV5(db: Database): Promise<void> {
   }
 
   await db.execute(
-    `INSERT INTO settings (key, value) VALUES ('schema_version', $1)
-     ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-    [SCHEMA_VERSION]
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '5')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   );
 }
 
