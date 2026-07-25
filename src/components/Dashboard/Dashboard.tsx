@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react';
-import { usePortfolioStore, computeTotals, convertCurrency, resolvePositions, type BaseCurrency } from '../../store/portfolio';
+import { usePortfolioStore, computeTotals, convertCurrency, resolvePositions, isSupportedCurrency, type BaseCurrency } from '../../store/portfolio';
 import { detectCurrency } from '../../lib/api/yahoo';
 import { usePeriodPnl } from '../../hooks/usePeriodPnl';
 import { useSectorPerfs } from '../../hooks/useSectorData';
 import { useMacroScore } from '../../hooks/useMacroScore';
 import { calcSectorScore, type SectorSignal } from '../../lib/scoring';
+import { buildClosedTrades } from '../../lib/tradeJournal';
 import { SECTORS } from '../../lib/sectors';
 import type { PendingCorporateAction, PositionWithValue, Snapshot } from '../../types';
 import { InfoTooltip } from '../InfoTooltip/InfoTooltip';
@@ -35,6 +36,13 @@ function fmtCurrency(n: number | undefined, currency: string): string {
   return sym + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function fmtDate(unixSeconds: number): string {
+  if (!unixSeconds) return '—';
+  return new Date(unixSeconds * 1000).toLocaleDateString('fr-FR', {
+    day: '2-digit', month: '2-digit', year: '2-digit',
+  });
+}
+
 function fmtPct(n: number | undefined): string {
   if (n == null) return '—';
   return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
@@ -59,6 +67,7 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
   const setBaseCurrency = usePortfolioStore((s) => s.setBaseCurrency);
   const eurUsd = usePortfolioStore((s) => s.eurUsd);
   const [filter, setFilter] = useState<Filter>('all');
+  const [showClosed, setShowClosed] = useState(false);
 
   const pendingByPositionId = new Map<number, PendingCorporateAction[]>();
   for (const a of pendingActions) {
@@ -67,8 +76,30 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
   }
 
   const positions = resolvePositions(rawPositions, storeTransactions);
-  const investmentPositions = positions.filter((p) => p.asset_type !== 'fiat');
   const fiatPositions = positions.filter((p) => p.asset_type === 'fiat');
+  // Une ligne intégralement vendue reste en base (les transactions y sont
+  // rattachées en CASCADE — la supprimer effacerait l'historique du journal).
+  // Elle sort donc du portefeuille actif pour rejoindre l'archive plus bas.
+  const investmentPositions = positions.filter(
+    (p) => p.asset_type !== 'fiat' && p.quantity > 1e-10
+  );
+  const closedPositions = positions.filter(
+    (p) => p.asset_type !== 'fiat' && p.quantity <= 1e-10
+  );
+
+  // Lignes héritées dans une devise sans taux — leur valorisation est fausse
+  // (traitées comme de l'USD par convertCurrency). On le dit plutôt que de
+  // laisser passer un total silencieusement erroné. Les deux jambes comptent :
+  // la devise stockée (coût) ET la devise de cotation déduite du ticker (valeur)
+  // — une ligne créée avant que detectCurrency ne distingue CHF/SEK/DKK/NOK a
+  // une devise stockée valide mais une cotation qui ne l'est pas.
+  const unsupportedCcyTickers = positions
+    .filter((p) => {
+      if (p.quantity <= 1e-10) return false;
+      if (!isSupportedCurrency(p.currency)) return true;
+      return p.asset_type === 'stock' && !isSupportedCurrency(detectCurrency(p.ticker));
+    })
+    .map((p) => p.ticker);
 
   const filtered = filter === 'all'
     ? investmentPositions
@@ -108,6 +139,28 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
       : undefined;
     return { ...p, current_price, current_value: value, pnl, pnl_pct };
   });
+
+  // Archive : P&L réalisé net de frais, recalculé depuis le ledger avec la même
+  // logique FIFO que l'onglet Trades — pas de seconde source de vérité.
+  const closedRows = closedPositions
+    .filter((p) => filter === 'all' || p.asset_type === filter)
+    .map((p) => {
+      const raw = rawPositions.find((r) => r.id === p.id);
+      const trades = raw
+        ? buildClosedTrades(
+            raw.ticker, raw.name, storeTransactions[raw.id] ?? [],
+            raw.quantity, raw.cost_basis, raw.currency, raw.created_at,
+          )
+        : [];
+      const realized = trades.reduce(
+        (sum, t) => sum + convertCurrency(t.pnl, t.currency, baseCurrency, eurUsd), 0
+      );
+      const exitDate = trades.length > 0
+        ? Math.max(...trades.map((t) => t.exitDate))
+        : raw?.created_at ?? 0;
+      return { position: p, realized, exitDate, hasTrades: trades.length > 0 };
+    })
+    .sort((a, b) => b.exitDate - a.exitDate);
 
   // Signal sectoriel (dip/reversal/exhaustion/…) — même cache/calcul que SectorDashboard
   const { data: sectorPerfs = [] } = useSectorPerfs('3M');
@@ -277,6 +330,14 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
         </div>
       )}
 
+      {unsupportedCcyTickers.length > 0 && (
+        <div className={styles.ccyWarning}>
+          ⚠ Devise non convertible sur {unsupportedCcyTickers.join(', ')} — Folio ne dispose que du
+          taux EURUSD. Ces lignes sont valorisées au taux 1:1 avec l'USD : leur valeur, leur P&L et
+          leur poids sont faux.
+        </div>
+      )}
+
       <div className={styles.tableHeader}>
         <div className={styles.filterToggle}>
           {(['all', 'stock', 'crypto'] as Filter[]).map((f) => (
@@ -301,7 +362,11 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
       ) : (
         <>
           {investmentPositions.length === 0 ? (
-            <p className={styles.empty}>No positions yet. Add your first one.</p>
+            <p className={styles.empty}>
+              {closedPositions.length > 0
+                ? 'Aucune position ouverte — tout est clôturé.'
+                : 'No positions yet. Add your first one.'}
+            </p>
           ) : filtered.length === 0 ? (
             <p className={styles.empty}>No {filter} positions.</p>
           ) : (
@@ -399,6 +464,65 @@ export function Dashboard({ snapshots, onAddClick, onEdit, onRemove, onRowClick,
               </tbody>
             </table>
           )}
+          {closedRows.length > 0 && (
+            <div className={styles.closedSection}>
+              <button
+                className={styles.closedHeader}
+                onClick={() => setShowClosed((v) => !v)}
+              >
+                <span className={styles.closedCaret}>{showClosed ? '▾' : '▸'}</span>
+                Positions clôturées ({closedRows.length})
+                <span className={styles.closedHint}>
+                  intégralement vendues — conservées pour l'historique du journal
+                </span>
+              </button>
+              {showClosed && (
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>Ticker</th>
+                      <th>Name</th>
+                      <th>Type</th>
+                      <th className={styles.right}>Clôturée le</th>
+                      <th className={styles.right}>
+                        G/P réalisé ({baseCurrency}){' '}
+                        <InfoTooltip text="Plus ou moins-value nette de frais, calculée en FIFO sur l'ensemble des ventes de la ligne." />
+                      </th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {closedRows.map(({ position, realized, exitDate, hasTrades }) => (
+                      <tr
+                        key={position.id}
+                        className={styles.clickableRow}
+                        onClick={() => onRowClick(position.id)}
+                      >
+                        <td className={styles.ticker}>{displayTicker(position)}</td>
+                        <td>{position.name || '—'}</td>
+                        <td>
+                          <span className={`${styles.badge} ${position.asset_type === 'crypto' ? styles.crypto : styles.stock}`}>
+                            {position.asset_type}
+                          </span>
+                        </td>
+                        <td className={styles.right}>{fmtDate(exitDate)}</td>
+                        <td className={`${styles.right} ${!hasTrades ? '' : realized >= 0 ? styles.green : styles.red}`}>
+                          {hasTrades
+                            ? `${realized >= 0 ? '+' : ''}${fmtCurrency(realized, baseCurrency)}`
+                            : '—'}
+                        </td>
+                        <td className={styles.actions} onClick={(e) => e.stopPropagation()}>
+                          <button className={styles.editBtn} onClick={() => onEdit(position.id)} title="Edit position">✎</button>
+                          <button className={styles.removeBtn} onClick={() => onRemove(position.id)} title="Remove position">×</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
           {fiatPositions.length > 0 && (
             <div className={styles.cashSection}>
               <div className={styles.cashHeader}>Cash</div>

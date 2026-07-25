@@ -48,7 +48,11 @@ export function useCorporateActionSync() {
             const txsBefore = txs.filter((t) => t.created_at <= event.date);
             const { quantity: sharesAtDate } = computePRU(txsBefore, p.quantity, p.cost_basis);
 
-            if (event.type === 'dividend' && sharesAtDate <= 0) continue;
+            // Aucune action détenue à l'ex-date → l'événement est sans effet, quel
+            // qu'en soit le type (cas typique : ligne clôturée avant l'événement).
+            // Sans ça, la proposition resterait en attente sans être affichable :
+            // le chip ⚡ ne vit que dans le tableau des positions ouvertes.
+            if (sharesAtDate <= 0) continue;
 
             pending.push({
               positionId: p.id,
