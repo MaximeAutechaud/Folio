@@ -72,3 +72,61 @@ export const BASELINE_BEFORE_CONTROLS = {
   financialsShareCalibration: 9 / 34,
   detectionsOutOfSample: 15,
 } as const;
+
+/**
+ * ## RÉSULTAT — chantier abandonné le 26 juillet 2026
+ *
+ * Testé : remplacer l'ETF sectoriel par un composite **équipondéré** des membres
+ * du secteur présents dans l'univers. Motif : un ETF pondéré par la
+ * capitalisation ne représente pas son secteur mais ses plus grosses lignes, donc
+ * XLF ne retire pas le facteur « banques régionales ».
+ *
+ * **Échec du critère**, mesuré sur le calibrage seul :
+ *
+ * ```text
+ * détections   34 → 32     (>= 20)   OK
+ * part xlf     26 % → 22 % (<= 10 %) ÉCHEC
+ * ```
+ *
+ * Les clusters de banques ont bien diminué — et l'**assurance** a pris leur
+ * place. Le composite retire le facteur « financières en moyenne », pas la
+ * scission interne banques/assureurs, qui réagissent en sens opposé aux taux.
+ * La pondération était corrigée, la granularité non.
+ *
+ * ## Pourquoi on n'est pas allé plus loin
+ *
+ * En vérifiant, le problème s'est révélé **mal posé dès le départ** : la part des
+ * financières n'avait jamais été comparée à leur poids dans l'univers.
+ *
+ * ```text
+ * secteur   détections   poids univers   ratio
+ * xlv            18,8 %        10,5 %     1,79   ← plus déviant, jamais remarqué
+ * xlf            21,9 %        15,6 %     1,40
+ * xlk            15,6 %        13,6 %     1,15
+ * xli            15,6 %        18,6 %     0,84
+ * ```
+ *
+ * À 32 détections sur 11 secteurs, l'espérance est de 2,9 par secteur et le bruit
+ * de Poisson de ±1,7 : xlf est à +0,9 écart-type de son attendu. **Aucun secteur
+ * n'est significativement sur-représenté.** Le « 18 % de banques régionales » qui
+ * a motivé le chantier était un chiffre sans dénominateur.
+ *
+ * S'y ajoutent deux raisons de fond :
+ *
+ * - **Le coût d'un faux positif est de cinq secondes.** Le scanner est un routeur
+ *   d'attention, pas un système d'exécution : devant `FITB MTB PNC RF` on
+ *   reconnaît des banques et on passe. Sept clusters de ce type par an ne
+ *   justifient pas une table industrie à maintenir.
+ * - **Le trou est sans fond et sur-résidualiser a un coût.** Banques corrigées →
+ *   assurance ; assurance corrigée → marchés de capitaux, types de REIT, logiciel
+ *   contre semis. Chaque niveau retire de la variance, et le cluster mémoire — la
+ *   seule détection dont on sait qu'elle était juste — finirait par disparaître
+ *   avec le bruit.
+ *
+ * **Ne pas rouvrir sans une raison neuve**, et surtout pas sur la seule
+ * observation qu'un secteur revient souvent : la comparer d'abord à son poids.
+ *
+ * La cartouche hors-échantillon est **intacte** — rien de tout ceci ne l'a
+ * consultée.
+ */
+export const CONTROLS_OUTCOME = 'abandonne-2026-07-26' as const;
