@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { lastSettledSession, truncate, toDateString, sessionEnd } from './settledSignals';
+import {
+  lastSettledSession,
+  truncate,
+  truncateBars,
+  toDateString,
+  sessionEnd,
+  SECTOR_WINDOW_BARS,
+} from './settledSignals';
 
 const DAY = 86400;
 // 2026-07-20T20:00:00Z, un lundi de cloture
@@ -51,6 +58,59 @@ describe('truncate', () => {
         expect(truncate(series, at, span)).toEqual(naive(series, at, span));
       }
     }
+  });
+});
+
+describe('truncateBars', () => {
+  it('ne garde aucune bougie posterieure a la seance visee', () => {
+    const cut = truncateBars(bars(200), MON - 5 * DAY, 10);
+    expect(Math.max(...cut.map(p => p.time))).toBeLessThanOrEqual(MON - 5 * DAY);
+  });
+
+  it('borne le debut en nombre de bougies, pas en jours', () => {
+    expect(truncateBars(bars(200), MON, 10)).toHaveLength(10);
+    expect(truncateBars(bars(200), MON, 130)).toHaveLength(130);
+  });
+
+  it('serie plus courte que la fenetre → tout ce qui existe', () => {
+    expect(truncateBars(bars(5), MON, 130)).toHaveLength(5);
+    expect(truncateBars([], MON, 130)).toEqual([]);
+  });
+
+  it('fenetre entierement anterieure a la serie → vide', () => {
+    expect(truncateBars(bars(5), MON - 99 * DAY, 10)).toEqual([]);
+  });
+
+  it('donne exactement le meme resultat que le balayage lineaire', () => {
+    const series = bars(500);
+    const naive = (at: number, n: number) => series.filter(p => p.time <= at).slice(-n);
+    for (const at of [MON, MON - 1, MON - 250 * DAY, MON - 499 * DAY, MON + DAY]) {
+      for (const n of [1, 10, SECTOR_WINDOW_BARS, 900]) {
+        expect(truncateBars(series, at, n)).toEqual(naive(at, n));
+      }
+    }
+  });
+
+  it('le cout par seance ne depend pas de la longueur de serie', () => {
+    // Non-regression du motif qui rendait la reconstruction quadratique : la
+    // fonction est appelee une fois par instrument ET par seance, donc un
+    // balayage lineaire de la serie complete est invisible sur 2 ans et
+    // redhibitoire sur 16. La dichotomie + slice borne doit garder un cout
+    // constant. On compare des ratios, pas des durees absolues (bruit CI).
+    const cost = (len: number): number => {
+      const s = bars(len);
+      const t0 = performance.now();
+      for (let i = 0; i < 2000; i++) {
+        truncateBars(s, s[len - 1 - (i % (len - 1))].time, SECTOR_WINDOW_BARS);
+      }
+      return performance.now() - t0;
+    };
+    cost(500); // rodage du JIT, resultat ignore
+    const court = cost(500);
+    const long = cost(8000);
+    // 16x plus de bougies : un balayage lineaire couterait ~16x plus cher.
+    // Marge large pour absorber la variance d une machine chargee.
+    expect(long).toBeLessThan(Math.max(court * 4, 5));
   });
 });
 

@@ -180,13 +180,45 @@ export interface AlertEvent {
 export interface SignalLogRow {
   id: number;
   date: string;          // 'YYYY-MM-DD' (local), bucket journalier
-  scope: string;         // 'sector' (narratives = futur)
-  scope_id: string;      // id secteur, ex 'xlk'
+  scope: string;         // 'sector' | 'narrative'
+  scope_id: string;      // id secteur ('xlk'), ou ticker de l'ETF pour une narrative
   signal: string;        // 'dip' | 'reversal' | 'accelerating' | 'exhaustion'
   score: number;
+
+  // ── Mesure primaire : vs RSP ────────────────────────────────────────────────
+  // RSP et pas SPY parce que c'est RSP qui alimente la *détection* (relPerf*_ew
+  // dans computeEtfMetrics). Mesurer la cible contre SPY classait en échec un
+  // mouvement correctement détecté contre l'équipondéré mais resté derrière les
+  // mégacaps : l'asymétrie fabriquait des faux négatifs pendant toute la
+  // domination des sept magnifiques.
+  rsp_perf_j5: number | null;
+  rsp_perf_j10: number | null;
+  rsp_perf_j20: number | null;
+  rsp_perf_j40: number | null;
+
+  // Excursions extrêmes du parcours relatif (vs RSP) : elles disent si une
+  // espérance nulle recouvre du bruit symétrique ou une asymétrie récoltable.
+  mfe_j20: number | null;
+  mae_j20: number | null;
+  mfe_j40: number | null;
+  mae_j40: number | null;
+
+  // ── Mesures secondaires ─────────────────────────────────────────────────────
+  /** vs SPY — conservé pour la continuité de lecture avec l'ancien log. */
   rel_perf_j5: number | null;
   rel_perf_j10: number | null;
   rel_perf_j20: number | null;
+  /** vs panier équipondéré des autres secteurs (scope `sector` uniquement). */
+  peer_perf_j20: number | null;
+
+  // ── Contexte au moment du signal (migration v15) ────────────────────────────
+  // Support des découpes de diagnostic. Ce sont les deux critères que
+  // `calcSectorScore` traite en commentaire (décote de sous-score) plutôt qu'en
+  // condition d'entrée — les persister est le seul moyen de savoir s'ils
+  // devraient devenir des conditions.
+  /** 0/1 SQLite ; `null` = série trop courte pour une MA50. */
+  ma50_above: number | null;
+  macro_score: number | null;
 }
 
 export interface WatchlistCategory {

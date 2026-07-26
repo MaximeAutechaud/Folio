@@ -42,7 +42,7 @@
 - Tooltips harmonisés : pattern `data-tooltip` + CSS `::after` partout
 
 ### Market tab — Narratives
-- `useNarrativePerfs(period)` : toujours 3M fetché, sous-périodes par slicing (`sliceByDays`), ETF-first, basket synthétique (moyenne équipondérée normalisée base 100) en fallback
+- `useNarrativePerfs(period)` : toujours 3M fetché, sous-périodes par slicing (`sliceByBars`), ETF-first, basket synthétique (moyenne équipondérée normalisée base 100) en fallback
 - RS trend [3M, 1M, 1W] vs SPY — affiché dans le NarrativeDrawer (stats row)
 - `NarrativeDashboard` : cartes triées par relPerf, sparklines prix inline, icône secteur parent (emoji + tooltip CSS)
 - `NarrativeDrawer` : chart ETF ou basket normalisé + table holdings + RS trend 3 fenêtres

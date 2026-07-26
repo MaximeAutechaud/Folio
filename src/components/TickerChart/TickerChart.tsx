@@ -49,6 +49,13 @@ interface Props {
   currency?: string;
 }
 
+/** Sous-ensemble commun aux historiques Yahoo et CoinGecko. */
+interface ChartPoint {
+  time: number;
+  value: number;
+  marketCap?: number | null;
+}
+
 export function TickerChart({ ticker, assetType, name, entryPrice, currency }: Props) {
   const [period, setPeriod] = useState<Period>('1M');
   const [showMcap, setShowMcap] = useState(false);
@@ -58,7 +65,11 @@ export function TickerChart({ ticker, assetType, name, entryPrice, currency }: P
   const isCrypto = assetType === 'crypto';
   const priceCcy = currency ?? (isCrypto ? 'USD' : detectCurrency(ticker));
 
-  const { data = [], isFetching } = useQuery({
+  // Type explicite : les deux sources ne renvoient pas la même forme (Yahoo
+  // porte l'OHLC ajusté, CoinGecko une capitalisation), et TypeScript ne
+  // réconcilie pas seul l'union de deux tableaux hétérogènes. Seul le
+  // sous-ensemble commun est consommé ici.
+  const { data = [], isFetching } = useQuery<ChartPoint[]>({
     queryKey: ['history', ticker, assetType, period],
     queryFn: () =>
       isCrypto
@@ -72,7 +83,7 @@ export function TickerChart({ ticker, assetType, name, entryPrice, currency }: P
     () => data.map(p => ({
       time: p.time,
       value: p.value,
-      marketCap: 'marketCap' in p ? (p.marketCap as number | null) : null,
+      marketCap: p.marketCap ?? null,
     })),
     [data]
   );

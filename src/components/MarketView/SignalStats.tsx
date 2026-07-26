@@ -2,11 +2,16 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchSignalLogs } from '../../lib/db';
 import { useSignalRebuild } from '../../hooks/useSignalRebuild';
+import { SignalSlices } from './SignalSlices';
 import {
   computeSignalStats,
   SIGNAL_META,
   LOW_SAMPLE_THRESHOLD,
+  MIN_EPISODES,
+  orient,
+  type SignalKind,
   type HorizonStat,
+  type ExcursionStat,
 } from '../../lib/signalStats';
 import styles from './SignalStats.module.css';
 
@@ -15,18 +20,78 @@ function fmtPerf(v: number | null): string {
   return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
 }
 
+function fmtRatio(v: number | null): string {
+  if (v == null) return '—';
+  return `×${v.toFixed(2)}`;
+}
+
 function fmtRate(v: number | null): string {
   if (v == null) return '—';
   return `${Math.round(v * 100)}%`;
 }
 
-function perfClass(v: number | null): string {
+/**
+ * Colorisation **selon le sens du signal**, et non selon le signe brut.
+ *
+ * `exhaustion` est un signal d'évitement : une performance relative de +0,1 %
+ * ensuite est un échec de détection. L'afficher en vert parce qu'elle est
+ * positive contredisait la définition posée juste au-dessus du tableau, et
+ * inversait la lecture de la seule ligne où l'erreur est facile à faire.
+ */
+function perfClass(signal: SignalKind, v: number | null): string {
   if (v == null) return '';
-  return v >= 0 ? styles.pos : styles.neg;
+  return orient(signal, v) >= 0 ? styles.pos : styles.neg;
 }
 
-function HorizonCell({ stat }: { stat: HorizonStat }) {
-  return <span className={perfClass(stat.avgRelPerf)}>{fmtPerf(stat.avgRelPerf)}</span>;
+function HorizonCell({ signal, stat }: { signal: SignalKind; stat: HorizonStat }) {
+  return (
+    <span
+      className={perfClass(signal, stat.avgRelPerf)}
+      data-tooltip={
+        stat.n === 0 ? 'Aucune mesure disponible'
+          : `médiane ${fmtPerf(stat.medianRelPerf)} · n=${stat.n}`
+      }
+    >
+      {fmtPerf(stat.avgRelPerf)}
+    </span>
+  );
+}
+
+/** Espérance orientée : positive = favorable à ce que le signal annonçait. */
+function ExpectancyCell({ stat }: { stat: HorizonStat }) {
+  if (stat.expectancy == null) return <span>—</span>;
+  return (
+    <span
+      className={stat.expectancy >= 0 ? styles.pos : styles.neg}
+      data-tooltip={
+        `gain moyen ${fmtPerf(stat.avgWin)} · perte moyenne ${fmtPerf(stat.avgLoss)}`
+        + ` · ratio ${fmtRatio(stat.winLossRatio)}`
+      }
+    >
+      {fmtPerf(stat.expectancy)}
+    </span>
+  );
+}
+
+/**
+ * Asymétrie du parcours. C'est la mesure qui dit si une sortie asymétrique
+ * (stop court, laisser courir les gagnants) a quelque chose à récolter : un
+ * ratio proche de 1 signifie que le parcours est symétrique, donc qu'aucune
+ * règle de sortie ne créera d'espérance là où la moyenne est nulle.
+ */
+function ExcursionCell({ stat }: { stat: ExcursionStat }) {
+  if (stat.ratio == null) return <span>—</span>;
+  return (
+    <span
+      className={stat.ratio >= 1 ? styles.pos : styles.neg}
+      data-tooltip={
+        `excursion favorable ${fmtPerf(stat.avgFavorable)}`
+        + ` · adverse ${fmtPerf(stat.avgAdverse)} · n=${stat.n}`
+      }
+    >
+      {fmtRatio(stat.ratio)}
+    </span>
+  );
 }
 
 type Scope = 'sector' | 'narrative';
@@ -107,7 +172,7 @@ export function SignalStats() {
             <div className={styles.confirmTitle}>Reconstruire l'historique des signaux ?</div>
             <p className={styles.confirmBody}>
               Les {rows.length} lignes actuelles seront <strong>remplacées</strong> par un historique
-              recalculé sur deux ans à partir des cours de clôture.
+              recalculé depuis 2010 à partir des cours de clôture ajustés.
             </p>
             <p className={styles.confirmBody}>
               C'est le but : les lignes existantes mélangent des mesures prises en séance, des dates
@@ -129,10 +194,13 @@ export function SignalStats() {
 
       <div className={styles.intro}>
         <p className={styles.introText}>
-          Performance relative vs SPY après chaque signal {scope === 'sector' ? 'secteur' : 'narrative-ETF'},
-          mesurée à J+5 / J+10 / J+20, sur {sessionDays} séances relevées.
-          Le <strong>win%</strong> mesure la fiabilité (J+10). Pour <em>exhaustion</em> — un signal
-          d'évitement — la réussite = <strong>sous-performance</strong> ensuite.
+          Performance relative <strong>vs RSP</strong> après chaque signal{' '}
+          {scope === 'sector' ? 'secteur' : 'narrative-ETF'}, sur {sessionDays} séances relevées.
+          Entrée à l'<strong>ouverture de J+1</strong> (le signal n'est connu qu'à la clôture de J),
+          sortie en clôture. La colonne qui décide est l'<strong>espérance</strong>, pas le win% :
+          40 % de gagnants à +5 % battent 60 % de gagnants à +0,5 % contre −1 %.
+          Pour <em>exhaustion</em> — un signal d'évitement — la réussite ={' '}
+          <strong>sous-performance</strong> ensuite, et tous les chiffres sont orientés en conséquence.
           {scope === 'narrative' && (
             <> Les bornes du score ont été calibrées sur les secteurs — ces stats mesurent
             précisément si elles tiennent sur les ETF thématiques (plus volatils).</>
@@ -156,10 +224,14 @@ export function SignalStats() {
                 <th className={styles.thLeft}>Signal</th>
                 <th data-tooltip="Nombre de detections distinctes. Un signal qui tient plusieurs jours compte une fois : les fenetres de perf se chevaucheraient sinon, et un seul mouvement suffirait a valider un signal.">n</th>
                 <th data-tooltip="Score d'opportunité moyen au moment du signal">Score moy.</th>
-                <th data-tooltip="% de cas où le signal a « réussi » à J+10">Win% J+10</th>
+                <th data-tooltip="Esperance par episode a l'horizon primaire (J+20), orientee dans le sens du signal. C'est la grandeur qui decide : survoler pour voir gain moyen, perte moyenne et ratio.">E J+20</th>
+                <th data-tooltip="% de cas favorables a J+20. A lire avec le ratio gain/perte : un win rate bas est acceptable si les gagnants sont nettement plus gros.">Win% J+20</th>
+                <th data-tooltip="Excursion favorable moyenne / adverse moyenne sur 20 seances. > 1 = asymetrie qu'une sortie asymetrique pourrait recolter ; proche de 1 = parcours symetrique, aucun stop ne creera d'esperance.">MFE/MAE 20</th>
+                <th data-tooltip="Meme ratio sur 40 seances — un gros gagnant a besoin de place pour se deployer.">MFE/MAE 40</th>
                 <th>relPerf J+5</th>
                 <th>relPerf J+10</th>
                 <th>relPerf J+20</th>
+                <th data-tooltip="Horizon long : la perf relative tient-elle au-dela de 20 seances ?">relPerf J+40</th>
               </tr>
             </thead>
             <tbody>
@@ -187,12 +259,24 @@ export function SignalStats() {
                           ⚠
                         </span>
                       )}
+                      {st.total >= LOW_SAMPLE_THRESHOLD && st.underpowered && (
+                        <span
+                          className={styles.lowSample}
+                          data-tooltip={`Moins de ${MIN_EPISODES} episodes : sous le plancher de puissance statistique. Un resultat flatteur ne se distingue pas de la chance a cette taille d'echantillon.`}
+                        >
+                          ⚠
+                        </span>
+                      )}
                     </td>
                     <td>{st.avgScore ?? '—'}</td>
-                    <td className={styles.winCell}>{fmtRate(st.j10.winRate)}</td>
-                    <td><HorizonCell stat={st.j5} /></td>
-                    <td><HorizonCell stat={st.j10} /></td>
-                    <td><HorizonCell stat={st.j20} /></td>
+                    <td><ExpectancyCell stat={st.j20} /></td>
+                    <td className={styles.winCell}>{fmtRate(st.j20.winRate)}</td>
+                    <td><ExcursionCell stat={st.excursion20} /></td>
+                    <td><ExcursionCell stat={st.excursion40} /></td>
+                    <td><HorizonCell signal={st.signal} stat={st.j5} /></td>
+                    <td><HorizonCell signal={st.signal} stat={st.j10} /></td>
+                    <td><HorizonCell signal={st.signal} stat={st.j20} /></td>
+                    <td><HorizonCell signal={st.signal} stat={st.j40} /></td>
                   </tr>
                 );
               })}
@@ -200,6 +284,13 @@ export function SignalStats() {
           </table>
         </div>
       )}
+
+      {/* Découpes : le tableau ci-dessus est l'agrégat, celui-ci répond à la
+          seule question que le plan laisse ouverte — une sous-population fait-elle
+          exception ? Réservé aux secteurs : les bornes de score ne sont pas
+          calibrées pour les ETF thématiques, découper y ajouterait une couche de
+          multiplicité sur une base déjà non validée. */}
+      {scope === 'sector' && totalLogged > 0 && <SignalSlices rows={rows} />}
     </div>
   );
 }

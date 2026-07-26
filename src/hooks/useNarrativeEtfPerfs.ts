@@ -5,9 +5,11 @@ import { SECTORS, type MacroProfile } from '../lib/sectors';
 import { narrativeMacroProfile } from '../lib/scoring';
 import {
   SECTOR_TICKERS,
+  PERIOD_BARS,
+  BARS,
   calcBenchWindows,
   computeEtfMetrics,
-  sliceByDays,
+  sliceByBars,
   calcPerf,
   type EtfMetrics,
   type Point,
@@ -69,10 +71,9 @@ export function useNarrativeEtfPerfs(period: '1W' | '1M' | '3M') {
       const rawByEtf: Record<string, Point[]> = {};
       etfs.forEach((t, i) => { rawByEtf[t] = etfRaw[i]; });
 
-      const DAYS = { '1W': 7, '1M': 31, '3M': 93 } as const;
-      const daysBack = DAYS[period];
-      const spyBench = calcBenchWindows(sectorRaw[0] ?? [], daysBack);
-      const rspBench = calcBenchWindows(sectorRaw[1] ?? [], daysBack);
+      const periodBars = PERIOD_BARS[period];
+      const spyBench = calcBenchWindows(sectorRaw[0] ?? [], periodBars);
+      const rspBench = calcBenchWindows(sectorRaw[1] ?? [], periodBars);
 
       const sectorRawById: Record<string, Point[]> = {};
       SECTORS.forEach((s, i) => { sectorRawById[s.id] = sectorRaw[i + 2] ?? []; });
@@ -83,21 +84,21 @@ export function useNarrativeEtfPerfs(period: '1W' | '1M' | '3M') {
           const parent = n.parent_sector ? SECTORS.find((s) => s.id === n.parent_sector) : undefined;
           const parentRaw = (n.parent_sector && sectorRawById[n.parent_sector]) || [];
 
-          const vsParent = (days: number): number | null => {
-            const own = calcPerf(sliceByDays(raw, days));
-            const par = calcPerf(sliceByDays(parentRaw, days));
+          const vsParent = (bars: number): number | null => {
+            const own = calcPerf(sliceByBars(raw, bars));
+            const par = calcPerf(sliceByBars(parentRaw, bars));
             return own != null && par != null ? own - par : null;
           };
 
           return {
-            ...computeEtfMetrics(raw, spyBench, rspBench, daysBack),
+            ...computeEtfMetrics(raw, spyBench, rspBench, periodBars),
             narrative: n,
             tickers: tickersByNarrative[n.id] ?? [],
             macroProfile: narrativeMacroProfile(n.ref_etf!, parent?.macroProfile ?? 'neutral'),
-            relPerfVsParent: vsParent(daysBack),
-            relPerfVsParent1W: vsParent(7),
-            relPerfVsParent1M: vsParent(31),
-            relPerfVsParent3M: vsParent(93),
+            relPerfVsParent: vsParent(periodBars),
+            relPerfVsParent1W: vsParent(BARS.w1),
+            relPerfVsParent1M: vsParent(BARS.m1),
+            relPerfVsParent3M: vsParent(BARS.m3),
           };
         })
         .sort((a, b) => (b.relPerf ?? -999) - (a.relPerf ?? -999));

@@ -1,24 +1,63 @@
 import { describe, it, expect } from 'vitest';
-import { computeSignalStats, isWin, toEpisodes, LOW_SAMPLE_THRESHOLD, SIGNAL_KINDS } from './signalStats';
+import {
+  computeSignalStats,
+  isWin,
+  orient,
+  horizonStat,
+  excursionStat,
+  toEpisodes,
+  LOW_SAMPLE_THRESHOLD,
+  MIN_EPISODES,
+  SIGNAL_KINDS,
+} from './signalStats';
 import type { SignalLogRow } from '../types';
 
+interface Perfs {
+  j5?: number | null;
+  j10?: number | null;
+  j20?: number | null;
+  j40?: number | null;
+  mfe20?: number | null;
+  mae20?: number | null;
+}
+
 let nextId = 1;
-function row(
-  signal: string,
-  score: number,
-  perfs: { j5?: number | null; j10?: number | null; j20?: number | null } = {},
+
+/**
+ * `j5`/`j10`/`j20` alimentent les colonnes **primaires** (vs RSP) : ce sont
+ * elles que lisent les statistiques. `rel_perf_*` (vs SPY) reçoit les mêmes
+ * valeurs, ce qui garde les anciennes assertions lisibles sans les rendre
+ * porteuses du résultat.
+ */
+function base(
+  signal: string, score: number, date: string, scopeId: string, scope: string, p: Perfs,
 ): SignalLogRow {
   return {
     id: nextId++,
-    date: '2026-07-01',
-    scope: 'sector',
-    scope_id: 'xlk',
+    date,
+    scope,
+    scope_id: scopeId,
     signal,
     score,
-    rel_perf_j5: perfs.j5 ?? null,
-    rel_perf_j10: perfs.j10 ?? null,
-    rel_perf_j20: perfs.j20 ?? null,
+    rsp_perf_j5: p.j5 ?? null,
+    rsp_perf_j10: p.j10 ?? null,
+    rsp_perf_j20: p.j20 ?? null,
+    rsp_perf_j40: p.j40 ?? null,
+    mfe_j20: p.mfe20 ?? null,
+    mae_j20: p.mae20 ?? null,
+    mfe_j40: null,
+    mae_j40: null,
+    rel_perf_j5: p.j5 ?? null,
+    rel_perf_j10: p.j10 ?? null,
+    rel_perf_j20: p.j20 ?? null,
+    peer_perf_j20: null,
+    ma50_above: null,
+    macro_score: null,
   };
+}
+
+function row(signal: string, score: number, perfs: Perfs = {}): SignalLogRow {
+  return base(signal, score, '2026-07-01', 'xlk', 'sector', perfs);
 }
 
 describe('isWin', () => {
@@ -37,6 +76,105 @@ describe('isWin', () => {
   });
 });
 
+describe('orient', () => {
+  it('laisse les signaux haussiers tels quels', () => {
+    for (const s of ['dip', 'reversal', 'accelerating'] as const) {
+      expect(orient(s, 3)).toBe(3);
+      expect(orient(s, -3)).toBe(-3);
+    }
+  });
+
+  it('inverse exhaustion : une sous-performance est un succes', () => {
+    expect(orient('exhaustion', -3)).toBe(3);
+    expect(orient('exhaustion', 3)).toBe(-3);
+  });
+});
+
+describe('horizonStat — esperance et distribution', () => {
+  it('un win rate bas peut porter une esperance positive', () => {
+    // 2 gagnants a +10, 3 perdants a -2 → E = (20 - 6) / 5 = +2.8
+    const st = horizonStat('dip', [10, 10, -2, -2, -2]);
+    expect(st.winRate).toBeCloseTo(0.4, 10);
+    expect(st.expectancy!).toBeGreaterThan(0);
+    expect(st.expectancy).toBeCloseTo(2.8, 10);
+    expect(st.avgWin).toBeCloseTo(10, 10);
+    expect(st.avgLoss).toBeCloseTo(2, 10);
+    expect(st.winLossRatio).toBeCloseTo(5, 10);
+  });
+
+  it('un win rate eleve peut porter une esperance negative', () => {
+    // 4 gagnants a +0.5, 1 perdant a -5 → E = (2 - 5) / 5 = -0.6
+    const st = horizonStat('dip', [0.5, 0.5, 0.5, 0.5, -5]);
+    expect(st.winRate).toBeCloseTo(0.8, 10);
+    expect(st.expectancy!).toBeLessThan(0);
+  });
+
+  it('esperance = moyenne orientee, coherente avec winRate x avgWin - (1-p) x avgLoss', () => {
+    const st = horizonStat('dip', [4, -1, 2, -3, 6]);
+    const p = st.winRate!;
+    expect(st.expectancy).toBeCloseTo(p * st.avgWin! - (1 - p) * st.avgLoss!, 10);
+  });
+
+  it('exhaustion : esperance positive quand le secteur sous-performe ensuite', () => {
+    const st = horizonStat('exhaustion', [-4, -3, 1]);
+    expect(st.expectancy!).toBeGreaterThan(0);
+    // la moyenne brute reste negative — ce n'est pas la meme grandeur
+    expect(st.avgRelPerf!).toBeLessThan(0);
+  });
+
+  it('mediane insensible a un extreme qui deplace la moyenne', () => {
+    const st = horizonStat('dip', [-1, -1, -1, -1, 100]);
+    expect(st.medianRelPerf).toBeCloseTo(-1, 10);
+    expect(st.avgRelPerf!).toBeGreaterThan(0);
+  });
+
+  it('mediane sur un echantillon pair = moyenne des deux valeurs centrales', () => {
+    expect(horizonStat('dip', [1, 2, 3, 4]).medianRelPerf).toBeCloseTo(2.5, 10);
+  });
+
+  it('une perf nulle compte comme perdante, pas comme gagnante', () => {
+    const st = horizonStat('dip', [0, 0]);
+    expect(st.winRate).toBe(0);
+    expect(st.avgWin).toBeNull();
+    expect(st.avgLoss).toBeCloseTo(0, 10);
+    // avgLoss nul → pas de ratio calculable, plutot qu'une division par zero
+    expect(st.winLossRatio).toBeNull();
+  });
+
+  it('ignore les mesures absentes sans les compter comme nulles', () => {
+    const st = horizonStat('dip', [2, null, null, 4]);
+    expect(st.n).toBe(2);
+    expect(st.avgRelPerf).toBeCloseTo(3, 10);
+  });
+});
+
+describe('excursionStat — asymetrie du parcours', () => {
+  it('ratio > 1 quand la queue droite domine', () => {
+    const st = excursionStat('dip', [12, 10], [-2, -2]);
+    expect(st.ratio!).toBeGreaterThan(1);
+    expect(st.avgFavorable).toBeCloseTo(11, 10);
+    expect(st.avgAdverse).toBeCloseTo(-2, 10);
+  });
+
+  it('ratio proche de 1 = parcours symetrique, rien a recolter par une sortie', () => {
+    expect(excursionStat('dip', [5, 5], [-5, -5]).ratio).toBeCloseTo(1, 10);
+  });
+
+  it('exhaustion : favorable et adverse echangent leur role', () => {
+    // le secteur a chute de 8 au plus bas et monte de 1 au plus haut :
+    // pour un signal d evitement, c'est un bon appel.
+    const st = excursionStat('exhaustion', [1], [-8]);
+    expect(st.avgFavorable).toBeCloseTo(8, 10);
+    expect(st.avgAdverse).toBeCloseTo(-1, 10);
+    expect(st.ratio!).toBeGreaterThan(1);
+  });
+
+  it('exige les deux bornes : une ligne a moitie remplie est ignoree', () => {
+    expect(excursionStat('dip', [5, null], [-5, -5]).n).toBe(1);
+    expect(excursionStat('dip', [], []).ratio).toBeNull();
+  });
+});
+
 describe('computeSignalStats', () => {
   it('retourne toujours les 4 signaux, même sans données', () => {
     const stats = computeSignalStats([]);
@@ -44,8 +182,13 @@ describe('computeSignalStats', () => {
     for (const s of stats) {
       expect(s.total).toBe(0);
       expect(s.avgScore).toBeNull();
-      expect(s.j5).toEqual({ n: 0, avgRelPerf: null, winRate: null });
+      expect(s.j5.n).toBe(0);
+      expect(s.j5.avgRelPerf).toBeNull();
+      expect(s.j5.winRate).toBeNull();
+      expect(s.j5.expectancy).toBeNull();
+      expect(s.excursion20.ratio).toBeNull();
       expect(s.lowSample).toBe(true);
+      expect(s.underpowered).toBe(true);
     }
   });
 
@@ -118,18 +261,44 @@ describe('computeSignalStats', () => {
     const stats = computeSignalStats([row('signal_change', 50, { j5: 1 })]);
     for (const s of stats) expect(s.total).toBe(0);
   });
+
+  it(`underpowered tant que le plancher de ${MIN_EPISODES} episodes n est pas atteint`, () => {
+    // Des dates distinctes : sinon toEpisodes fusionnerait tout en un episode.
+    const mk = (n: number) => Array.from({ length: n }, (_, i) =>
+      day(`2026-${String(Math.floor(i / 28) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`,
+        'xlk', i % 2 === 0 ? 'dip' : 'reversal', { j20: 1 }));
+
+    const few = computeSignalStats(mk(40)).find(s => s.signal === 'dip')!;
+    expect(few.lowSample).toBe(false);        // au-dessus du seuil d echantillon faible
+    expect(few.underpowered).toBe(true);      // mais sous le plancher de puissance
+    expect(few.total).toBeLessThan(MIN_EPISODES);
+  });
+
+  it('lit les colonnes vs RSP et non vs SPY', () => {
+    // Meme ligne, deux benchmarks divergents : la stat primaire suit RSP.
+    const r = row('dip', 60, { j20: 3 });
+    r.rel_perf_j20 = -9; // vs SPY, volontairement contradictoire
+    const dip = computeSignalStats([r]).find(s => s.signal === 'dip')!;
+    expect(dip.j20.avgRelPerf).toBeCloseTo(3, 10);
+    expect(dip.spyJ20.avgRelPerf).toBeCloseTo(-9, 10);
+  });
+
+  it('remonte les excursions par horizon', () => {
+    const dip = computeSignalStats([
+      row('dip', 60, { j20: 1, mfe20: 9, mae20: -3 }),
+    ]).find(s => s.signal === 'dip')!;
+    expect(dip.excursion20.n).toBe(1);
+    expect(dip.excursion20.ratio).toBeCloseTo(3, 10);
+    expect(dip.excursion40.n).toBe(0); // non renseigne par le backfill
+  });
 });
 
 // ── Épisodes ──────────────────────────────────────────────────────────────────
 
 function day(
-  date: string, scopeId: string, signal: string,
-  perfs: { j5?: number | null } = {}, scope = 'sector',
+  date: string, scopeId: string, signal: string, perfs: Perfs = {}, scope = 'sector',
 ): SignalLogRow {
-  return {
-    id: nextId++, date, scope, scope_id: scopeId, signal, score: 70,
-    rel_perf_j5: perfs.j5 ?? null, rel_perf_j10: null, rel_perf_j20: null,
-  };
+  return base(signal, 70, date, scopeId, scope, perfs);
 }
 
 describe('toEpisodes', () => {

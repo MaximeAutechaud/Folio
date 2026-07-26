@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { fetchYahooHistory } from '../lib/api/yahoo';
+import { fetchYahooHistory, type Bar } from '../lib/api/yahoo';
 import { SECTORS } from '../lib/sectors';
 import { narrativeMacroProfile } from '../lib/scoring';
 import { SECTOR_TICKERS, type Point } from './useSectorData';
@@ -64,7 +64,7 @@ export function useSignalRebuild() {
       // Séquentiel volontairement : ~50 requêtes de 16 ans en parallèle est le
       // meilleur moyen de se faire limiter par Yahoo. La contrepartie est une
       // à deux minutes d'attente, d'où la progression ticker par ticker.
-      const histories: Record<string, Point[]> = {};
+      const histories: Record<string, Bar[]> = {};
       for (let i = 0; i < tickers.length; i++) {
         const t = tickers[i];
         setProgress({

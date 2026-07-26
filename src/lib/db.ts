@@ -1,6 +1,7 @@
 import Database from '@tauri-apps/plugin-sql';
 import type { Position, PositionInput, Snapshot, Transaction, TransactionInput, Narrative, NarrativeInput, NarrativeTicker, NarrativeTickerInput, NarrativeKeyword, AlertRule, AlertRuleInput, AlertEvent, WatchlistItem, WatchlistCategory, SignalLogRow } from '../types';
 import { NARRATIVE_SEED } from './narratives-seed';
+import type { RebuiltRow } from './rebuildSignals';
 
 // Pas de constante « version courante » : chaque migrateToVN écrit son propre
 // numéro en dur. Une constante partagée finit toujours par être mise à jour en
@@ -118,6 +119,8 @@ async function runMigrations(db: Database): Promise<void> {
   // qui référence `is_system`, absente des bases créées avant ce patch.
   await migrateToV12(db);
   await migrateToV13(db);
+  await migrateToV14(db);
+  await migrateToV15(db);
 
   // positions: second take-profit target (Phase 1 extension)
   const tp2Col = await db.select<{ name: string }[]>(
@@ -444,6 +447,64 @@ async function migrateToV13(db: Database): Promise<void> {
 
 // positions.sector_id : rattachement optionnel à un secteur (lib/sectors.ts),
 // pour l'exposition sectorielle et les badges d'essoufflement du Dashboard.
+/**
+ * signal_log : mesures forward vs RSP, excursions extrêmes, panier de pairs.
+ *
+ * Les colonnes `rel_perf_*` (vs SPY) sont conservées telles quelles — elles ne
+ * sont plus la mesure primaire mais restent lisibles, et les renommer
+ * casserait la comparabilité avec les reconstructions antérieures.
+ *
+ * Ajout de colonnes seulement, aucune valeur rétro-calculée : les lignes
+ * existantes gardent des `NULL` sur les nouvelles colonnes jusqu'à la prochaine
+ * reconstruction. C'est volontaire — les remplir supposerait de rejouer
+ * l'historique, ce qui est exactement le travail du bouton « Reconstruire ».
+ */
+async function migrateToV14(db: Database): Promise<void> {
+  const col = await db.select<{ name: string }[]>(
+    `SELECT name FROM pragma_table_info('signal_log') WHERE name='rsp_perf_j20'`
+  );
+  if (col.length > 0) return;
+
+  for (const c of [
+    'rsp_perf_j5', 'rsp_perf_j10', 'rsp_perf_j20', 'rsp_perf_j40',
+    'mfe_j20', 'mae_j20', 'mfe_j40', 'mae_j40',
+    'peer_perf_j20',
+  ]) {
+    await db.execute(`ALTER TABLE signal_log ADD COLUMN ${c} REAL`);
+  }
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '14')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
+/**
+ * signal_log : contexte du signal (MA50, macro) au moment de la détection.
+ *
+ * Nécessaire pour les découpes de diagnostic « au-dessus/sous MA50 » et « macro
+ * favorable/défavorable ». Les deux valeurs étaient déjà calculées par
+ * `computeSettledFor` mais jetées ; sans colonne, la seule alternative serait de
+ * rejouer seize ans d'historique à chaque ouverture du panneau.
+ *
+ * `ma50_above` est un INTEGER 0/1 nullable — SQLite n'a pas de booléen, et le
+ * `null` est signifiant : série trop courte pour une MA50.
+ */
+async function migrateToV15(db: Database): Promise<void> {
+  const col = await db.select<{ name: string }[]>(
+    `SELECT name FROM pragma_table_info('signal_log') WHERE name='ma50_above'`
+  );
+  if (col.length > 0) return;
+
+  await db.execute(`ALTER TABLE signal_log ADD COLUMN ma50_above INTEGER`);
+  await db.execute(`ALTER TABLE signal_log ADD COLUMN macro_score REAL`);
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '15')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
 async function migrateToV11(db: Database): Promise<void> {
   const col = await db.select<{ name: string }[]>(
     `SELECT name FROM pragma_table_info('positions') WHERE name='sector_id'`
@@ -1062,27 +1123,47 @@ export async function insertSignalLog(
   );
 }
 
-// Lignes dont au moins un horizon forward reste à calculer.
+/**
+ * Lignes dont au moins une mesure forward reste à calculer.
+ *
+ * Le test porte sur `rsp_perf_j20`, la mesure primaire : une ligne qui l'a déjà
+ * a été écrite par une reconstruction complète, donc tout le reste avec.
+ * J+40 est volontairement exclu du critère — le backfill ne dispose que de
+ * 6 mois d'historique et le remplirait sur trop peu de lignes pour que la
+ * relance quotidienne en vaille le coût ; il appartient à la reconstruction.
+ */
 export async function fetchSignalLogsNeedingBackfill(): Promise<SignalLogRow[]> {
   const db = await getDb();
   return db.select<SignalLogRow[]>(
     `SELECT * FROM signal_log
-     WHERE rel_perf_j5 IS NULL OR rel_perf_j10 IS NULL OR rel_perf_j20 IS NULL
+     WHERE rsp_perf_j5 IS NULL OR rsp_perf_j10 IS NULL OR rsp_perf_j20 IS NULL
+        OR rel_perf_j5 IS NULL OR rel_perf_j10 IS NULL OR rel_perf_j20 IS NULL
      ORDER BY date ASC`
   );
 }
 
-// Écrit uniquement les horizons fournis (les autres restent inchangés / NULL).
+/** Mesures forward d'une ligne, par colonne. Seules les clés fournies sont écrites. */
+export type SignalPerfPatch = Partial<Record<
+  | 'rsp_perf_j5' | 'rsp_perf_j10' | 'rsp_perf_j20' | 'rsp_perf_j40'
+  | 'mfe_j20' | 'mae_j20' | 'mfe_j40' | 'mae_j40'
+  | 'rel_perf_j5' | 'rel_perf_j10' | 'rel_perf_j20'
+  | 'peer_perf_j20',
+  number
+>>;
+
+// Écrit uniquement les colonnes fournies (les autres restent inchangées / NULL).
 export async function updateSignalLogPerf(
   id: number,
-  perf: { j5?: number; j10?: number; j20?: number }
+  perf: SignalPerfPatch,
 ): Promise<void> {
   const db = await getDb();
   const sets: string[] = [];
   const vals: number[] = [];
-  if (perf.j5 != null)  { sets.push(`rel_perf_j5 = $${sets.length + 1}`);  vals.push(perf.j5); }
-  if (perf.j10 != null) { sets.push(`rel_perf_j10 = $${sets.length + 1}`); vals.push(perf.j10); }
-  if (perf.j20 != null) { sets.push(`rel_perf_j20 = $${sets.length + 1}`); vals.push(perf.j20); }
+  for (const [col, v] of Object.entries(perf)) {
+    if (v == null) continue;
+    sets.push(`${col} = $${sets.length + 1}`);
+    vals.push(v);
+  }
   if (sets.length === 0) return;
   vals.push(id);
   await db.execute(
@@ -1105,27 +1186,43 @@ export async function updateSignalLogPerf(
  */
 export async function replaceSignalLogScope(
   scope: string,
-  rows: {
-    date: string; scopeId: string; signal: string; score: number;
-    relPerfJ5: number | null; relPerfJ10: number | null; relPerfJ20: number | null;
-  }[],
+  rows: RebuiltRow[],
 ): Promise<void> {
   const db = await getDb();
   await db.execute('DELETE FROM signal_log WHERE scope = $1', [scope]);
 
-  const CHUNK = 150;
+  const COLUMNS = [
+    'date', 'scope', 'scope_id', 'signal', 'score',
+    'rsp_perf_j5', 'rsp_perf_j10', 'rsp_perf_j20', 'rsp_perf_j40',
+    'mfe_j20', 'mae_j20', 'mfe_j40', 'mae_j40',
+    'rel_perf_j5', 'rel_perf_j10', 'rel_perf_j20',
+    'peer_perf_j20',
+    'ma50_above', 'macro_score',
+  ] as const;
+  const COLS = COLUMNS.length;
+
+  // Lot dimensionné en *paramètres* et non en lignes : la limite de SQLite porte
+  // sur le nombre de placeholders d'une requête, pas sur le nombre de lignes.
+  // Un `CHUNK` en dur devenait faux dès qu'on ajoutait une colonne.
+  const CHUNK = Math.max(1, Math.floor(1500 / COLS));
+
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK);
-    const COLS = 8;
     const values: unknown[] = [];
     const placeholders = chunk.map((r, j) => {
-      values.push(r.date, scope, r.scopeId, r.signal, r.score, r.relPerfJ5, r.relPerfJ10, r.relPerfJ20);
+      values.push(
+        r.date, scope, r.scopeId, r.signal, r.score,
+        r.rspJ5, r.rspJ10, r.rspJ20, r.rspJ40,
+        r.mfeJ20, r.maeJ20, r.mfeJ40, r.maeJ40,
+        r.relPerfJ5, r.relPerfJ10, r.relPerfJ20,
+        r.peerJ20,
+        r.ma50Above == null ? null : (r.ma50Above ? 1 : 0), r.macroScore,
+      );
       const slots = Array.from({ length: COLS }, (_, k) => `$${j * COLS + k + 1}`);
       return `(${slots.join(', ')})`;
     }).join(',');
     await db.execute(
-      `INSERT INTO signal_log (date, scope, scope_id, signal, score, rel_perf_j5, rel_perf_j10, rel_perf_j20)
-       VALUES ${placeholders}`,
+      `INSERT INTO signal_log (${COLUMNS.join(', ')}) VALUES ${placeholders}`,
       values,
     );
   }

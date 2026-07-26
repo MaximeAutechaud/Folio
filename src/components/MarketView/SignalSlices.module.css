@@ -1,0 +1,242 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  padding: 12px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.exploratory,
+.registered {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.exploratory {
+  color: var(--orange, #f0883e);
+  border-color: color-mix(in srgb, var(--orange, #f0883e) 40%, transparent);
+  background: color-mix(in srgb, var(--orange, #f0883e) 12%, transparent);
+}
+
+.registered {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+
+/* ── Sélecteurs ─────────────────────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.chip:hover { color: var(--text-primary); }
+
+.chipActive {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+  background: var(--bg-primary);
+}
+
+/* ── Notes et garde-fous ────────────────────────────────────────────────── */
+
+.note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.note strong { color: var(--text-primary); }
+.note em { color: var(--text-primary); font-style: normal; }
+
+.sealed,
+.spent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1px solid;
+}
+
+.sealed {
+  color: var(--text-muted);
+  border-color: var(--border);
+  background: var(--bg-primary);
+}
+.sealed strong { color: var(--text-primary); }
+
+.spent {
+  color: var(--orange, #f0883e);
+  border-color: color-mix(in srgb, var(--orange, #f0883e) 40%, transparent);
+  background: color-mix(in srgb, var(--orange, #f0883e) 10%, transparent);
+}
+
+.revealBtn {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+.revealBtn:hover { color: var(--text-primary); border-color: var(--text-muted); }
+
+/* ── Tableau ────────────────────────────────────────────────────────────── */
+
+.tableWrap { overflow-x: auto; }
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.table th {
+  text-align: right;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.table td {
+  text-align: right;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.thLeft { text-align: left !important; }
+
+.rowPass td { background: color-mix(in srgb, var(--green) 8%, transparent); }
+
+.verdict { color: var(--green); }
+
+.muted { color: var(--text-muted); }
+
+.pos { color: var(--green); }
+.neg { color: var(--red); }
+
+.warn {
+  margin-left: 4px;
+  color: var(--orange, #f0883e);
+  cursor: help;
+}
+
+.empty {
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  padding: 16px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── Verdict du critère d'arrêt ─────────────────────────────────────────── */
+
+.verdictStop,
+.verdictPass {
+  font-size: 11px;
+  line-height: 1.55;
+  padding: 9px 11px;
+  border-radius: 4px;
+  border-left: 2px solid;
+}
+
+.verdictStop {
+  color: var(--text-muted);
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--red) 7%, transparent);
+}
+.verdictStop strong { color: var(--text-primary); }
+
+.verdictPass {
+  color: var(--text-muted);
+  border-color: var(--green);
+  background: color-mix(in srgb, var(--green) 8%, transparent);
+}
+.verdictPass strong { color: var(--text-primary); }
+
+/* Tooltips — pattern data-tooltip + ::after (cf. CLAUDE.md) */
+[data-tooltip] { position: relative; }
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 300px;
+  white-space: normal;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+
+[data-tooltip]:hover::after { opacity: 1; }

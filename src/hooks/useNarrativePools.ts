@@ -3,7 +3,7 @@ import { fetchNarratives, fetchAllNarrativeTickers } from '../lib/db';
 import { fetchYahooHistory } from '../lib/api/yahoo';
 import { SECTORS } from '../lib/sectors';
 import { calcRsi } from '../lib/indicators';
-import { sliceByDays, calcPerf, type Point } from './useSectorData';
+import { sliceByBars, BARS, calcPerf, type Point } from './useSectorData';
 import type { Narrative, NarrativeTicker } from '../types';
 
 // Pools de candidats : les narratives SANS ref_etf, rattachées à un secteur.
@@ -53,14 +53,14 @@ export function useNarrativePools(sectorId: string | null) {
       const histByTicker: Record<string, Point[]> = {};
       uniqueTickers.forEach((t, i) => { histByTicker[t] = histories[i + 1]; });
 
-      const etfPerf1M = calcPerf(sliceByDays(histories[0], 31));
+      const etfPerf1M = calcPerf(sliceByBars(histories[0], BARS.m1));
 
       return pools.map((narrative) => ({
         narrative,
         rows: (tickersByNarrative[narrative.id] ?? [])
           .map((t) => {
             const hist = histByTicker[t.ticker] ?? [];
-            const perf1M = calcPerf(sliceByDays(hist, 31));
+            const perf1M = calcPerf(sliceByBars(hist, BARS.m1));
             return {
               ticker: t.ticker,
               name: t.name,

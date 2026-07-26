@@ -1,4 +1,4 @@
-import { computeEtfMetrics, calcBenchWindows, type Point } from '../hooks/useSectorData';
+import { computeEtfMetrics, calcBenchWindows, BARS, type Point } from '../hooks/useSectorData';
 import { computeMacroAt } from './macroScore';
 import { calcSectorScore, type SectorSignal } from './scoring';
 import { SECTORS, type MacroProfile } from './sectors';
@@ -22,6 +22,18 @@ export interface SettledSignal {
   label: string;
   signal: SectorSignal;
   score: number;
+  /**
+   * Contexte du signal, remonté pour être **persisté** dans `signal_log`.
+   *
+   * Les deux étaient déjà calculés ici mais jetés à la sortie de la fonction, ce
+   * qui rendait impossible toute découpe « au-dessus/sous la MA50 » ou « macro
+   * favorable/défavorable » sans rejouer seize ans d'historique à chaque
+   * consultation. Ce sont précisément les deux critères que le score traite en
+   * commentaire plutôt qu'en condition d'entrée — les mesurer est le seul moyen
+   * de savoir s'ils devraient devenir des conditions.
+   */
+  ma50Above: boolean | null;
+  macroScore: number;
 }
 
 /** Instrument scoré : un secteur, ou une narrative via son ETF de référence. */
@@ -64,16 +76,19 @@ export function lastSettledSession(
 }
 
 /**
- * Fenêtre se terminant à la séance visée. Aucune bougie future — c'est le
- * garde-fou anti look-ahead.
+ * Profondeur d'historique fournie à `computeEtfMetrics`, **en séances**.
  *
- * `spanDays` borne aussi le début, et ce n'est pas cosmétique : `computeEtfMetrics`
- * calcule `drawdown6M` comme l'écart au plus haut de **toute la série reçue**.
- * Lui passer deux ans d'un bloc donnerait un « plus haut 6 mois » sur deux ans,
- * donc un drawdown faux. En direct le problème n'existe pas (la série fetchée
- * fait déjà 6M), mais toute reconstruction doit fournir une fenêtre glissante.
+ * 130 couvre la plus longue fenêtre du calcul (126 séances pour `drawdown6M`,
+ * 63 pour le RSI, 50 pour la MA50) avec un peu de marge.
+ *
+ * Ce n'est plus qu'une borne de performance. `computeEtfMetrics` bornait
+ * autrefois `high6M` au plus haut de *toute la série reçue*, si bien qu'un
+ * historique long non tronqué produisait un « plus haut 6 mois » sur seize ans,
+ * donc un drawdown faux. La fenêtre est maintenant bornée dans le calcul
+ * lui-même : tronquer ici évite de recopier 4 000 bougies par séance, mais ne
+ * décide plus de la justesse du résultat.
  */
-export const SECTOR_WINDOW_DAYS = 183;
+export const SECTOR_WINDOW_BARS = 130;
 
 /**
  * Fenêtre macro. `computeMacroAt` ne remonte jamais au-delà d'une perf 1M
@@ -122,6 +137,23 @@ export function truncate(series: Point[], atTime: number, spanDays?: number): Po
 }
 
 /**
+ * Même troncature, bornée en **nombre de bougies** plutôt qu'en jours
+ * calendaires : les `bars` dernières séances closes à `atTime`.
+ *
+ * C'est la variante qu'utilise le moteur de signaux. Une borne calendaire
+ * livrait un nombre de bougies variable (jours fériés, longs week-ends), donc
+ * une profondeur d'historique qui fluctuait d'une séance à l'autre.
+ *
+ * Reste en dichotomie sur la borne haute : appelée une fois par instrument *et*
+ * par séance, un balayage linéaire rendrait le coût quadratique en longueur de
+ * série — invisible sur 2 ans, rédhibitoire sur 16.
+ */
+export function truncateBars(series: Point[], atTime: number, bars: number): Point[] {
+  const end = upperBound(series, atTime);
+  return series.slice(Math.max(0, end - bars), end);
+}
+
+/**
  * Signaux des 13 secteurs pour la séance `atTime`.
  *
  * `sectorHistories` est indexé par ticker d'ETF, `macroHistories` par ticker
@@ -146,8 +178,8 @@ export function computeSettledFor(
   macroHistories: Record<string, Point[]>,
   atTime: number,
 ): SettledSignal[] {
-  const spy = truncate(histories['SPY'] ?? [], atTime, SECTOR_WINDOW_DAYS);
-  const rsp = truncate(histories['RSP'] ?? [], atTime, SECTOR_WINDOW_DAYS);
+  const spy = truncateBars(histories['SPY'] ?? [], atTime, SECTOR_WINDOW_BARS);
+  const rsp = truncateBars(histories['RSP'] ?? [], atTime, SECTOR_WINDOW_BARS);
   if (spy.length < 60) return [];
 
   const macro = computeMacroAt(
@@ -157,14 +189,14 @@ export function computeSettledFor(
     atTime,
   );
 
-  const spyBench = calcBenchWindows(spy, 93, atTime);
-  const rspBench = calcBenchWindows(rsp, 93, atTime);
+  const spyBench = calcBenchWindows(spy, BARS.m3);
+  const rspBench = calcBenchWindows(rsp, BARS.m3);
 
   const out: SettledSignal[] = [];
   for (const entry of entries) {
-    const raw = truncate(histories[entry.etf] ?? [], atTime, SECTOR_WINDOW_DAYS);
+    const raw = truncateBars(histories[entry.etf] ?? [], atTime, SECTOR_WINDOW_BARS);
     if (raw.length < 60) continue;
-    const m = computeEtfMetrics(raw, spyBench, rspBench, 93, atTime);
+    const m = computeEtfMetrics(raw, spyBench, rspBench, BARS.m3);
     const score = calcSectorScore({
       relPerf1W: m.relPerf1W_ew,
       relPerf1M: m.relPerf1M_ew,
@@ -177,7 +209,14 @@ export function computeSettledFor(
       macroScore: macro.score,
       macroTrend: macro.trend,
     });
-    out.push({ sectorId: entry.id, label: entry.label, signal: score.signal, score: score.total });
+    out.push({
+      sectorId: entry.id,
+      label: entry.label,
+      signal: score.signal,
+      score: score.total,
+      ma50Above: score.ma50Above,
+      macroScore: macro.score,
+    });
   }
   return out;
 }

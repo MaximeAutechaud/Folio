@@ -45,13 +45,32 @@ export type Point = { time: number; value: number };
 export const SECTOR_TICKERS = ['SPY', 'RSP', ...SECTORS.map(s => s.etf)];
 const STALE = 5 * 60 * 1000;
 
-// `nowSec` explicite : permet de rejouer le calcul a une date de cloture passee
-// (moteur d'alertes, reconstruction d'historique). Par defaut = maintenant, donc
-// comportement inchange pour l'affichage.
-export function sliceByDays(history: Point[], daysBack: number, nowSec = Date.now() / 1000): Point[] {
-  const cutoff = nowSec - daysBack * 86400;
-  const idx = history.findIndex(p => p.time >= cutoff);
-  return idx <= 0 ? history : history.slice(idx);
+/** Période affichée → nombre de séances. Partagé par les hooks secteurs et narratives. */
+export const PERIOD_BARS = { '1W': 5, '1M': 21, '3M': 63 } as const;
+
+/**
+ * Fenêtres du moteur de signaux, **en séances** et non en jours calendaires.
+ *
+ * Les anciennes bornes 7/31/93 jours contenaient 4 à 6, 20 à 23 et 62 à 66
+ * séances selon les jours fériés et la position dans la semaine. Un moteur qui
+ * compare une perf à un seuil fixe voyait donc son échantillon varier d'environ
+ * ±10 % d'une séance à l'autre, sans qu'aucun prix ne bouge. En barres, la
+ * fenêtre est la même partout dans l'historique.
+ */
+export const BARS = { w1: 5, m1: 21, m3: 63, m6: 126 } as const;
+
+/**
+ * Les `bars` dernières séances, soit `bars + 1` bougies — il faut deux bornes
+ * pour mesurer une variation, donc n+1 bougies pour n séances.
+ *
+ * Contrairement à `sliceByDays` qu'elle remplace, cette fonction n'a pas de
+ * `nowSec` : elle part de la fin de la série. C'est à l'appelant de fournir une
+ * série close à la date visée (`truncateBars`), ce qui supprime le doublon
+ * fragile où la troncature et le paramètre `nowSec` devaient s'accorder.
+ */
+export function sliceByBars(history: Point[], bars: number): Point[] {
+  const n = bars + 1;
+  return history.length <= n ? history : history.slice(history.length - n);
 }
 
 export function calcPerf(history: Point[]): number | null {
@@ -69,14 +88,12 @@ export interface BenchWindows {
   m3: number | null;
 }
 
-export function calcBenchWindows(
-  raw: Point[], daysBack: number, nowSec = Date.now() / 1000,
-): BenchWindows {
+export function calcBenchWindows(raw: Point[], periodBars: number): BenchWindows {
   return {
-    period: calcPerf(sliceByDays(raw, daysBack, nowSec)),
-    w1: calcPerf(sliceByDays(raw, 7, nowSec)),
-    m1: calcPerf(sliceByDays(raw, 31, nowSec)),
-    m3: calcPerf(sliceByDays(raw, 93, nowSec)),
+    period: calcPerf(sliceByBars(raw, periodBars)),
+    w1: calcPerf(sliceByBars(raw, BARS.w1)),
+    m1: calcPerf(sliceByBars(raw, BARS.m1)),
+    m3: calcPerf(sliceByBars(raw, BARS.m3)),
   };
 }
 
@@ -87,18 +104,17 @@ export function computeEtfMetrics(
   raw: Point[],
   spy: BenchWindows,
   rsp: BenchWindows,
-  daysBack: number,
-  nowSec = Date.now() / 1000,
+  periodBars: number,
 ): EtfMetrics {
-  const hist = sliceByDays(raw, daysBack, nowSec);
+  const hist = sliceByBars(raw, periodBars);
 
   const etfPeriodPerf = calcPerf(hist);
   const relPeriodPerf =
     etfPeriodPerf != null && spy.period != null ? etfPeriodPerf - spy.period : null;
 
-  const etf1W = calcPerf(sliceByDays(raw, 7, nowSec));
-  const etf1M = calcPerf(sliceByDays(raw, 31, nowSec));
-  const etf3M = calcPerf(sliceByDays(raw, 93, nowSec));
+  const etf1W = calcPerf(sliceByBars(raw, BARS.w1));
+  const etf1M = calcPerf(sliceByBars(raw, BARS.m1));
+  const etf3M = calcPerf(sliceByBars(raw, BARS.m3));
 
   // Display/sort: relative to SPY (cap-weight)
   const relPerf1W = etf1W != null && spy.w1 != null ? etf1W - spy.w1 : null;
@@ -122,13 +138,20 @@ export function computeEtfMetrics(
     else if (relPerf1W < avgWeeklyRelPerf - 0.3) momentum = 'decelerating';
   }
 
-  // RSI on the trailing 3M window (preserves prior behaviour now that raw is 6M)
-  const raw3M = sliceByDays(raw, 93, nowSec);
+  // RSI sur les 63 dernières séances (~3M)
+  const raw3M = sliceByBars(raw, BARS.m3);
   const rsi = calcRsi(raw3M.map(p => p.value));
 
+  // `high6M` est désormais borné explicitement aux 126 dernières séances. Avant,
+  // il prenait le plus haut de *toute la série reçue* : correct en direct (la
+  // série fetchée fait 6M) mais faux dès qu'on rejoue une date passée sur un
+  // historique long, où « plus haut 6 mois » devenait « plus haut 16 ans ». La
+  // justesse ne dépend donc plus d'une troncature en amont — celle-ci ne sert
+  // plus qu'à la performance.
+  const raw6M = sliceByBars(raw, BARS.m6);
   const current = raw.length ? raw[raw.length - 1].value : null;
   const high3M  = raw3M.length ? Math.max(...raw3M.map(p => p.value)) : null;
-  const high6M  = raw.length ? Math.max(...raw.map(p => p.value)) : null;
+  const high6M  = raw6M.length ? Math.max(...raw6M.map(p => p.value)) : null;
   const drawdown3M =
     high3M && current && high3M > 0 ? ((current - high3M) / high3M) * 100 : null;
   const drawdown6M =
@@ -186,17 +209,16 @@ export function useSectorPerfs(period: '1W' | '1M' | '3M') {
       });
 
       // Base series is 6M; slice every window explicitly (3M is no longer "full").
-      const DAYS = { '1W': 7, '1M': 31, '3M': 93 } as const;
-      const daysBack = DAYS[period];
+      const periodBars = PERIOD_BARS[period];
 
       // Two benchmarks: SPY (cap-weight) drives the displayed relPerf + sort,
       // RSP (equal-weight) drives the opportunity score.
-      const spyBench = calcBenchWindows(histsRaw[0], daysBack);
-      const rspBench = calcBenchWindows(histsRaw[1], daysBack);
+      const spyBench = calcBenchWindows(histsRaw[0], periodBars);
+      const rspBench = calcBenchWindows(histsRaw[1], periodBars);
 
       return SECTORS.map((sector, i) => ({
         sector,
-        ...computeEtfMetrics(histsRaw[i + 2] ?? [], spyBench, rspBench, daysBack),
+        ...computeEtfMetrics(histsRaw[i + 2] ?? [], spyBench, rspBench, periodBars),
       })).sort((a, b) => (b.relPerf ?? -999) - (a.relPerf ?? -999));
     },
     staleTime: STALE,
