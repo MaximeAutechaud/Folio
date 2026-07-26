@@ -6,8 +6,21 @@ import type { PriceBarRow } from './db';
  * réseau ni base.
  */
 
-/** Profondeur d'historique conservée. Le scanner ne regarde jamais au-delà. */
-export const RETENTION_DAYS = 400;
+/**
+ * Profondeur d'historique conservée.
+ *
+ * Deux ans et non un, alors que le scanner ne lit jamais plus de 126 séances.
+ * La profondeur excédentaire ne sert pas au scan mais à sa **validation** : le
+ * rejeu à une date passée exige 125 séances de warm-up (60 de base turnover,
+ * 60 de corrélation), donc un an d'historique ne laisse qu'une vingtaine de
+ * dates rejouables — et toutes postérieures aux thèmes nés dans la première
+ * moitié de la fenêtre. On ne peut alors pas mesurer si le scanner détecte tôt,
+ * ce qui est précisément la question. Deux ans en offrent ~130.
+ *
+ * Le coût est du stockage : ~460 000 lignes, quelques dizaines de Mo. Sans
+ * commune mesure avec l'intérêt de pouvoir falsifier la détection.
+ */
+export const RETENTION_DAYS = 760;
 
 /** `YYYY-MM-DD` d'un timestamp Unix, en UTC. */
 export function toDateString(unixSec: number): string {
@@ -21,26 +34,50 @@ export function daysBetween(from: string, to: string): number {
 }
 
 /**
+ * Dernière séance qu'on peut **espérer** trouver chez Yahoo : le dernier jour
+ * de semaine à la date donnée.
+ *
+ * Sans cette notion, un cache à jour au vendredi paraît en retard de deux jours
+ * le dimanche, et une synchronisation de week-end retélécharge l'univers entier
+ * pour ne rien apprendre — deux jours sur sept, plus les fériés.
+ *
+ * Les jours fériés ne sont pas modélisés : la liste dépend de la place, change
+ * chaque année et vieillirait mal. Le coût d'un férié est une synchronisation
+ * inutile ce jour-là, qui se corrige d'elle-même le lendemain — sans commune
+ * mesure avec la complexité d'un calendrier boursier à maintenir.
+ */
+export function lastExpectedSession(today: string): string {
+  const d = new Date(`${today}T12:00:00Z`);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) {
+    d.setUTCDate(d.getUTCDate() - 1);
+  }
+  return toDateString(Math.floor(d.getTime() / 1000));
+}
+
+/**
  * Fenêtre à demander pour un ticker, selon ce que le cache contient déjà.
  *
- * Le mode incrémental n'est pas une optimisation cosmétique : sur 900 tickers,
- * un an complet représente environ trois minutes de requêtes séquentielles là où
- * un mois en prend une quinzaine de secondes. Une synchronisation quotidienne
- * doit être assez légère pour qu'on la lance sans y penser.
+ * Ce qui coûte n'est pas la taille du téléchargement mais le **nombre d'allers-
+ * retours** : 900 requêtes séquentielles prennent quelques minutes quelle que
+ * soit leur charge utile. Le seul vrai levier est donc de ne pas demander ce
+ * qu'on a déjà — d'où la comparaison à `lastExpectedSession` plutôt qu'à la date
+ * du jour.
  *
- * Le recouvrement est volontaire — on redemande plus large que le trou. Une
- * bougie déjà connue est simplement ré-écrite par l'upsert, alors qu'un trou
- * laissé béant fausse silencieusement toutes les fenêtres glissantes qui le
- * traversent.
+ * Le recouvrement, lui, est volontairement plus large que le trou. Une bougie
+ * déjà connue est simplement ré-écrite par l'upsert, alors qu'un trou laissé
+ * béant fausse silencieusement toutes les fenêtres glissantes qui le traversent.
  */
 export function rangeFor(latest: string | undefined, today: string): string | null {
-  if (!latest) return '1y';
+  if (!latest) return '2y';
+  if (latest >= lastExpectedSession(today)) return null; // rien de nouveau à attendre
+
   const gap = daysBetween(latest, today);
-  if (gap <= 0) return null;   // déjà à jour
+  if (gap <= 5) return '5d';
   if (gap <= 20) return '1mo';
   if (gap <= 80) return '3mo';
   if (gap <= 170) return '6mo';
-  return '1y';
+  if (gap <= 350) return '1y';
+  return '2y';
 }
 
 /** Bougies Yahoo → lignes de la table. */

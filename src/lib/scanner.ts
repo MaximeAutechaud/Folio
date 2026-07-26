@@ -282,12 +282,31 @@ export interface ClusterOptions {
    * l'exemple qui a motivé le chantier.
    */
   minSectors: number;
+  /**
+   * Cohésion minimale — corrélation moyenne sur **toutes** les paires du groupe.
+   *
+   * Sans ce seuil, les composantes connexes chaînent : un seul titre corrélé à
+   * beaucoup relie tout le graphe. Un rejeu sur 2010-2026 a produit, le jour du
+   * choc tarifaire d'avril 2025, un « cluster » de **166 titres à 0,06 de
+   * cohésion** — pendant un choc de marché tout corrèle, y compris les résidus.
+   *
+   * Le seuil vaut `minCorrelation` par construction, et ce n'est pas un réglage
+   * ajusté aux données : un groupe n'est un thème que si ses membres sont *en
+   * moyenne* aussi corrélés que ce qu'on exige d'un lien isolé. Une chaîne
+   * échoue ce test par définition.
+   *
+   * Limite assumée : on **écarte** le groupe au lieu de le scinder. Les
+   * composantes connexes ne savent pas séparer un vrai sous-thème noyé dans un
+   * blob ; il faudrait un critère de clique pour ça.
+   */
+  minCohesion: number;
 }
 
 export const DEFAULT_CLUSTER: ClusterOptions = {
   minCorrelation: 0.5,
   minSize: 4,
   minSectors: 1,
+  minCohesion: 0.5,
 };
 
 /**
@@ -351,10 +370,12 @@ export function findClusters(
         pairs++;
       }
     }
+    const cohesion = pairs ? sum / pairs : 0;
+    if (cohesion < opts.minCohesion) continue;
 
     clusters.push({
       tickers: group.map(k => inputs[k].ticker).sort(),
-      cohesion: pairs ? sum / pairs : 0,
+      cohesion,
       sectors: sectors.sort(),
     });
   }
@@ -415,6 +436,64 @@ export function buildClusterInputs(
   }
 
   return { inputs, dropped };
+}
+
+/**
+ * Séries tronquées à une date passée, en secondes Unix.
+ *
+ * Rejouer le scan à une date antérieure n'est possible que parce que tous les
+ * étages lisent la **fin** de la série : couper la fin suffit à replacer le
+ * scanner dans l'état où il était ce jour-là. Aucune donnée future ne subsiste,
+ * ce qui est la condition d'un backtest honnête.
+ */
+export function truncateAt(
+  series: Record<string, Bar[]>, asOfSec: number,
+): Record<string, Bar[]> {
+  const out: Record<string, Bar[]> = {};
+  for (const [ticker, bars] of Object.entries(series)) {
+    let hi = bars.length;
+    while (hi > 0 && bars[hi - 1].time > asOfSec) hi--;
+    if (hi > 0) out[ticker] = bars.slice(0, hi);
+  }
+  return out;
+}
+
+export interface RunScanInput {
+  /** Toutes les séries, instruments de contrôle compris. */
+  series: Record<string, Bar[]>;
+  /** Un instrument de contrôle est un benchmark, jamais un candidat. */
+  isControl: (ticker: string) => boolean;
+  deps: BuildInputsDeps;
+  filter?: CandidateFilter;
+  clusterOpts?: ClusterOptions;
+}
+
+export interface RunScanOutput {
+  clusters: Cluster[];
+  candidates: Candidate[];
+  dropped: string[];
+}
+
+/**
+ * Enchaîne les trois étages.
+ *
+ * Existe pour qu'il n'y ait **qu'une seule** définition de « faire un scan » :
+ * l'application et tout harnais de validation appellent cette fonction. Deux
+ * compositions parallèles finiraient par diverger, et on mesurerait alors autre
+ * chose que ce qui est affiché — le défaut exact que la reconstruction de
+ * signaux avait dû corriger sur l'autre branche.
+ */
+export function runScan(input: RunScanInput): RunScanOutput {
+  const { series, isControl, deps, filter = DEFAULT_FILTER, clusterOpts = DEFAULT_CLUSTER } = input;
+
+  const candidateSeries: Record<string, Bar[]> = {};
+  for (const [ticker, bars] of Object.entries(series)) {
+    if (!isControl(ticker)) candidateSeries[ticker] = bars;
+  }
+
+  const candidates = scanCandidates(candidateSeries, filter);
+  const { inputs, dropped } = buildClusterInputs(candidates, series, deps);
+  return { clusters: findClusters(inputs, clusterOpts), candidates, dropped };
 }
 
 // ── Utilitaires ──────────────────────────────────────────────────────────────

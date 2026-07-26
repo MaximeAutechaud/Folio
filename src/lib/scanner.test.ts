@@ -263,6 +263,39 @@ describe('findClusters', () => {
     }
   });
 
+  it('rejette une chaine : A-B-C-D relies de proche en proche n est pas un theme', () => {
+    // Le mode de defaillance reel : les composantes connexes chainent, et un
+    // seul titre-pivot relie tout le graphe. Sur donnees reelles ca a produit un
+    // « cluster » de 166 titres a 0,06 de cohesion, le jour d un choc de marche.
+    const n = 24;
+    // Chaque titre est fortement correle au suivant et faiblement aux autres :
+    // le decalage progressif fabrique exactement une chaine.
+    const chaine: ClusterInput[] = Array.from({ length: 6 }, (_, k) => ({
+      ticker: `C${k}`,
+      sectorId: 'xlk',
+      residuals: Array.from({ length: n }, (_, i) => Math.sin((i + k * 2.2) / 1.6) * 3),
+    }));
+    const cl = findClusters(chaine);
+    for (const c of cl) expect(c.cohesion).toBeGreaterThanOrEqual(DEFAULT_CLUSTER.minCohesion);
+  });
+
+  it('le seuil de cohesion vaut celui de liaison, par construction', () => {
+    // Pas un reglage ajuste aux donnees : un groupe n est un theme que si ses
+    // membres sont en moyenne aussi correles que ce qu on exige d un lien.
+    expect(DEFAULT_CLUSTER.minCohesion).toBe(DEFAULT_CLUSTER.minCorrelation);
+  });
+
+  it('un seuil de cohesion nul restaure l ancien comportement', () => {
+    const chaine: ClusterInput[] = Array.from({ length: 6 }, (_, k) => ({
+      ticker: `C${k}`,
+      sectorId: 'xlk',
+      residuals: Array.from({ length: 24 }, (_, i) => Math.sin((i + k * 2.2) / 1.6) * 3),
+    }));
+    const avant = findClusters(chaine, { ...DEFAULT_CLUSTER, minCohesion: 0 });
+    const apres = findClusters(chaine);
+    expect(apres.length).toBeLessThanOrEqual(avant.length);
+  });
+
   it('la cohesion mesure toutes les paires, pas seulement les liens directs', () => {
     // Une chaine A-B-C-D ou seuls les voisins sont correles doit avoir une
     // cohesion nettement inferieure a un groupe reellement homogene.

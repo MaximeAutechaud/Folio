@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   rangeFor,
+  lastExpectedSession,
   toRows,
   toBars,
   buildReport,
@@ -38,13 +39,48 @@ describe('toDateString / daysBetween', () => {
   });
 });
 
+describe('lastExpectedSession', () => {
+  it('un jour de semaine est sa propre derniere seance attendue', () => {
+    expect(lastExpectedSession('2026-07-24')).toBe('2026-07-24'); // vendredi
+    expect(lastExpectedSession('2026-07-22')).toBe('2026-07-22'); // mercredi
+  });
+
+  it('le week-end renvoie au vendredi', () => {
+    expect(lastExpectedSession('2026-07-25')).toBe('2026-07-24'); // samedi
+    expect(lastExpectedSession('2026-07-26')).toBe('2026-07-24'); // dimanche
+  });
+
+  it('le lundi est sa propre seance, pas le vendredi precedent', () => {
+    expect(lastExpectedSession('2026-07-27')).toBe('2026-07-27');
+  });
+});
+
 describe('rangeFor', () => {
-  it('ticker inconnu du cache → un an complet', () => {
-    expect(rangeFor(undefined, '2026-07-26')).toBe('1y');
+  it('ticker inconnu du cache → deux ans', () => {
+    // Deux ans et non un : la profondeur excedentaire ne sert pas au scan mais
+    // a sa validation, en laissant 125 seances de warm-up AVANT les themes a
+    // detecter. Avec un an, la premiere date rejouable tombe apres eux.
+    expect(rangeFor(undefined, '2026-07-26')).toBe('2y');
   });
 
   it('deja a jour → null, aucune requete', () => {
-    expect(rangeFor('2026-07-26', '2026-07-26')).toBeNull();
+    expect(rangeFor('2026-07-24', '2026-07-24')).toBeNull();
+  });
+
+  it('le week-end ne relance rien si le cache tient le vendredi', () => {
+    // Sans cette regle, un cache a jour paraissait en retard de deux jours le
+    // dimanche et l'univers entier etait retelecharge pour ne rien apprendre —
+    // deux jours sur sept, plus les feries.
+    expect(rangeFor('2026-07-24', '2026-07-25')).toBeNull(); // samedi
+    expect(rangeFor('2026-07-24', '2026-07-26')).toBeNull(); // dimanche
+  });
+
+  it('mais un cache reellement en retard est bien rattrape le week-end', () => {
+    expect(rangeFor('2026-07-17', '2026-07-26')).not.toBeNull();
+  });
+
+  it('le lundi, la seance du jour est attendue', () => {
+    expect(rangeFor('2026-07-24', '2026-07-27')).toBe('5d');
   });
 
   it('une date future dans le cache ne declenche pas de requete', () => {
@@ -52,8 +88,8 @@ describe('rangeFor', () => {
   });
 
   it('petit trou → fenetre courte', () => {
-    expect(rangeFor('2026-07-24', '2026-07-26')).toBe('1mo');
-    expect(rangeFor('2026-07-10', '2026-07-26')).toBe('1mo');
+    expect(rangeFor('2026-07-23', '2026-07-27')).toBe('5d');
+    expect(rangeFor('2026-07-10', '2026-07-27')).toBe('1mo');
   });
 
   it('la fenetre demandee recouvre toujours largement le trou', () => {
@@ -61,19 +97,24 @@ describe('rangeFor', () => {
     // l upsert, alors qu un trou laisse beant fausse toutes les fenetres
     // glissantes qui le traversent.
     const cas: [string, string, number][] = [
+      ['2026-07-23', '5d', 5],
       ['2026-07-10', '1mo', 30],
       ['2026-06-01', '3mo', 90],
       ['2026-03-15', '6mo', 180],
       ['2025-09-01', '1y', 365],
     ];
     for (const [latest, attendu, jours] of cas) {
-      expect(rangeFor(latest, '2026-07-26')).toBe(attendu);
-      expect(daysBetween(latest, '2026-07-26')).toBeLessThan(jours);
+      expect(rangeFor(latest, '2026-07-27')).toBe(attendu);
+      expect(daysBetween(latest, '2026-07-27')).toBeLessThanOrEqual(jours);
     }
   });
 
-  it('trou tres ancien → un an, sans tenter davantage', () => {
-    expect(rangeFor('2020-01-01', '2026-07-26')).toBe('1y');
+  it('trou d environ un an → 1y', () => {
+    expect(rangeFor('2025-10-01', '2026-07-27')).toBe('1y');
+  });
+
+  it('trou tres ancien → deux ans, sans tenter davantage', () => {
+    expect(rangeFor('2020-01-01', '2026-07-27')).toBe('2y');
   });
 });
 

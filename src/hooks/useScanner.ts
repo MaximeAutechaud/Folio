@@ -3,11 +3,8 @@ import { fetchAllPriceBars, fetchScannerUniverse } from '../lib/db';
 import { toBars } from '../lib/priceCache';
 import { MARKET_TICKER, sectorEtf } from '../lib/universe';
 import {
-  scanCandidates,
-  buildClusterInputs,
-  findClusters,
+  runScan,
   DEFAULT_FILTER,
-  DEFAULT_CLUSTER,
   type Bar,
   type Candidate,
   type Cluster,
@@ -62,22 +59,19 @@ export function useScanner(filter: CandidateFilter = DEFAULT_FILTER) {
       const series: Record<string, Bar[]> = {};
       for (const [ticker, r] of Object.entries(rows)) series[ticker] = toBars(r);
 
-      // Les candidats, eux, excluent les instruments de contrôle : un ETF
-      // sectoriel n'est pas une narrative naissante, c'est ce qu'on lui retire.
-      const candidateSeries: Record<string, Bar[]> = {};
-      for (const [ticker, bars] of Object.entries(series)) {
-        if (!isControl.has(ticker)) candidateSeries[ticker] = bars;
-      }
-
-      const candidates = scanCandidates(candidateSeries, filter);
-      const { inputs, dropped } = buildClusterInputs(candidates, series, {
-        sectorOf: t => sectorById.get(t) ?? null,
-        etfOf: sectorEtf,
-        marketTicker: MARKET_TICKER,
+      const { clusters: raw, candidates, dropped } = runScan({
+        series,
+        isControl: t => isControl.has(t),
+        deps: {
+          sectorOf: t => sectorById.get(t) ?? null,
+          etfOf: sectorEtf,
+          marketTicker: MARKET_TICKER,
+        },
+        filter,
       });
 
       const byTicker = new Map(candidates.map(c => [c.ticker, c]));
-      const clusters: ScanCluster[] = findClusters(inputs, DEFAULT_CLUSTER).map(c => ({
+      const clusters: ScanCluster[] = raw.map(c => ({
         ...c,
         members: c.tickers
           .map(t => ({ ...byTicker.get(t)!, sectorId: sectorById.get(t) ?? null }))
@@ -94,7 +88,7 @@ export function useScanner(filter: CandidateFilter = DEFAULT_FILTER) {
         clusters,
         candidateCount: candidates.length,
         droppedCount: dropped.length,
-        scanned: Object.keys(candidateSeries).length,
+        scanned: Object.keys(series).filter(t => !isControl.has(t)).length,
         asOf,
       };
     },
