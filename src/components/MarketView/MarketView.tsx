@@ -4,15 +4,20 @@ import { NarrativeDashboard } from './NarrativeDashboard';
 import { MacroScore } from './MacroScore';
 import { MacroPulse } from './MacroPulse';
 import { SignalStats } from './SignalStats';
+import { ScannerView } from './ScannerView';
 import { useMacroScore } from '../../hooks/useMacroScore';
 import styles from './MarketView.module.css';
 
-export type MarketSubTab = 'macro' | 'secteurs' | 'narratives' | 'signaux';
+export type MarketSubTab = 'macro' | 'secteurs' | 'narratives' | 'scanner' | 'signaux';
 
+// L'ordre suit l'entonnoir, du plus large au plus fin. Le scanner se place
+// juste après les narratives parce qu'il les *alimente* : un thème naissant n'a
+// ni ETF ni classification, donc rien ne le désigne depuis les étages du dessus.
 const TABS: { id: MarketSubTab; label: string; hint: string }[] = [
   { id: 'macro',      label: 'Macro',      hint: 'régime & indicateurs' },
   { id: 'secteurs',   label: 'Secteurs',   hint: 'rotation & opportunités' },
   { id: 'narratives', label: 'Narratives', hint: 'thèmes & tickers' },
+  { id: 'scanner',    label: 'Scanner',    hint: 'thèmes naissants' },
   { id: 'signaux',    label: 'Signaux',    hint: 'fiabilité historique' },
 ];
 
@@ -69,6 +74,7 @@ export function MarketView({ forcedSubTab }: Props) {
       {subTab === 'macro'      && <MacroScore />}
       {subTab === 'secteurs'   && <SectorDashboard />}
       {subTab === 'narratives' && <NarrativeDashboard />}
+      {subTab === 'scanner'    && <ScannerView />}
       {subTab === 'signaux'    && <SignalStats />}
 
       {showMacroDisclaimer && (

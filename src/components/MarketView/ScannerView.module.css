@@ -1,0 +1,286 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 2px;
+}
+
+/* ── Intro ──────────────────────────────────────────────────────────────── */
+
+.intro {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.introText {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.introText strong { color: var(--text-primary); }
+
+/* ── Actions ────────────────────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.primaryBtn,
+.secondaryBtn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.primaryBtn:hover:not(:disabled),
+.secondaryBtn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.primaryBtn:disabled,
+.secondaryBtn:disabled { opacity: 0.5; cursor: default; }
+
+.hiddenInput { display: none; }
+
+.asOf {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── Progression et messages ────────────────────────────────────────────── */
+
+.progressWrap {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.progressBar {
+  height: 100%;
+  background: var(--blue, #58a6ff);
+  transition: width 0.2s;
+}
+
+.notice,
+.warn {
+  position: relative;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 8px 28px 8px 10px;
+  border-radius: 4px;
+  border: 1px solid;
+}
+
+.notice {
+  color: var(--text-muted);
+  border-color: var(--border);
+  background: var(--bg-secondary);
+}
+.notice strong { color: var(--text-primary); }
+
+.warn {
+  color: var(--orange, #f0883e);
+  border-color: color-mix(in srgb, var(--orange, #f0883e) 40%, transparent);
+  background: color-mix(in srgb, var(--orange, #f0883e) 10%, transparent);
+}
+.warn strong { color: var(--orange, #f0883e); }
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: help;
+  border-bottom: 1px dotted currentColor;
+}
+
+.dismiss {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.dismiss:hover { opacity: 1; }
+
+/* ── Résumé ─────────────────────────────────────────────────────────────── */
+
+.summary {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.summary strong { color: var(--text-primary); }
+
+/* ── Carte de cluster ───────────────────────────────────────────────────── */
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cardHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tickers {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.cohesion {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sectors {
+  font-size: 10px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.crossBadge {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--purple, #a371f7);
+  border: 1px solid color-mix(in srgb, var(--purple, #a371f7) 40%, transparent);
+  background: color-mix(in srgb, var(--purple, #a371f7) 12%, transparent);
+}
+
+/* ── Membres ────────────────────────────────────────────────────────────── */
+
+.members {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.members th {
+  text-align: right;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.members td {
+  text-align: right;
+  padding: 4px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.members tr:last-child td { border-bottom: none; }
+
+.thLeft { text-align: left !important; }
+
+.ticker { color: var(--text-primary); }
+
+.memberSector {
+  margin-left: 8px;
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.pos { color: var(--green); }
+.neg { color: var(--red); }
+.muted { color: var(--text-muted); }
+
+/* ── Vide ───────────────────────────────────────────────────────────────── */
+
+.empty {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 24px 16px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.empty strong { color: var(--text-primary); }
+
+.emptyNote {
+  margin-top: 8px;
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.75;
+}
+
+/* Tooltips — pattern data-tooltip + ::after (cf. CLAUDE.md) */
+[data-tooltip] { position: relative; }
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 300px;
+  white-space: normal;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+
+[data-tooltip]:hover::after { opacity: 1; }

@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { fetchScannerBars } from '../lib/api/yahoo';
-import { seedUniverse } from '../lib/universe';
+import { seedUniverse, controlInstruments, parseHoldingsCsv } from '../lib/universe';
 import {
   fetchScannerUniverse,
   replaceScannerUniverse,
@@ -66,7 +66,8 @@ export function useUniverseSync() {
       let universe = await fetchScannerUniverse();
       if (universe.length === 0) {
         await replaceScannerUniverse(
-          seedUniverse().map(e => ({ ticker: e.ticker, sectorId: e.sectorId, source: e.source })),
+          [...seedUniverse(), ...controlInstruments()]
+            .map(e => ({ ticker: e.ticker, sectorId: e.sectorId, source: e.source })),
         );
         universe = await fetchScannerUniverse();
       }
@@ -119,5 +120,45 @@ export function useUniverseSync() {
     }
   }, []);
 
-  return { progress, run, reset: () => setProgress(IDLE) };
+  /**
+   * Remplace l'univers depuis un CSV de holdings d'émetteur.
+   *
+   * Le texte arrive du composant via un `<input type="file">` standard, lu par
+   * `File.text()`. Volontairement pas le dialog natif : il ne donne qu'un
+   * chemin, et lire ce chemin exigerait `tauri-plugin-fs` ou une quatrième
+   * command Rust — alors que les commands sont tenues au strict nécessaire et
+   * qu'un input de fichier fait exactement le même travail dans WebView2.
+   *
+   * Les instruments de contrôle sont toujours réinjectés : un import qui les
+   * emporterait priverait la résidualisation de ses benchmarks, et le scanner
+   * se remettrait à trouver des clusters qui ne sont que des secteurs.
+   */
+  const importCsv = useCallback(async (csv: string): Promise<ImportOutcome> => {
+    const rows = parseHoldingsCsv(csv);
+    if (rows.length === 0) {
+      return { ok: false, imported: 0, withSector: 0, message: 'Aucune ligne exploitable — le fichier doit être l\'onglet Holdings exporté en CSV.' };
+    }
+
+    await replaceScannerUniverse([
+      ...rows.map(r => ({ ticker: r.ticker, sectorId: r.sectorId, source: 'import' })),
+      ...controlInstruments().map(e => ({ ticker: e.ticker, sectorId: e.sectorId, source: e.source })),
+    ]);
+
+    const withSector = rows.filter(r => r.sectorId != null).length;
+    return {
+      ok: true,
+      imported: rows.length,
+      withSector,
+      message: `${rows.length} titres importés, ${withSector} avec secteur.`,
+    };
+  }, []);
+
+  return { progress, run, importCsv, reset: () => setProgress(IDLE) };
+}
+
+export interface ImportOutcome {
+  ok: boolean;
+  imported: number;
+  withSector: number;
+  message: string;
 }

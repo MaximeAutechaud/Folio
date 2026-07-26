@@ -362,6 +362,61 @@ export function findClusters(
   return clusters.sort((a, b) => b.cohesion - a.cohesion);
 }
 
+// ── Composition des étages ───────────────────────────────────────────────────
+
+/** Fenêtre de corrélation. Assez longue pour être stable, assez courte pour
+ *  qu'un thème né il y a deux mois domine encore le résidu. */
+export const CORRELATION_BARS = 60;
+
+export interface BuildInputsDeps {
+  /** Secteur d'un ticker, `null` si inconnu. */
+  sectorOf: (ticker: string) => string | null;
+  /** ETF représentant un secteur, `null` si absent du cache. */
+  etfOf: (sectorId: string) => string | null;
+  /** Ticker du benchmark de marché. */
+  marketTicker: string;
+}
+
+/**
+ * Prépare les entrées du clustering : rendements résiduels de chaque candidat.
+ *
+ * Un candidat dont le marché ou le secteur manque au cache est **écarté**, pas
+ * résidualisé à moitié. Un titre nettoyé du marché mais pas de son secteur
+ * corrélerait avec ses pairs sectoriels sur ce reliquat, et formerait un cluster
+ * qui n'est qu'un secteur déguisé — exactement ce que la résidualisation existe
+ * pour empêcher. Mieux vaut un candidat de moins qu'un faux thème.
+ */
+export function buildClusterInputs(
+  candidates: Candidate[],
+  series: Record<string, Bar[]>,
+  deps: BuildInputsDeps,
+  bars = CORRELATION_BARS,
+): { inputs: ClusterInput[]; dropped: string[] } {
+  const marketRet = returns((series[deps.marketTicker] ?? []).slice(-bars - 1));
+  const inputs: ClusterInput[] = [];
+  const dropped: string[] = [];
+
+  if (marketRet.length < 3) return { inputs, dropped: candidates.map(c => c.ticker) };
+
+  for (const c of candidates) {
+    const sectorId = deps.sectorOf(c.ticker);
+    const etf = sectorId ? deps.etfOf(sectorId) : null;
+    const sectorRet = etf ? returns((series[etf] ?? []).slice(-bars - 1)) : [];
+
+    if (!sectorId || sectorRet.length < 3) { dropped.push(c.ticker); continue; }
+
+    const own = returns((series[c.ticker] ?? []).slice(-bars - 1));
+    if (own.length < 3) { dropped.push(c.ticker); continue; }
+
+    const residuals = residualize(own, marketRet, sectorRet);
+    if (residuals.length < 3) { dropped.push(c.ticker); continue; }
+
+    inputs.push({ ticker: c.ticker, residuals, sectorId });
+  }
+
+  return { inputs, dropped };
+}
+
 // ── Utilitaires ──────────────────────────────────────────────────────────────
 
 function mean(a: number[]): number {

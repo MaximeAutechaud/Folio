@@ -1,4 +1,5 @@
 import { SP500_SEED, SP400_SEED } from './universe-seed';
+import { SECTORS } from './sectors';
 
 /**
  * Univers de détection du scanner de narratives.
@@ -31,7 +32,12 @@ import { SP500_SEED, SP400_SEED } from './universe-seed';
  * qui rend ce chantier faisable là où la breadth historique ne l'était pas.
  */
 
-export type UniverseSource = 'seed' | 'import';
+/**
+ * `control` désigne les instruments qui servent de benchmark et non de candidat :
+ * ils sont téléchargés comme les autres, mais le scan les écarte des candidats
+ * puisque leur rôle est d'être soustraits.
+ */
+export type UniverseSource = 'seed' | 'import' | 'control';
 
 export interface UniverseEntry {
   /** Ticker au format Yahoo (`MOG-A`, pas `MOG.A`). */
@@ -107,6 +113,33 @@ export function seedUniverse(): UniverseEntry[] {
     out.push({ ticker, sectorId, source: 'seed' });
   }
   return out;
+}
+
+/**
+ * Instruments de **contrôle** : le marché et les ETF sectoriels.
+ *
+ * Ils entrent dans le cache de prix mais jamais dans les candidats. Leur rôle
+ * est d'être soustraits — sans eux `residualize` n'a rien à retirer, et le
+ * clustering redécouvre « la tech monte » à chaque rallye tech. C'est le piège
+ * qui avait produit un `dip xlk` à +1,14 % qui n'était que la dérive de VGT.
+ *
+ * Marqués `source: 'control'` pour que la synchronisation les télécharge et que
+ * le scan les écarte, sans avoir à tenir deux listes séparées.
+ */
+export function controlInstruments(): UniverseEntry[] {
+  return [
+    { ticker: MARKET_TICKER, sectorId: null, source: 'control' },
+    ...SECTORS.map(s => ({ ticker: s.etf, sectorId: s.id, source: 'control' as const })),
+  ];
+}
+
+/** Benchmark de marché de la résidualisation. */
+export const MARKET_TICKER = 'SPY';
+
+/** Secteur → ETF qui le représente, pour la résidualisation. */
+export function sectorEtf(sectorId: string | null): string | null {
+  if (!sectorId) return null;
+  return SECTORS.find(s => s.id === sectorId)?.etf ?? null;
 }
 
 /** Une ligne de holdings retenue : ticker Yahoo + secteur GICS si le fichier le porte. */

@@ -7,6 +7,7 @@ import {
   residualize,
   correlation,
   findClusters,
+  buildClusterInputs,
   DEFAULT_FILTER,
   DEFAULT_CLUSTER,
   type Bar,
@@ -274,6 +275,85 @@ describe('findClusters', () => {
 
   it('liste vide', () => {
     expect(findClusters([])).toEqual([]);
+  });
+});
+
+describe('buildClusterInputs', () => {
+  /** Série de 80 bougies dont les rendements suivent `r` (repété). */
+  function serie(r: number[]): Bar[] {
+    const prices = [100];
+    for (let i = 1; i < 80; i++) prices.push(prices[i - 1] * (1 + r[i % r.length] / 100));
+    return bars(prices, new Array(80).fill(100_000));
+  }
+
+  const cand = (ticker: string) => ({ ticker, z: 2, streak: 6, baseline: 1e7, distToHigh: -10 });
+  const deps = {
+    sectorOf: (t: string) => (t === 'AAA' || t === 'BBB' ? 'xlk' : t === 'CCC' ? 'xli' : null),
+    etfOf: (s: string) => (s === 'xlk' ? 'VGT' : s === 'xli' ? 'XLI' : null),
+    marketTicker: 'SPY',
+  };
+
+  const series = (): Record<string, Bar[]> => ({
+    SPY: serie([0.5, -0.3, 0.8, -0.6, 0.2]),
+    VGT: serie([0.7, -0.4, 1.0, -0.8, 0.3]),
+    XLI: serie([0.3, -0.2, 0.5, -0.4, 0.1]),
+    AAA: serie([0.9, -0.5, 1.2, -1.0, 0.4]),
+    BBB: serie([0.8, -0.45, 1.1, -0.9, 0.35]),
+    CCC: serie([0.4, -0.25, 0.6, -0.5, 0.15]),
+  });
+
+  it('produit un residu par candidat exploitable', () => {
+    const { inputs, dropped } = buildClusterInputs(
+      [cand('AAA'), cand('BBB'), cand('CCC')], series(), deps,
+    );
+    expect(inputs.map(i => i.ticker).sort()).toEqual(['AAA', 'BBB', 'CCC']);
+    expect(dropped).toEqual([]);
+    expect(inputs[0].sectorId).toBe('xlk');
+  });
+
+  it('ecarte un candidat sans secteur plutot que de le residualiser a moitie', () => {
+    // Un titre nettoye du marche mais pas de son secteur correlerait avec ses
+    // pairs sectoriels sur ce reliquat : un cluster qui n'est qu'un secteur
+    // deguise. Mieux vaut un candidat de moins qu'un faux theme.
+    const { inputs, dropped } = buildClusterInputs([cand('ZZZ')], { ...series(), ZZZ: serie([1]) }, deps);
+    expect(inputs).toEqual([]);
+    expect(dropped).toEqual(['ZZZ']);
+  });
+
+  it('ecarte un candidat dont l ETF sectoriel manque au cache', () => {
+    const s = series();
+    delete s.VGT;
+    const { inputs, dropped } = buildClusterInputs([cand('AAA'), cand('CCC')], s, deps);
+    expect(inputs.map(i => i.ticker)).toEqual(['CCC']);
+    expect(dropped).toEqual(['AAA']);
+  });
+
+  it('sans benchmark de marche, tout est ecarte — rien n est residualise a l aveugle', () => {
+    const s = series();
+    delete s.SPY;
+    const { inputs, dropped } = buildClusterInputs([cand('AAA'), cand('BBB')], s, deps);
+    expect(inputs).toEqual([]);
+    expect(dropped).toEqual(['AAA', 'BBB']);
+  });
+
+  it('le residu retire bien le marche et le secteur', () => {
+    // AAA construit comme une combinaison exacte de SPY et VGT : son residu
+    // doit etre negligeable.
+    const s = series();
+    const spyR = returns(s.SPY);
+    const vgtR = returns(s.VGT);
+    const prices = [100];
+    for (let i = 0; i < spyR.length; i++) {
+      prices.push(prices[i] * (1 + (0.6 * spyR[i] + 0.4 * vgtR[i]) / 100));
+    }
+    s.AAA = bars(prices, new Array(prices.length).fill(100_000));
+
+    const { inputs } = buildClusterInputs([cand('AAA')], s, deps);
+    expect(Math.max(...inputs[0].residuals.map(Math.abs))).toBeLessThan(0.01);
+  });
+
+  it('aucun candidat', () => {
+    expect(buildClusterInputs([], series(), deps)).toEqual({ inputs: [], dropped: [] });
   });
 });
 
