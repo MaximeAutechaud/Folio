@@ -31,6 +31,27 @@ describe('truncate', () => {
   it('serie vide', () => {
     expect(truncate([], MON)).toEqual([]);
   });
+
+  it('spanDays borne aussi le debut', () => {
+    const cut = truncate(bars(200), MON, 10);
+    expect(cut).toHaveLength(11); // les 10 jours precedents + la seance visee
+    expect(Math.min(...cut.map(p => p.time))).toBeGreaterThanOrEqual(MON - 10 * DAY);
+  });
+
+  it('fenetre entierement anterieure a la serie → vide', () => {
+    expect(truncate(bars(5), MON - 99 * DAY)).toEqual([]);
+  });
+
+  it('la dichotomie donne exactement le meme resultat que le filtre lineaire', () => {
+    const series = bars(500);
+    const naive = (s: typeof series, at: number, span?: number) =>
+      s.filter(p => p.time <= at && p.time >= (span != null ? at - span * DAY : -Infinity));
+    for (const at of [MON, MON - 1, MON - 250 * DAY, MON - 499 * DAY, MON + DAY]) {
+      for (const span of [undefined, 0, 1, 183]) {
+        expect(truncate(series, at, span)).toEqual(naive(series, at, span));
+      }
+    }
+  });
 });
 
 describe('lastSettledSession', () => {

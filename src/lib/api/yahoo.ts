@@ -70,21 +70,40 @@ export async function fetchEurUsd(): Promise<number> {
   throw new Error('Could not fetch EUR/USD rate from any source');
 }
 
-const YAHOO_RANGE: Record<string, { range: string; interval: string }> = {
-  '1W':       { range: '5d',  interval: '1h' },
-  '1M':       { range: '1mo', interval: '1d' },
-  '3M':       { range: '3mo', interval: '1d' },
-  '6M':       { range: '6mo', interval: '1d' },
-  '1Y':       { range: '1y',  interval: '1wk' },
-  '1Y_daily': { range: '1y',  interval: '1d' },
-  '2Y':       { range: '2y',  interval: '1wk' },
-  '2Y_daily': { range: '2y',  interval: '1d' },
+/**
+ * Début de l'historique long. 2010 écarte la crise de 2008 — un régime si
+ * extrême qu'il écraserait toute statistique agrégée — mais couvre 2011, 2015,
+ * 2018, 2020 et 2022. Un backtest qui s'arrête à 2 ans ne décrit qu'un seul
+ * marché et ne dit rien de la robustesse d'un signal.
+ */
+export const MAX_DAILY_SINCE = Math.floor(Date.UTC(2010, 0, 1) / 1000);
+
+// `since` et `range` s'excluent : au-delà de 2 ans, Yahoo n'accepte plus de
+// `range=` nommé et veut des bornes explicites period1/period2.
+const YAHOO_RANGE: Record<string, { range?: string; interval: string; since?: number }> = {
+  '1W':        { range: '5d',  interval: '1h' },
+  '1M':        { range: '1mo', interval: '1d' },
+  '3M':        { range: '3mo', interval: '1d' },
+  '6M':        { range: '6mo', interval: '1d' },
+  '1Y':        { range: '1y',  interval: '1wk' },
+  '1Y_daily':  { range: '1y',  interval: '1d' },
+  '2Y':        { range: '2y',  interval: '1wk' },
+  '2Y_daily':  { range: '2y',  interval: '1d' },
+  'MAX_daily': { since: MAX_DAILY_SINCE, interval: '1d' },
 };
 
+export function buildHistoryUrl(
+  ticker: string, period: string, nowSec = Math.floor(Date.now() / 1000),
+): string {
+  const spec = YAHOO_RANGE[period] ?? YAHOO_RANGE['1M'];
+  const window = spec.since != null
+    ? `period1=${spec.since}&period2=${nowSec}`
+    : `range=${spec.range}`;
+  return `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${spec.interval}&${window}`;
+}
+
 export async function fetchYahooHistory(ticker: string, period: string): Promise<{ time: number; value: number }[]> {
-  const { range, interval } = YAHOO_RANGE[period] ?? YAHOO_RANGE['1M'];
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${range}`;
-  const raw: string = await invoke('fetch_url', { url });
+  const raw: string = await invoke('fetch_url', { url: buildHistoryUrl(ticker, period) });
   const data = JSON.parse(raw);
   const result = data?.chart?.result?.[0];
   if (!result) return [];

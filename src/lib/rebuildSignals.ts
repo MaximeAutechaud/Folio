@@ -29,12 +29,20 @@ export interface RebuiltRow {
   relPerfJ20: number | null;
 }
 
-/** Index de la première bougie dont la date est >= `date`. */
+/**
+ * Index de la première bougie dont la date est >= `date`, `-1` si la série
+ * s'arrête avant. Dichotomie : les dates d'une série Yahoo sont croissantes, et
+ * cette fonction est appelée six fois par ligne reconstruite (trois horizons ×
+ * ETF + SPY) — en balayage linéaire elle domine tout le coût sur 16 ans.
+ */
 export function findBarIndex(hist: Point[], date: string): number {
-  for (let i = 0; i < hist.length; i++) {
-    if (toDateString(hist[i].time) >= date) return i;
+  let lo = 0, hi = hist.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (toDateString(hist[mid].time) < date) lo = mid + 1;
+    else hi = mid;
   }
-  return -1;
+  return lo < hist.length ? lo : -1;
 }
 
 function pct(hist: Point[], i0: number, i1: number): number | null {
@@ -79,26 +87,34 @@ export function tradingSessions(
   return out;
 }
 
+/** Séances entre deux respirations. Assez pour que le surcoût des `setTimeout`
+ *  reste négligeable, assez peu pour que la barre de progression bouge. */
+const YIELD_EVERY = 25;
+
 /**
- * Rejoue le calcul sur chaque séance. `onProgress` permet à l'appelant de rendre
- * la main à l'UI — la boucle est synchrone et longue (des centaines de séances
- * × des dizaines d'instruments).
+ * Rejoue le calcul sur chaque séance.
+ *
+ * Asynchrone parce que sur 16 ans la boucle dure des dizaines de secondes :
+ * synchrone, elle gèlerait la fenêtre et aucun `onProgress` ne serait rendu
+ * avant la fin. On rend la main au navigateur toutes les `YIELD_EVERY` séances.
  */
-export function rebuildRange(
+export async function rebuildRange(
   entries: ScorableEtf[],
   scope: 'sector' | 'narrative',
   histories: Record<string, Point[]>,
   macroHistories: Record<string, Point[]>,
   sessions: { date: string; time: number }[],
   onProgress?: (done: number, total: number) => void,
-): RebuiltRow[] {
+): Promise<RebuiltRow[]> {
   const spy = histories['SPY'] ?? [];
+  const etfById = new Map(entries.map(e => [e.id, e.etf]));
   const rows: RebuiltRow[] = [];
 
-  sessions.forEach((session, i) => {
+  for (let i = 0; i < sessions.length; i++) {
+    const session = sessions[i];
     for (const s of computeSettledFor(entries, histories, macroHistories, session.time)) {
       if (!s.signal) continue; // seuls les signaux non-neutres sont consignés
-      const etf = entries.find(e => e.id === s.sectorId)?.etf;
+      const etf = etfById.get(s.sectorId);
       const hist = etf ? histories[etf] ?? [] : [];
       rows.push({
         date: session.date,
@@ -112,7 +128,8 @@ export function rebuildRange(
       });
     }
     onProgress?.(i + 1, sessions.length);
-  });
+    if ((i + 1) % YIELD_EVERY === 0) await new Promise(r => setTimeout(r, 0));
+  }
 
   return rows;
 }

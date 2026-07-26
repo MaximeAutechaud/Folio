@@ -25,6 +25,29 @@ describe('findBarIndex', () => {
   it('-1 si la date est posterieure a toute la serie', () => {
     expect(findBarIndex(SERIE, '2026-08-01')).toBe(-1);
   });
+
+  it('premiere bougie si la date precede toute la serie', () => {
+    expect(findBarIndex(SERIE, '2020-01-01')).toBe(0);
+  });
+
+  it('-1 sur une serie vide', () => {
+    expect(findBarIndex([], '2026-07-08')).toBe(-1);
+  });
+
+  it('la dichotomie donne le meme resultat que le balayage lineaire', () => {
+    // serie longue : c'est le cas que la dichotomie sert a rendre praticable
+    const longue = Array.from({ length: 400 }, (_, i) =>
+      bar(new Date(Date.UTC(2010, 0, 4) + i * 86400_000).toISOString().slice(0, 10), 100 + i));
+    const naive = (d: string) => {
+      for (let i = 0; i < longue.length; i++) {
+        if (new Date(longue[i].time * 1000).toISOString().slice(0, 10) >= d) return i;
+      }
+      return -1;
+    };
+    for (const d of ['2009-01-01', '2010-01-04', '2010-06-15', '2011-02-07', '2030-01-01']) {
+      expect(findBarIndex(longue, d)).toBe(naive(d));
+    }
+  });
 });
 
 describe('forwardRelPerf', () => {

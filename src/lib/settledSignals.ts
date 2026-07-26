@@ -75,9 +75,50 @@ export function lastSettledSession(
  */
 export const SECTOR_WINDOW_DAYS = 183;
 
+/**
+ * Fenêtre macro. `computeMacroAt` ne remonte jamais au-delà d'une perf 1M
+ * finissant une semaine avant la séance, soit 37 jours ; 60 laisse de la marge.
+ *
+ * Borner ne change aucun résultat : le seul test portant sur le début de série
+ * (`earliest`, qui décide si `scorePrev` est calculable) reste vrai dès que
+ * 37 jours existent, et reste faux si la série est réellement plus courte.
+ * Sans cette borne, chaque séance recopierait tout l'historique macro — sans
+ * effet visible sur 2 ans, rédhibitoire sur 16.
+ */
+export const MACRO_WINDOW_DAYS = 60;
+
+/** Premier index dont `time >= t`. Séries Yahoo : temps croissants. */
+function lowerBound(series: Point[], t: number): number {
+  let lo = 0, hi = series.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (series[mid].time < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** Premier index dont `time > t`. */
+function upperBound(series: Point[], t: number): number {
+  let lo = 0, hi = series.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (series[mid].time <= t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * Dichotomie plutôt que `filter` : la reconstruction appelle cette fonction une
+ * fois par instrument **et par séance**. Sur 16 ans (~4 200 séances × ~50
+ * instruments), un balayage linéaire de la série complète coûte ~10⁹
+ * comparaisons ; la dichotomie ne copie que la fenêtre demandée.
+ */
 export function truncate(series: Point[], atTime: number, spanDays?: number): Point[] {
-  const from = spanDays != null ? atTime - spanDays * 86400 : -Infinity;
-  return series.filter(p => p.time <= atTime && p.time >= from);
+  const start = spanDays != null ? lowerBound(series, atTime - spanDays * 86400) : 0;
+  const end = upperBound(series, atTime);
+  return start >= end ? [] : series.slice(start, end);
 }
 
 /**
@@ -111,7 +152,7 @@ export function computeSettledFor(
 
   const macro = computeMacroAt(
     Object.fromEntries(
-      Object.entries(macroHistories).map(([k, v]) => [k, truncate(v, atTime)]),
+      Object.entries(macroHistories).map(([k, v]) => [k, truncate(v, atTime, MACRO_WINDOW_DAYS)]),
     ),
     atTime,
   );

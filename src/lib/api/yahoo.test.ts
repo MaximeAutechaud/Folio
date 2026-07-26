@@ -1,5 +1,34 @@
 import { describe, it, expect } from 'vitest';
-import { detectCurrency } from './yahoo';
+import { buildHistoryUrl, detectCurrency, MAX_DAILY_SINCE } from './yahoo';
+
+describe('buildHistoryUrl', () => {
+  const NOW = 1785110400;
+
+  it('periodes nommees → range=', () => {
+    expect(buildHistoryUrl('SPY', '6M', NOW)).toContain('interval=1d&range=6mo');
+    expect(buildHistoryUrl('SPY', '2Y_daily', NOW)).toContain('interval=1d&range=2y');
+  });
+
+  it('MAX_daily → bornes explicites, pas de range', () => {
+    const url = buildHistoryUrl('XLF', 'MAX_daily', NOW);
+    expect(url).toContain(`period1=${MAX_DAILY_SINCE}&period2=${NOW}`);
+    expect(url).not.toContain('range=');
+    expect(url).toContain('interval=1d');
+  });
+
+  it('MAX_DAILY_SINCE vaut bien le 1er janvier 2010 UTC', () => {
+    expect(new Date(MAX_DAILY_SINCE * 1000).toISOString()).toBe('2010-01-01T00:00:00.000Z');
+  });
+
+  it('periode inconnue → repli sur 1M', () => {
+    expect(buildHistoryUrl('SPY', 'nimportequoi', NOW)).toContain('range=1mo');
+  });
+
+  it('echappe les tickers a caracteres speciaux', () => {
+    expect(buildHistoryUrl('HG=F', '3M', NOW)).toContain('/chart/HG%3DF?');
+    expect(buildHistoryUrl('^VIX', '3M', NOW)).toContain('/chart/%5EVIX?');
+  });
+});
 
 describe('detectCurrency', () => {
   it('places de la zone euro → EUR', () => {

@@ -20,11 +20,20 @@ export interface RebuildProgress {
 }
 
 /**
- * Reconstruit `signal_log` sur deux ans à partir des historiques Yahoo.
+ * Reconstruit `signal_log` depuis 2010 à partir des historiques Yahoo.
  *
  * Remplace intégralement les deux scopes : c'est le but. Les lignes existantes
  * mélangent des mesures intraday, des dates de week-end et des trous ; les
  * conserver interdirait toute statistique homogène.
+ *
+ * Pourquoi 2010 et plus 2 ans : sur une seule fenêtre de 18 mois, un backtest
+ * ne mesure pas un signal, il mesure un régime. Le premier tour sur 2025-2026 a
+ * donné quatre signaux tous perdants — mais cette période était anti-momentum
+ * de bout en bout (le momentum sectoriel 3M y perd 1,2 pt), ce qui suffit à
+ * expliquer le résultat sans rien dire de la validité des signaux.
+ *
+ * Les ETF récents (XLC et BLOK, 2018) n'ont simplement pas de lignes avant leur
+ * création : `computeSettledFor` écarte toute série de moins de 60 bougies.
  */
 export function useSignalRebuild() {
   const queryClient = useQueryClient();
@@ -52,10 +61,18 @@ export function useSignalRebuild() {
         ...SECTOR_TICKERS, ...MACRO_TICKERS, ...uniqueNarratives.map(e => e.etf),
       ])];
 
+      // Séquentiel volontairement : ~50 requêtes de 16 ans en parallèle est le
+      // meilleur moyen de se faire limiter par Yahoo. La contrepartie est une
+      // à deux minutes d'attente, d'où la progression ticker par ticker.
       const histories: Record<string, Point[]> = {};
-      for (const t of tickers) {
+      for (let i = 0; i < tickers.length; i++) {
+        const t = tickers[i];
+        setProgress({
+          phase: 'fetching', ratio: 0,
+          message: `Téléchargement ${i + 1}/${tickers.length} — ${t}`,
+        });
         try {
-          histories[t] = await fetchYahooHistory(t, '2Y_daily');
+          histories[t] = await fetchYahooHistory(t, 'MAX_daily');
         } catch {
           histories[t] = [];
         }
@@ -79,11 +96,9 @@ export function useSignalRebuild() {
         id: s.id, label: s.name, etf: s.etf, macroProfile: s.macroProfile,
       }));
 
-      // Rend la main au navigateur régulièrement : la boucle est synchrone et
-      // longue, sans ça l'interface se fige plusieurs secondes.
-      const yieldToUi = () => new Promise(r => setTimeout(r, 0));
-
-      const sectorRows = rebuildRange(
+      // rebuildRange rend la main au navigateur toutes les 25 séances : les
+      // setProgress ci-dessous sont donc réellement rendus pendant le calcul.
+      const sectorRows = await rebuildRange(
         sectorEntries, 'sector', histories, macroHistories, sessions,
         (done, total) => {
           if (done % 25 === 0) {
@@ -91,10 +106,9 @@ export function useSignalRebuild() {
           }
         },
       );
-      await yieldToUi();
 
       const narrativeRows = uniqueNarratives.length > 0
-        ? rebuildRange(
+        ? await rebuildRange(
             uniqueNarratives, 'narrative', histories, macroHistories, sessions,
             (done, total) => {
               if (done % 25 === 0) {
@@ -103,7 +117,6 @@ export function useSignalRebuild() {
             },
           )
         : [];
-      await yieldToUi();
 
       setProgress({ phase: 'writing', ratio: 1, message: 'Écriture…' });
       await replaceSignalLogScope('sector', sectorRows);
