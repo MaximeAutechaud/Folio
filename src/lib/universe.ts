@@ -1,4 +1,4 @@
-import { SP400_SEED } from './universe-seed';
+import { SP500_SEED, SP400_SEED } from './universe-seed';
 
 /**
  * Univers de détection du scanner de narratives.
@@ -48,25 +48,59 @@ export interface UniverseEntry {
 }
 
 /**
- * Yahoo note les classes d'actions avec un tiret là où les indices et les CSV
- * d'émetteurs utilisent un point : `MOG.A` → `MOG-A`, `BRK.B` → `BRK-B`.
- * Sans cette conversion, la requête renvoie un résultat vide et le titre
- * disparaît silencieusement de l'univers — le pire mode de défaillance possible,
- * puisqu'un cluster amputé d'un membre ne se signale pas comme incomplet.
+ * Classes d'actions qu'aucune règle ne peut deviner.
  *
- * Attention à ne pas toucher aux suffixes de place (`AIR.PA`, `ASML.AS`), qui
- * eux gardent le point : seul un suffixe d'une seule lettre est une classe.
+ * iShares écrit `BRKB`, `BFB`, `MOGA` — **sans aucun séparateur**. Yahoo exige
+ * `BRK-B`, `BF-B`, `MOG-A`. Il n'y a donc rien à convertir, seulement à savoir.
+ *
+ * Et une règle générale du type « un ticker finissant par A ou B prend un
+ * tiret » serait pire que le problème : `FOXA`, `NWSA`, `CMCSA` et `GOOGL` sont
+ * de vrais tickers Yahoo, les transformer les casserait. Les deux familles sont
+ * indiscernables à partir du seul ticker — d'où cette table, tenue à la main.
+ *
+ * Le garde-fou général reste le rapport de résolution au premier téléchargement :
+ * tout ticker qui revient vide doit être signalé, jamais ignoré en silence.
+ */
+const ISSUER_TICKER_FIXES: Record<string, string> = {
+  BRKB: 'BRK-B',  // Berkshire Hathaway B
+  BFB: 'BF-B',    // Brown-Forman B
+  BFA: 'BF-A',    // Brown-Forman A
+  MOGA: 'MOG-A',  // Moog A
+};
+
+/**
+ * Ticker d'émetteur → ticker Yahoo.
+ *
+ * Deux corrections, dans cet ordre :
+ *
+ * 1. **Point → tiret** pour les fichiers qui notent la classe avec un point
+ *    (`MOG.A` → `MOG-A`). Sans toucher aux suffixes de place (`AIR.PA`,
+ *    `ASML.AS`), qui gardent le point : la règle est « suffixe d'une **seule**
+ *    lettre = classe d'action ».
+ * 2. **Table d'exceptions** pour les tickers concaténés sans séparateur.
+ *
+ * Un ticker mal converti renvoie une réponse vide et le titre **disparaît
+ * silencieusement de l'univers** — le pire mode de défaillance possible,
+ * puisqu'un cluster amputé d'un membre ne se signale pas comme incomplet.
  */
 export function toYahooTicker(raw: string): string {
   const t = raw.trim().toUpperCase();
-  return /^[A-Z]{1,5}\.[A-Z]$/.test(t) ? t.replace('.', '-') : t;
+  const dotted = /^[A-Z]{1,5}\.[A-Z]$/.test(t) ? t.replace('.', '-') : t;
+  return ISSUER_TICKER_FIXES[dotted] ?? dotted;
 }
 
-/** Univers de démarrage, normalisé au format Yahoo et dédoublonné. */
+/**
+ * Univers de démarrage : S&P 500 + S&P MidCap 400, normalisé et dédoublonné.
+ *
+ * Les large caps sont là comme **contexte de cluster**, pas comme cibles : un
+ * groupe « mémoire » a besoin de Micron pour être reconnaissable, même si on
+ * n'achètera que ses membres mid cap. Le tri par capitalisation appartient à
+ * l'affichage, pas à la détection.
+ */
 export function seedUniverse(): UniverseEntry[] {
   const seen = new Set<string>();
   const out: UniverseEntry[] = [];
-  for (const [raw, sectorId] of SP400_SEED) {
+  for (const [raw, sectorId] of [...SP500_SEED, ...SP400_SEED]) {
     const ticker = toYahooTicker(raw);
     if (seen.has(ticker)) continue;
     seen.add(ticker);

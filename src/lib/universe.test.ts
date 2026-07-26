@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { toYahooTicker, parseHoldingsCsv, seedUniverse, gicsToSectorId } from './universe';
-import { SP400_SEED } from './universe-seed';
+import { SP500_SEED, SP400_SEED } from './universe-seed';
 
 const tickers = (csv: string) => parseHoldingsCsv(csv).map(r => r.ticker);
 
@@ -9,6 +9,24 @@ describe('toYahooTicker', () => {
     expect(toYahooTicker('MOG.A')).toBe('MOG-A');
     expect(toYahooTicker('BRK.B')).toBe('BRK-B');
     expect(toYahooTicker('BF.B')).toBe('BF-B');
+  });
+
+  it('corrige les tickers concatenes sans separateur, qu aucune regle ne devine', () => {
+    // iShares ecrit BRKB / BFB / MOGA ; Yahoo veut BRK-B / BF-B / MOG-A.
+    expect(toYahooTicker('BRKB')).toBe('BRK-B');
+    expect(toYahooTicker('BFB')).toBe('BF-B');
+    expect(toYahooTicker('MOGA')).toBe('MOG-A');
+  });
+
+  it('ne casse PAS les tickers qui finissent par A ou B et sont valides tels quels', () => {
+    // Le contre-exemple qui interdit toute regle generale : ces quatre-la sont
+    // de vrais tickers Yahoo, y inserer un tiret les detruirait.
+    expect(toYahooTicker('FOXA')).toBe('FOXA');
+    expect(toYahooTicker('NWSA')).toBe('NWSA');
+    expect(toYahooTicker('CMCSA')).toBe('CMCSA');
+    expect(toYahooTicker('TSN')).toBe('TSN');
+    // et BRKR (Bruker) commence par BRK sans etre Berkshire
+    expect(toYahooTicker('BRKR')).toBe('BRKR');
   });
 
   it('ne touche PAS aux suffixes de place, qui gardent le point', () => {
@@ -55,8 +73,22 @@ describe('gicsToSectorId', () => {
 });
 
 describe('seedUniverse', () => {
-  it('contient les 400 constituants du S&P MidCap 400', () => {
-    expect(seedUniverse()).toHaveLength(400);
+  it('couvre le S&P 900 : 504 large caps + 400 mid caps', () => {
+    expect(SP500_SEED).toHaveLength(504); // GOOGL/GOOG, FOXA/FOX… deux classes cotees
+    expect(SP400_SEED).toHaveLength(400);
+    expect(seedUniverse()).toHaveLength(904);
+  });
+
+  it('les deux indices ne se recouvrent pas', () => {
+    const mid = new Set(SP400_SEED.map(([t]) => t));
+    expect(SP500_SEED.filter(([t]) => mid.has(t))).toEqual([]);
+  });
+
+  it('contient les large caps qui servent de contexte de cluster', () => {
+    // Micron est l ancre du theme « memoire » : sans elle, le cluster n est pas
+    // reconnaissable, meme si on ne l achetera jamais.
+    const t = new Set(seedUniverse().map(e => e.ticker));
+    for (const ancre of ['MU', 'NVDA', 'AVGO']) expect(t.has(ancre)).toBe(true);
   });
 
   it('aucun doublon', () => {
@@ -65,10 +97,16 @@ describe('seedUniverse', () => {
   });
 
   it('la graine ne contient que des tickers plausibles, deja normalises', () => {
-    for (const [raw] of SP400_SEED) {
+    for (const [raw] of [...SP500_SEED, ...SP400_SEED]) {
       expect(raw).toMatch(/^[A-Z][A-Z0-9-]{0,6}$/);
       expect(raw).not.toContain('.');
     }
+  });
+
+  it('les classes d actions sont au format Yahoo dans la graine', () => {
+    const t = new Set(seedUniverse().map(e => e.ticker));
+    for (const ok of ['BRK-B', 'BF-B', 'MOG-A']) expect(t.has(ok)).toBe(true);
+    for (const ko of ['BRKB', 'BFB', 'MOGA']) expect(t.has(ko)).toBe(false);
   });
 
   it('chaque titre porte un secteur resolu', () => {
