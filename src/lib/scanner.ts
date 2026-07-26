@@ -26,13 +26,14 @@
  * `dip xlk` à +1,14 % qui n'était que la dérive de VGT.
  */
 
-export interface Bar {
-  time: number;
-  open: number;
-  value: number;   // clôture ajustée
-  close: number;
-  volume: number;
-}
+import type { ScannerBar } from './api/yahoo';
+
+/**
+ * Bougie du scanner. Alias de `ScannerBar` : le type appartient à la couche qui
+ * le produit, pour qu'il n'existe qu'une seule définition de ce qu'est une
+ * bougie ajustée.
+ */
+export type Bar = ScannerBar;
 
 // ── Étage 1 : afflux de liquidité ────────────────────────────────────────────
 

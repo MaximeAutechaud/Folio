@@ -118,6 +118,7 @@ async function runMigrations(db: Database): Promise<void> {
   // qui référence `is_system`, absente des bases créées avant ce patch.
   await migrateToV12(db);
   await migrateToV13(db);
+  await migrateToV16(db);
 
   // positions: second take-profit target (Phase 1 extension)
   const tp2Col = await db.select<{ name: string }[]>(
@@ -444,6 +445,66 @@ async function migrateToV13(db: Database): Promise<void> {
 
 // positions.sector_id : rattachement optionnel à un secteur (lib/sectors.ts),
 // pour l'exposition sectorielle et les badges d'essoufflement du Dashboard.
+/**
+ * Cache de prix local et univers du scanner.
+ *
+ * ## Pourquoi une table de prix revient, alors qu'elle avait été supprimée
+ *
+ * `price_history` existait et a été **droppée en v2** — les helpers dormants
+ * sont encore dans ce fichier, marqués comme à ne pas appeler. Ce n'est donc pas
+ * un oubli qu'on répare, c'est une décision qu'on inverse, et pour une raison
+ * précise : le scanner lit ~900 séries d'un an à chaque évaluation. TanStack
+ * Query en mémoire ne convient pas (900 requêtes à chaque ouverture d'onglet), et
+ * la profondeur d'historique doit être stable d'une session à l'autre pour que
+ * les fenêtres glissantes de 60 séances aient un sens.
+ *
+ * Le reste de l'application continue de ne rien stocker : cette table sert
+ * exclusivement au scanner.
+ *
+ * ## Numérotation
+ *
+ * v16 et non v14 : 14 et 15 sont réservées à la branche `backtest-signaux`, qui
+ * les a déjà consommées. Les numéros n'ont pas besoin d'être contigus, et les
+ * gardes par existence de colonne rendent l'ordre d'exécution indifférent.
+ *
+ * ## Schéma
+ *
+ * `PRIMARY KEY (ticker, date)` porte l'upsert : une synchronisation incrémentale
+ * recouvre volontairement les dernières séances, et Yahoo révise la bougie du
+ * jour. Sans cette clé, chaque passe dupliquerait les lignes récentes.
+ */
+async function migrateToV16(db: Database): Promise<void> {
+  if (await tableExists(db, 'price_bars')) return;
+
+  await db.execute(`
+    CREATE TABLE price_bars (
+      ticker TEXT NOT NULL,
+      date   TEXT NOT NULL,
+      open   REAL,
+      value  REAL NOT NULL,
+      close  REAL,
+      volume REAL NOT NULL,
+      PRIMARY KEY (ticker, date)
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE scanner_universe (
+      ticker    TEXT PRIMARY KEY,
+      sector_id TEXT,
+      source    TEXT NOT NULL,
+      added_at  TEXT NOT NULL,
+      last_ok   TEXT,
+      fail_count INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '16')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
 async function migrateToV11(db: Database): Promise<void> {
   const col = await db.select<{ name: string }[]>(
     `SELECT name FROM pragma_table_info('positions') WHERE name='sector_id'`
@@ -1097,4 +1158,158 @@ export async function fetchSignalLogs(scope: string): Promise<SignalLogRow[]> {
     'SELECT * FROM signal_log WHERE scope = $1 ORDER BY date DESC',
     [scope]
   );
+}
+
+// ── Scanner : univers et cache de prix (migration v16) ───────────────────────
+
+export interface UniverseRow {
+  ticker: string;
+  sector_id: string | null;
+  source: string;
+  added_at: string;
+  last_ok: string | null;
+  fail_count: number;
+}
+
+export async function fetchScannerUniverse(): Promise<UniverseRow[]> {
+  const db = await getDb();
+  return db.select<UniverseRow[]>('SELECT * FROM scanner_universe ORDER BY ticker');
+}
+
+/**
+ * Remplace intégralement l'univers.
+ *
+ * `last_ok` et `fail_count` sont volontairement **conservés** pour les tickers
+ * déjà connus : un rafraîchissement d'indice ne doit pas effacer la mémoire des
+ * tickers qui ne se résolvent pas chez Yahoo, sinon le rapport de résolution
+ * repart de zéro à chaque import et le problème se ré-découvre indéfiniment.
+ */
+export async function replaceScannerUniverse(
+  entries: { ticker: string; sectorId: string | null; source: string }[],
+): Promise<void> {
+  const db = await getDb();
+  const previous = await fetchScannerUniverse();
+  const memory = new Map(previous.map(r => [r.ticker, r]));
+  const now = new Date().toISOString();
+
+  await db.execute('DELETE FROM scanner_universe');
+
+  const COLS = 6;
+  const CHUNK = Math.max(1, Math.floor(1500 / COLS));
+  for (let i = 0; i < entries.length; i += CHUNK) {
+    const chunk = entries.slice(i, i + CHUNK);
+    const values: unknown[] = [];
+    const placeholders = chunk.map((e, j) => {
+      const prev = memory.get(e.ticker);
+      values.push(
+        e.ticker, e.sectorId, e.source,
+        prev?.added_at ?? now, prev?.last_ok ?? null, prev?.fail_count ?? 0,
+      );
+      const slots = Array.from({ length: COLS }, (_, k) => `$${j * COLS + k + 1}`);
+      return `(${slots.join(', ')})`;
+    }).join(',');
+    await db.execute(
+      `INSERT INTO scanner_universe (ticker, sector_id, source, added_at, last_ok, fail_count)
+       VALUES ${placeholders}`,
+      values,
+    );
+  }
+}
+
+/** Marque l'issue d'une tentative de téléchargement, pour le rapport de résolution. */
+export async function markUniverseFetch(ticker: string, ok: boolean, date: string): Promise<void> {
+  const db = await getDb();
+  if (ok) {
+    await db.execute(
+      'UPDATE scanner_universe SET last_ok = $1, fail_count = 0 WHERE ticker = $2',
+      [date, ticker],
+    );
+  } else {
+    await db.execute(
+      'UPDATE scanner_universe SET fail_count = fail_count + 1 WHERE ticker = $1',
+      [ticker],
+    );
+  }
+}
+
+export interface PriceBarRow {
+  ticker: string;
+  date: string;
+  open: number | null;
+  value: number;
+  close: number | null;
+  volume: number;
+}
+
+/**
+ * Insère ou met à jour des bougies.
+ *
+ * `ON CONFLICT DO UPDATE` et non `INSERT OR IGNORE` : une synchronisation
+ * incrémentale recouvre les dernières séances, et Yahoo **révise** la bougie du
+ * jour en cours de séance. Ignorer le conflit figerait une valeur intraday
+ * périmée pour toujours.
+ */
+export async function upsertPriceBars(ticker: string, bars: PriceBarRow[]): Promise<void> {
+  if (bars.length === 0) return;
+  const db = await getDb();
+
+  const COLS = 6;
+  const CHUNK = Math.max(1, Math.floor(1500 / COLS));
+  for (let i = 0; i < bars.length; i += CHUNK) {
+    const chunk = bars.slice(i, i + CHUNK);
+    const values: unknown[] = [];
+    const placeholders = chunk.map((b, j) => {
+      values.push(ticker, b.date, b.open, b.value, b.close, b.volume);
+      const slots = Array.from({ length: COLS }, (_, k) => `$${j * COLS + k + 1}`);
+      return `(${slots.join(', ')})`;
+    }).join(',');
+    await db.execute(
+      `INSERT INTO price_bars (ticker, date, open, value, close, volume)
+       VALUES ${placeholders}
+       ON CONFLICT(ticker, date) DO UPDATE SET
+         open = excluded.open, value = excluded.value,
+         close = excluded.close, volume = excluded.volume`,
+      values,
+    );
+  }
+}
+
+/** Dernière date connue par ticker — décide du mode plein ou incrémental. */
+export async function fetchLatestBarDates(): Promise<Record<string, string>> {
+  const db = await getDb();
+  const rows = await db.select<{ ticker: string; d: string }[]>(
+    'SELECT ticker, MAX(date) AS d FROM price_bars GROUP BY ticker'
+  );
+  return Object.fromEntries(rows.map(r => [r.ticker, r.d]));
+}
+
+export async function fetchPriceBars(ticker: string): Promise<PriceBarRow[]> {
+  const db = await getDb();
+  return db.select<PriceBarRow[]>(
+    'SELECT * FROM price_bars WHERE ticker = $1 ORDER BY date',
+    [ticker],
+  );
+}
+
+/** Toutes les séries d'un coup — le scanner les veut toutes en même temps. */
+export async function fetchAllPriceBars(): Promise<Record<string, PriceBarRow[]>> {
+  const db = await getDb();
+  const rows = await db.select<PriceBarRow[]>(
+    'SELECT * FROM price_bars ORDER BY ticker, date'
+  );
+  const out: Record<string, PriceBarRow[]> = {};
+  for (const r of rows) (out[r.ticker] ??= []).push(r);
+  return out;
+}
+
+/**
+ * Purge les bougies antérieures à `date`.
+ *
+ * Sans elle la table croît indéfiniment : le scanner ne regarde jamais au-delà
+ * d'un an, et 900 tickers × 16 ans de conservation inutile finiraient par peser
+ * plus que tout le reste de la base réunie.
+ */
+export async function prunePriceBars(before: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM price_bars WHERE date < $1', [before]);
 }

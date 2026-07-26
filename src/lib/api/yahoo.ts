@@ -97,6 +97,85 @@ export async function fetchYahooHistory(ticker: string, period: string): Promise
   return points;
 }
 
+/**
+ * Bougie journalière du scanner : ouverture, clôture **ajustée** et volume.
+ *
+ * Fonction distincte de `fetchYahooHistory`, volontairement, pour trois raisons
+ * qui tiennent toutes au fait que le scanner mesure autre chose :
+ *
+ * 1. Il lui faut le **volume**, que l'historique d'affichage ne parse pas.
+ * 2. Il lui faut la clôture **ajustée des dividendes**. Sans le paramètre
+ *    `includeAdjustedClose`, `indicators.adjclose` est absent du payload : Yahoo
+ *    ne renvoie qu'un `close` ajusté des splits seulement. Un détachement
+ *    trimestriel fabrique alors un faux rendement négatif d'un jour — que le
+ *    clustering interpréterait comme un mouvement commun aux titres qui
+ *    détachent la même semaine.
+ * 3. `open` est ajusté du **même facteur** que la clôture, sinon une ouverture
+ *    brute comparée à une clôture ajustée fabrique un gap le jour du détachement.
+ */
+export interface ScannerBar {
+  time: number;
+  open: number;
+  /** Clôture ajustée dividendes + splits. C'est elle que consomment les calculs. */
+  value: number;
+  /** Clôture brute, seul prix réellement coté. */
+  close: number;
+  volume: number;
+}
+
+/** Bougies d'un `chart.result` Yahoo. Exporté pour être testable sans réseau. */
+export function parseScannerBars(result: unknown): ScannerBar[] {
+  const r = result as {
+    timestamp?: number[];
+    indicators?: {
+      quote?: { close?: (number | null)[]; open?: (number | null)[]; volume?: (number | null)[] }[];
+      adjclose?: { adjclose?: (number | null)[] }[];
+    };
+  } | null | undefined;
+
+  const timestamps = r?.timestamp ?? [];
+  const q = r?.indicators?.quote?.[0];
+  const closes = q?.close ?? [];
+  const opens = q?.open ?? [];
+  const volumes = q?.volume ?? [];
+  const adj = r?.indicators?.adjclose?.[0]?.adjclose ?? [];
+
+  const out: ScannerBar[] = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    const close = closes[i];
+    // Une bougie sans clôture ou sans volume est inexploitable pour un scanner
+    // de liquidité : la retenir avec un volume à 0 ferait chuter la médiane et
+    // rendrait anormale la séance suivante.
+    if (close == null || volumes[i] == null) continue;
+    const value = adj[i] ?? close;
+    const factor = close !== 0 ? value / close : 1;
+    const open = opens[i];
+    out.push({
+      time: timestamps[i],
+      open: open != null ? open * factor : value,
+      value,
+      close,
+      volume: volumes[i]!,
+    });
+  }
+  return out;
+}
+
+/**
+ * Historique journalier ajusté d'un titre de l'univers.
+ *
+ * `days` borne la fenêtre demandée : une synchronisation initiale prend un an,
+ * une mise à jour quotidienne quelques séances. Sur 900 tickers, la différence
+ * n'est pas cosmétique — c'est trois minutes contre quinze secondes.
+ */
+export async function fetchScannerBars(ticker: string, range = '1y'): Promise<ScannerBar[]> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}`
+    + `?interval=1d&range=${range}&events=div%7Csplit&includeAdjustedClose=true`;
+  const raw: string = await invoke('fetch_url', { url });
+  const data = JSON.parse(raw);
+  return parseScannerBars(data?.chart?.result?.[0]);
+}
+
 export async function fetchYahooDailyOHLCV(
   ticker: string
 ): Promise<{ date: string; close: number; volume: number }[]> {
