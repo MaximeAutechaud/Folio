@@ -130,3 +130,75 @@ export const BASELINE_BEFORE_CONTROLS = {
  * consultée.
  */
 export const CONTROLS_OUTCOME = 'abandonne-2026-07-26' as const;
+
+/**
+ * ## Mode « naissance » — paramètres gelés le 27 juillet 2026, avant implémentation
+ *
+ * Le mode actuel exige d'être **3 % sous** le plus haut 52 semaines. Une naissance
+ * de mouvement étant par définition une cassure vers de nouveaux plus hauts, ce
+ * filtre l'exclut par construction : il ne laisse passer que les replis dans un
+ * mouvement déjà installé. C'est ce qui explique que le cluster mémoire ne soit
+ * détecté que le 2026-02-04, après +255 % sur MU.
+ *
+ * ### D'où viennent ces valeurs
+ *
+ * Elles ne sont **pas** choisies par moi. Ce sont des conventions de praticiens,
+ * codifiées il y a des décennies :
+ *
+ * - **O'Neil (CAN SLIM)** : point d'achat au sommet de la base, et ne jamais
+ *   acheter à plus de **5 %** au-dessus de ce pivot — au-delà le titre est
+ *   « étendu ». Profondeur de base admissible jusqu'à ~33 %.
+ * - **Weinstein (analyse par étapes)** : l'entrée se fait à la transition
+ *   étape 1 → étape 2, quand le titre casse sa base et que sa moyenne mobile
+ *   30 semaines (**150 séances**) cesse de baisser.
+ *
+ * Leur intérêt épistémique n'est pas d'être prouvées — **elles ne le sont pas**,
+ * ce sont des conventions de métier, pas des résultats académiques. Il est que
+ * leurs auteurs les ont écrites sans connaître le thème mémoire. C'est du
+ * pré-enregistrement gratuit, là où des seuils choisis par moi aujourd'hui
+ * seraient choisis par quelqu'un qui connaît déjà la réponse.
+ *
+ * ### Le choix de N = 252
+ *
+ * Arbitré par Maxime, en connaissance du compromis : un nouveau plus haut d'un an
+ * est nettement plus rare qu'une cassure à 3 mois, donc moins de signaux, mais
+ * plus proche d'une vraie naissance. « Moins de signaux, qualité potentiellement
+ * supérieure. » Une cassure à 60 séances risquait de reproduire l'existant en
+ * attrapant des replis déguisés.
+ *
+ * ### Réserve connue
+ *
+ * Ces méthodes visent des small et mid caps de croissance. Notre univers est le
+ * S&P 900 : sociétés plus grosses, bases moins profondes, mouvements amortis. Les
+ * règles structurelles se transposent ; les profondeurs de base sont peut-être
+ * trop larges pour ce type de titre.
+ */
+export const BIRTH_PARAMS = {
+  /** Pivot = plus haut des 252 séances précédentes. Cassure = le dépasser. */
+  pivotBars: 252,
+  /** Zone d'achat O'Neil : au-delà, le mouvement est déjà entamé. */
+  maxAbovePivot: 5,
+  /** Fenêtre servant à juger la base qui précède la cassure. */
+  baseBars: 120,
+  /** Profondeur de base admissible, en % du plus haut de la base. */
+  maxBaseDepth: 35,
+  /** Moyenne mobile de régime — les 30 semaines de Weinstein. */
+  trendBars: 150,
+  /** Recul sur lequel la MM150 ne doit pas baisser. */
+  trendLookback: 21,
+} as const;
+
+/**
+ * Critère primaire, déclaré avant la passe.
+ *
+ * La naissance du thème mémoire — septembre à novembre 2025 — tombe dans la
+ * fenêtre de calibrage, donc la question se tranche **sans toucher au
+ * hors-échantillon**.
+ */
+export const BIRTH_CRITERIA = {
+  /** Le cluster mémoire doit être détecté avant cette date (référence : 2026-02-04). */
+  memoryDetectedBefore: '2025-12-01',
+  /** Garde-fou : ni zéro détection, ni une avalanche. */
+  minDetections: 3,
+  maxDetections: 60,
+} as const;
