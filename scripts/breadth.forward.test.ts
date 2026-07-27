@@ -9,7 +9,13 @@
  * momentum seul −0,30), donc la breadth n'apporte rien au-delà du prix de
  * l'ETF. Les 68-72 % de variance indépendante mesurés par
  * `breadth.analysis.test.ts` sont réels — ils ne portent simplement aucune
- * information sur le futur. Détail dans `docs/BREADTH-CONSTITUANTS.md`.
+ * information sur le futur.
+ *
+ * La variante **intra-secteur**, déclarée après cet échec et tirée une seule
+ * fois, ferme aussi : **−0,32 pt** (p = 0,87, IC95 % [−0,74 ; +0,21]). Retirer
+ * toute la dérive sectorielle ne déplace l'écart que de 0,05 pt — le défaut de
+ * spécification était réel et n'était pas la cause. Détail dans
+ * `docs/BREADTH-CONSTITUANTS.md`.
  *
  * ## Ce qui est pré-enregistré
  *
@@ -129,6 +135,34 @@ interface Observation {
   forward: Record<number, number | null>;
 }
 
+/**
+ * Variante intra-secteur, **déclarée après l'échec de la passe principale et
+ * tirée une seule fois** (cf. en-tête). Les quintiles sont classés à
+ * l'intérieur de chaque secteur, puis moyennés à poids égal entre secteurs.
+ *
+ * L'appartenance à un quintile ne peut donc plus corréler avec le secteur, et
+ * la dérive sectorielle 2010-2021 s'annule : chaque secteur pèse autant dans Q1
+ * que dans Q5. C'est la seule faiblesse de spécification identifiée sur la
+ * passe principale.
+ *
+ * Un secteur sans observation exploitable est écarté plutôt que compté zéro —
+ * sinon il tirerait tous les quintiles vers le bas de la même quantité, ce qui
+ * ne changerait pas l'écart mais fausserait les niveaux affichés.
+ */
+function quintilesWithinSector(obs: Observation[], key: (o: Observation) => number, horizon: number) {
+  const sectors = [...new Set(obs.map(o => o.sector))].sort();
+  const perSector = sectors
+    .map(s => quintiles(obs.filter(o => o.sector === s), key, horizon))
+    .filter(q => q.n >= 5);
+  if (!perSector.length) return { means: [0, 0, 0, 0, 0], spread: 0, n: 0 };
+  const means = Array.from({ length: 5 }, (_, q) => mean(perSector.map(p => p.means[q])));
+  return {
+    means: means.map(m => Number(m.toFixed(3))),
+    spread: means[4] - means[0],
+    n: perSector.reduce((s, p) => s + p.n, 0),
+  };
+}
+
 /** Moyenne de `forward` par quintile de `key`, et écart Q5−Q1. */
 function quintiles(obs: Observation[], key: (o: Observation) => number, horizon: number) {
   const usable = obs.filter(o => o.forward[horizon] != null);
@@ -152,6 +186,7 @@ function bootstrapSpread(
   key: (o: Observation) => number,
   horizon: number,
   seed: number,
+  grouper: typeof quintiles = quintiles,
 ): { p: number; ci: [number, number] } {
   const dates = [...new Set(obs.map(o => o.time))].sort((a, b) => a - b);
   const kept = new Set(dates.filter((_, i) => i % STRIDE === 0));
@@ -166,7 +201,7 @@ function bootstrapSpread(
   for (let b = 0; b < BOOTSTRAP; b++) {
     const draw: Observation[] = [];
     for (let i = 0; i < blocks.length; i++) draw.push(...blocks[Math.floor(rng() * blocks.length)]);
-    spreads.push(quintiles(draw, key, horizon).spread);
+    spreads.push(grouper(draw, key, horizon).spread);
   }
   spreads.sort((a, b) => a - b);
   const positive = spreads.filter(s => s > 0).length;
@@ -261,6 +296,25 @@ describe.skipIf(!snapshotPath)('pouvoir prédictif de la breadth', () => {
       }
     }
 
+    // Variante intra-secteur — déclarée avant ce tirage, tirée une seule fois.
+    const withinSector: Record<string, unknown>[] = [];
+    for (const [name, key] of variants) {
+      for (const h of HORIZONS) {
+        const q = quintilesWithinSector(observations, key, h);
+        const decisive = name === 'breadthResid' && h === DECISION_HORIZON;
+        withinSector.push({
+          variant: name,
+          horizon: h,
+          n: q.n,
+          quintiles: q.means,
+          spread: Number(q.spread.toFixed(3)),
+          ...(decisive
+            ? bootstrapSpread(observations, key, h, 20260727, quintilesWithinSector)
+            : {}),
+        });
+      }
+    }
+
     const baseline: Record<string, number> = {};
     for (const h of HORIZONS) {
       const v = observations.map(o => o.forward[h]).filter((x): x is number => x != null);
@@ -268,7 +322,11 @@ describe.skipIf(!snapshotPath)('pouvoir prédictif de la breadth', () => {
       baseline[`sd J+${h}`] = Number(stdev(v).toFixed(2));
     }
 
-    const decision = results.find(r => r.variant === 'breadthResid' && r.horizon === DECISION_HORIZON)!;
+    const decisive = (rows: Record<string, unknown>[]) =>
+      rows.find(r => r.variant === 'breadthResid' && r.horizon === DECISION_HORIZON)!;
+    const verdict = (rows: Record<string, unknown>[]) =>
+      (decisive(rows).spread as number) >= THRESHOLD ? 'FRANCHIT' : 'FERME';
+
     const report = {
       preregistre: { hypothese: 'breadth résiduelle > momentum ETF', horizon: DECISION_HORIZON, seuil: THRESHOLD },
       perimetre: { secteurs: PRIMARY, ma: MA, lookback: LOOKBACK, betaWindow: BETA_WINDOW, emissionEnd: '2021-12-31' },
@@ -276,7 +334,9 @@ describe.skipIf(!snapshotPath)('pouvoir prédictif de la breadth', () => {
       dates: new Set(observations.map(o => o.time)).size,
       baseline,
       results,
-      verdict: (decision.spread as number) >= THRESHOLD ? 'FRANCHIT' : 'FERME',
+      verdict: verdict(results),
+      withinSector,
+      verdictWithinSector: verdict(withinSector),
     };
     const out = process.env.BREADTH_REPORT;
     if (out) fs.writeFileSync(out, JSON.stringify(report, null, 2), 'utf8');

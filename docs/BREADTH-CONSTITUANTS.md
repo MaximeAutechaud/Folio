@@ -24,7 +24,8 @@ et non celui de l'ETF. Élargissement de la source, pas reprojection.
 ## Ce qui a été mesuré
 
 Snapshot 2009-01-01 → 2022-03-31, 895 tickers résolus sur 918, 2,65 M de
-bougies. Deux passes, dans cet ordre.
+bougies. Trois passes, dans cet ordre — la troisième n'ayant été déclarée
+qu'après l'échec de la deuxième, et tirée une seule fois.
 
 ### Passe 1 — redondance (`scripts/breadth.analysis.test.ts`)
 
@@ -64,6 +65,26 @@ Sur l'horizon de décision : **p = 0,85, IC95 % [−0,69 ; +0,22]** (bootstrap p
 bloc de dates, stride 20, les 5 secteurs tirés ensemble — chevauchement des
 fenêtres et corrélation transversale neutralisés simultanément).
 
+### Passe 3 — variante intra-secteur
+
+Déclarée **après** l'échec de la passe 2, avec le même seuil de 0,20 pt, et
+tirée **une seule fois**. Quintiles classés à l'intérieur de chaque secteur puis
+moyennés à poids égal : l'appartenance à un quintile ne peut plus corréler avec
+le secteur, et la dérive sectorielle 2010-2021 s'annule par construction.
+
+| spécification | J+20 : Q1 → Q5 | Q5−Q1 | p | IC95 % |
+|---|---|---:|---:|---|
+| poolée | +0,24 / +0,16 / +0,24 / +0,06 / −0,13 | −0,36 | 0,85 | [−0,69 ; +0,22] |
+| **intra-secteur** | +0,23 / +0,14 / +0,26 / +0,04 / −0,09 | **−0,32** | **0,87** | **[−0,74 ; +0,21]** |
+
+**Ferme aussi.** Retirer toute la dérive sectorielle déplace l'écart de 0,05 pt
+— cinq fois moins que la marge qui manquait — et ne change pas le signe. Le
+défaut de spécification était réel et **n'était pas la cause** : c'est la forme
+forte du négatif, comme lorsque les corrections de la Phase 0 (prix ajustés,
+benchmark RSP, entrée J+1) n'avaient rien sauvé sur les 4 signaux. L'égalité des
+trois variables tient à l'identique (résiduelle −0,32 / brute −0,37 / momentum
+seul −0,33).
+
 ## La leçon
 
 **Les trois variables donnent le même spread.** La breadth résiduelle ne fait
@@ -89,13 +110,15 @@ artefact de période.
   2022. C'est pourquoi `BreadthPoint` porte son `count` et pourquoi seul
   `breadthDelta` est exposé pour l'usage : **aucun niveau n'est comparable entre
   deux époques**.
-- **Pas de démoyennage intra-secteur.** Les quintiles regroupent les 5 secteurs.
-  Si l'appartenance à un quintile corrèle avec le secteur, une part du spread est
-  de la dérive sectorielle 2010-2021 — le mécanisme du faux positif `dip xlk`,
-  dont l'ampleur (jusqu'à 1,15 pt / 40 séances entre secteurs) peut dépasser
-  l'effet cherché. Variante défendable, **non tirée** : relancer des
-  spécifications jusqu'à ce qu'une franchisse est précisément ce qui avait
-  fabriqué le résultat in-sample de l'accélération.
+- **Dérive sectorielle : levée, sans effet.** La passe 3 ci-dessus l'a mesurée
+  plutôt que supposée. C'était la seule faiblesse de spécification identifiée, et
+  elle valait 0,05 pt. Une passe supplémentaire serait désormais du réglage :
+  relancer des spécifications jusqu'à ce qu'une franchisse est précisément ce qui
+  avait fabriqué le résultat in-sample de l'accélération.
+- **Bornes de quintiles plein échantillon.** Les rangs sont calculés sur toute
+  la période, dans les deux spécifications : un léger regard vers l'avant, commun
+  à toutes les passes, donc sans effet sur leur comparaison. Il jouerait *en
+  faveur* d'un résultat positif — et il n'y en a pas.
 - **Benchmark SPY, pas RSP.** C'est `MARKET_TICKER` du scanner et RSP n'est pas
   dans `scanner_universe` : cohérent avec la détection, mais différent du banc
   `rebuildSignals`. D'où une baseline **positive** ici (+0,11 pt à J+20, σ 2,34 ;
