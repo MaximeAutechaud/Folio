@@ -105,18 +105,30 @@ export function liquidityStat(bars: Bar[], baseBars = 60, z = 1.0): LiquiditySta
  */
 export type ScanMode = 'pullback' | 'breakout';
 
+/**
+ * Comment décider qu'une cassure est encore « fraîche ». Deux axes distincts,
+ * qu'il ne faut pas confondre — la v1 les avait confondus et n'a rien détecté.
+ *
+ * `buyZone` — distance au pivot (règle des 5 % d'O'Neil). Mesure **où placer le
+ * stop** : acheter 25 % au-dessus du pivot laisse le même objectif pour quatre
+ * fois le risque. Mais le temps qu'un titre y passe dépend entièrement de sa
+ * vitesse — dix séances à +0,5 %/jour, une seule à +3 %/jour — donc elle exclut
+ * mécaniquement les mouvements violents.
+ *
+ * `recency` — séances écoulées depuis la cassure. Mesure **si on est tôt**,
+ * indépendamment de la violence du mouvement.
+ */
+export type FreshnessMode = 'buyZone' | 'recency';
+
 /** Paramètres du mode cassure. Valeurs figées dans `scannerValidation.ts`. */
 export interface BreakoutParams {
   /** Le pivot est le plus haut des `pivotBars` séances précédentes. */
   pivotBars: number;
-  /**
-   * Zone d'achat, en % au-dessus du pivot.
-   *
-   * La règle des 5 % d'O'Neil, et c'est elle qui porte tout le sens : sans
-   * plafond, « au-dessus du pivot » attraperait aussi bien une cassure du jour
-   * qu'un titre parti de 200 % depuis. C'est ce plafond qui date l'entrée.
-   */
+  freshness: FreshnessMode;
+  /** Mode `buyZone` : plafond en % au-dessus du pivot. */
   maxAbovePivot: number;
+  /** Mode `recency` : séances écoulées depuis le franchissement du pivot. */
+  maxBarsSincePivot: number;
   /** Fenêtre sur laquelle est jugée la base qui précède la cassure. */
   baseBars: number;
   /** Profondeur de base admissible, en % de son plus haut. */
@@ -152,7 +164,9 @@ export const DEFAULT_FILTER: CandidateFilter = {
   maxProximityToHigh: -3,
   breakout: {
     pivotBars: 252,
+    freshness: 'buyZone',
     maxAbovePivot: 5,
+    maxBarsSincePivot: 10,
     baseBars: 120,
     maxBaseDepth: 35,
     trendBars: 150,
@@ -223,7 +237,8 @@ export function scanCandidates(
  *    d'un rebond technique dans une tendance encore baissière.
  */
 export function isBreakout(bars: Bar[], p: BreakoutParams): boolean {
-  const need = Math.max(p.pivotBars, p.baseBars, p.trendBars + p.trendLookback) + 1;
+  const extra = p.freshness === 'recency' ? p.maxBarsSincePivot + 1 : 0;
+  const need = Math.max(p.pivotBars, p.baseBars, p.trendBars + p.trendLookback) + 1 + extra;
   if (bars.length < need) return false;
 
   const v = bars.map(b => b.value);
@@ -231,7 +246,12 @@ export function isBreakout(bars: Bar[], p: BreakoutParams): boolean {
 
   const pivot = Math.max(...v.slice(-p.pivotBars - 1, -1));
   if (!(last > pivot)) return false;
-  if (last > pivot * (1 + p.maxAbovePivot / 100)) return false;
+
+  if (p.freshness === 'buyZone') {
+    if (last > pivot * (1 + p.maxAbovePivot / 100)) return false;
+  } else if (barsSinceBreakout(v, p) > p.maxBarsSincePivot) {
+    return false;
+  }
 
   const base = v.slice(-p.baseBars - 1, -1);
   const hi = Math.max(...base);
@@ -245,6 +265,28 @@ export function isBreakout(bars: Bar[], p: BreakoutParams): boolean {
   const maNow = ma(v.length);
   const maBefore = ma(v.length - p.trendLookback);
   return last > maNow && maNow >= maBefore;
+}
+
+/**
+ * Séances écoulées depuis le **franchissement** du pivot.
+ *
+ * On cherche la transition, pas l'état : un titre reste « au-dessus de son
+ * pivot » pendant toute la hausse qui suit, donc tester l'état ne daterait rien.
+ * Le franchissement est la première séance où le cours dépasse le pivot calculé
+ * sur les séances qui la précèdent, alors que la veille il ne le dépassait pas.
+ *
+ * Retourne `Infinity` si aucun franchissement n'est trouvé dans la fenêtre
+ * examinée — soit que le titre soit au-dessus de son pivot depuis plus longtemps,
+ * soit que l'historique manque.
+ */
+export function barsSinceBreakout(v: number[], p: BreakoutParams): number {
+  const pivotAt = (i: number) => Math.max(...v.slice(i - p.pivotBars, i));
+  for (let j = 0; j <= p.maxBarsSincePivot; j++) {
+    const i = v.length - 1 - j;
+    if (i - p.pivotBars < 1) break;
+    if (v[i] > pivotAt(i) && v[i - 1] <= pivotAt(i - 1)) return j;
+  }
+  return Infinity;
 }
 
 // ── Étage 3 : résidualisation ────────────────────────────────────────────────
@@ -552,6 +594,33 @@ export function truncateAt(
   return out;
 }
 
+/**
+ * Réservoir glissant de candidats — levier A du plan factoriel.
+ *
+ * Le clustering exige quatre titres corrélés, et les prenait jusqu'ici sur la
+ * **photo du jour**. Or les membres d'un thème ne cassent pas ensemble : un
+ * leader, puis les suiveurs sur trois à quatre semaines. Mesuré : 1,43 candidat
+ * par séance en mode cassure, et seules 11 séances sur 88 en comptaient quatre.
+ * L'étage 2 était affamé par construction, indépendamment de la qualité des
+ * candidats.
+ *
+ * Mutualiser ne change **que** l'entrée dans la matrice de corrélation. Celle-ci
+ * reste mesurée sur ses 60 séances habituelles, à la date courante, pour tous les
+ * membres — un titre entré il y a quinze jours est corrélé sur la même fenêtre
+ * que celui entré aujourd'hui.
+ *
+ * `history` est ordonné du plus ancien au plus récent. En cas de doublon, la
+ * qualification la plus récente l'emporte : c'est elle qui décrit l'état actuel
+ * du titre.
+ */
+export function poolCandidates(history: Candidate[][], poolBars: number): Candidate[] {
+  const byTicker = new Map<string, Candidate>();
+  for (const day of history.slice(-poolBars)) {
+    for (const c of day) byTicker.set(c.ticker, c);
+  }
+  return [...byTicker.values()].sort((a, b) => b.z - a.z);
+}
+
 export interface RunScanInput {
   /** Toutes les séries, instruments de contrôle compris. */
   series: Record<string, Bar[]>;
@@ -560,6 +629,14 @@ export interface RunScanInput {
   deps: BuildInputsDeps;
   filter?: CandidateFilter;
   clusterOpts?: ClusterOptions;
+  /**
+   * Candidats fournis de l'extérieur, court-circuitant l'étage 1.
+   *
+   * Sert au réservoir glissant : l'appelant accumule les candidats de plusieurs
+   * séances puis les passe ici. Le reste du pipeline est strictement inchangé, ce
+   * qui garantit que les deux leviers du plan factoriel sont bien indépendants.
+   */
+  candidates?: Candidate[];
 }
 
 export interface RunScanOutput {
@@ -580,12 +657,14 @@ export interface RunScanOutput {
 export function runScan(input: RunScanInput): RunScanOutput {
   const { series, isControl, deps, filter = DEFAULT_FILTER, clusterOpts = DEFAULT_CLUSTER } = input;
 
-  const candidateSeries: Record<string, Bar[]> = {};
-  for (const [ticker, bars] of Object.entries(series)) {
-    if (!isControl(ticker)) candidateSeries[ticker] = bars;
+  let candidates = input.candidates;
+  if (!candidates) {
+    const candidateSeries: Record<string, Bar[]> = {};
+    for (const [ticker, bars] of Object.entries(series)) {
+      if (!isControl(ticker)) candidateSeries[ticker] = bars;
+    }
+    candidates = scanCandidates(candidateSeries, filter);
   }
-
-  const candidates = scanCandidates(candidateSeries, filter);
   const { inputs, dropped } = buildClusterInputs(candidates, series, deps);
   return { clusters: findClusters(inputs, clusterOpts), candidates, dropped };
 }

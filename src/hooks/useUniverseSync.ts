@@ -6,7 +6,7 @@ import {
   replaceScannerUniverse,
   markUniverseFetch,
   upsertPriceBars,
-  fetchLatestBarDates,
+  fetchBarDateBounds,
   prunePriceBars,
 } from '../lib/db';
 import {
@@ -73,10 +73,13 @@ export function useUniverseSync() {
       }
 
       const today = toDateString(Date.now() / 1000);
-      const latest = await fetchLatestBarDates();
+      const bounds = await fetchBarDateBounds();
 
       const plan = universe
-        .map(u => ({ ticker: u.ticker, range: rangeFor(latest[u.ticker], today) }))
+        .map(u => ({
+          ticker: u.ticker,
+          range: rangeFor(bounds[u.ticker]?.latest, today, bounds[u.ticker]?.earliest),
+        }))
         .filter((p): p is { ticker: string; range: string } => p.range != null);
       const skipped = universe.length - plan.length;
 

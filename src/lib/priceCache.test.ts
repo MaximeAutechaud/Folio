@@ -63,6 +63,14 @@ describe('rangeFor', () => {
     expect(rangeFor(undefined, '2026-07-26')).toBe('2y');
   });
 
+  it('cache frais mais trop peu profond → complète à deux ans', () => {
+    expect(rangeFor('2026-07-24', '2026-07-26', '2025-07-25')).toBe('2y');
+  });
+
+  it('cache frais et profond → aucune requête', () => {
+    expect(rangeFor('2026-07-24', '2026-07-26', '2024-07-25')).toBeNull();
+  });
+
   it('deja a jour → null, aucune requete', () => {
     expect(rangeFor('2026-07-24', '2026-07-24')).toBeNull();
   });

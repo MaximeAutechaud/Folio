@@ -3,19 +3,19 @@ import { fetchAllPriceBars, fetchScannerUniverse } from '../lib/db';
 import { toBars } from '../lib/priceCache';
 import { MARKET_TICKER, sectorEtf } from '../lib/universe';
 import {
-  runScan,
-  DEFAULT_FILTER,
   type Bar,
-  type Candidate,
-  type Cluster,
-  type CandidateFilter,
 } from '../lib/scanner';
+import {
+  runAccelerationPoc,
+  type AccelerationCandidate,
+  type AccelerationCluster,
+} from '../lib/scannerAcceleration';
 
-export interface ScanMember extends Candidate {
+export interface ScanMember extends AccelerationCandidate {
   sectorId: string | null;
 }
 
-export interface ScanCluster extends Cluster {
+export interface ScanCluster extends AccelerationCluster {
   members: ScanMember[];
 }
 
@@ -43,9 +43,9 @@ const EMPTY: ScanResult = {
  * on va vouloir bouger les seuils et revoir le résultat sans re-télécharger
  * 900 séries.
  */
-export function useScanner(filter: CandidateFilter = DEFAULT_FILTER) {
+export function useScanner() {
   return useQuery<ScanResult>({
-    queryKey: ['scanner', filter],
+    queryKey: ['scanner', 'acceleration-poc-v1'],
     queryFn: async () => {
       const [rows, universe] = await Promise.all([fetchAllPriceBars(), fetchScannerUniverse()]);
       if (universe.length === 0) return EMPTY;
@@ -59,23 +59,22 @@ export function useScanner(filter: CandidateFilter = DEFAULT_FILTER) {
       const series: Record<string, Bar[]> = {};
       for (const [ticker, r] of Object.entries(rows)) series[ticker] = toBars(r);
 
-      const { clusters: raw, candidates, dropped } = runScan({
+      const { clusters: raw, candidates, dropped } = runAccelerationPoc(
         series,
-        isControl: t => isControl.has(t),
-        deps: {
+        t => isControl.has(t),
+        {
           sectorOf: t => sectorById.get(t) ?? null,
           etfOf: sectorEtf,
           marketTicker: MARKET_TICKER,
         },
-        filter,
-      });
+      );
 
       const byTicker = new Map(candidates.map(c => [c.ticker, c]));
       const clusters: ScanCluster[] = raw.map(c => ({
         ...c,
         members: c.tickers
           .map(t => ({ ...byTicker.get(t)!, sectorId: sectorById.get(t) ?? null }))
-          .sort((a, b) => b.z - a.z),
+          .sort((a, b) => b.accelerationPercentile - a.accelerationPercentile),
       }));
 
       const asOf = Object.values(rows)

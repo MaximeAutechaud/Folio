@@ -29,6 +29,9 @@ function ClusterCard({ cluster }: { cluster: ScanCluster }) {
     <div className={styles.card}>
       <div className={styles.cardHead}>
         <span className={styles.tickers}>{cluster.tickers.join('  ')}</span>
+        <span className={styles.cohesion}>
+          score {cluster.score}/100
+        </span>
         <span
           className={styles.cohesion}
           data-tooltip="Correlation residuelle moyenne entre membres, marche et secteur deja retires. Calculee sur toutes les paires, pas seulement les liens directs : une chaine n'est pas un theme."
@@ -46,10 +49,12 @@ function ClusterCard({ cluster }: { cluster: ScanCluster }) {
         <thead>
           <tr>
             <th className={styles.thLeft}>Titre</th>
-            <th data-tooltip="Ecart du dollar volume a sa mediane des 60 dernieres seances, en MAD.">z</th>
-            <th data-tooltip="Seances consecutives d'afflux. Un pic isole est un evenement, une serie est un changement de regime.">jours</th>
+            <th data-tooltip="Pic robuste du dollar volume récent face à sa médiane des 60 séances antérieures.">vol. z</th>
+            <th data-tooltip="Nombre de séances d'accélération sur les cinq dernières.">pers.</th>
             <th data-tooltip="Dollar volume median : ce qui s'echange normalement.">liquidité</th>
-            <th data-tooltip="Ecart au plus haut 52 semaines. Le filtre « naissant » : on veut l'argent qui arrive avant que le mouvement soit consomme.">vs haut</th>
+            <th data-tooltip="Volume moyen récent rapporté au dollar-volume médian de base.">régime</th>
+            <th data-tooltip="Accélération de la pente 10j face à la pente 40j, normalisée par la volatilité 20j.">accél.</th>
+            <th data-tooltip="Percentile transversal de l'accélération.">rang acc.</th>
           </tr>
         </thead>
         <tbody>
@@ -59,10 +64,12 @@ function ClusterCard({ cluster }: { cluster: ScanCluster }) {
                 <span className={styles.ticker}>{m.ticker}</span>
                 <span className={styles.memberSector}>{SECTOR_NAME.get(m.sectorId ?? '') ?? '—'}</span>
               </td>
-              <td className={styles.pos}>{m.z.toFixed(1)}</td>
-              <td>{m.streak}</td>
+              <td className={styles.pos}>{m.liquidityZ.toFixed(1)}</td>
+              <td>{m.trueDays}/5</td>
               <td className={styles.muted}>{fmtM(m.baseline)}</td>
-              <td className={styles.neg}>{m.distToHigh.toFixed(0)}%</td>
+              <td className={styles.pos}>×{m.liquidityRatio.toFixed(1)}</td>
+              <td className={styles.pos}>{m.normalizedAcceleration.toFixed(1)}</td>
+              <td>{Math.round(m.accelerationPercentile)}</td>
             </tr>
           ))}
         </tbody>
@@ -99,13 +106,15 @@ export function ScannerView() {
       <div className={styles.intro}>
         <p className={styles.introText}>
           Repère les groupes de titres qui <strong>bougent ensemble</strong> pour une raison qui
-          n'est ni le marché ni leur secteur, et où l'argent arrive depuis plusieurs séances.
+          n'est ni le marché ni leur secteur, et entrent ensemble dans une phase
+          d'accélération relative confirmée par la liquidité.
           C'est l'entrée de découverte qui manque à l'étage narrative : un thème naissant n'a ni
           ETF, ni classification, ni récit macro — il est donc invisible depuis le haut de l'entonnoir.
         </p>
         <p className={styles.introText}>
           Un cluster est un <strong>candidat à nommer</strong>, pas une recommandation. Les titres
-          isolés ne sont volontairement pas affichés.
+          isolés ne sont volontairement pas affichés. Ce POC exige au moins trois membres,
+          une cohésion résiduelle de 0,45 et au moins trois jours d'accélération sur cinq.
         </p>
       </div>
 
@@ -177,8 +186,8 @@ export function ScannerView() {
       ) : scan.clusters.length === 0 ? (
         <div className={styles.empty}>
           <strong>Aucun cluster détecté.</strong><br />
-          {scan.candidateCount} titres en afflux de liquidité sur {scan.scanned} scannés, mais
-          aucun groupe d'au moins 4 titres corrélés une fois le marché et les secteurs retirés.
+          {scan.candidateCount} accélérations qualifiées sur {scan.scanned} titres scannés, mais
+          aucun groupe d'au moins 3 titres suffisamment cohérent une fois le marché et les secteurs retirés.
           <div className={styles.emptyNote}>
             C'est un résultat, pas une panne : la plupart du temps il ne naît pas de narrative.
             Un scanner qui trouve quelque chose tous les jours ne trouve rien.
@@ -188,7 +197,7 @@ export function ScannerView() {
         <>
           <div className={styles.summary}>
             <strong>{scan.clusters.length}</strong> cluster{scan.clusters.length > 1 ? 's' : ''} ·{' '}
-            {scan.candidateCount} titres en afflux sur {scan.scanned} scannés
+            {scan.candidateCount} accélérations qualifiées sur {scan.scanned} titres scannés
             {scan.droppedCount > 0 && (
               <span
                 className={styles.muted}

@@ -67,8 +67,16 @@ export function lastExpectedSession(today: string): string {
  * déjà connue est simplement ré-écrite par l'upsert, alors qu'un trou laissé
  * béant fausse silencieusement toutes les fenêtres glissantes qui le traversent.
  */
-export function rangeFor(latest: string | undefined, today: string): string | null {
+export function rangeFor(
+  latest: string | undefined,
+  today: string,
+  earliest?: string,
+): string | null {
   if (!latest) return '2y';
+  // Un cache peut être frais mais trop peu profond. Ne regarder que MAX(date)
+  // laissait un historique d'un an « à jour » pour toujours malgré la
+  // rétention de deux ans.
+  if (earliest && daysBetween(earliest, today) < 500) return '2y';
   if (latest >= lastExpectedSession(today)) return null; // rien de nouveau à attendre
 
   const gap = daysBetween(latest, today);

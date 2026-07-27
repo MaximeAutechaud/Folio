@@ -1283,6 +1283,16 @@ export async function fetchLatestBarDates(): Promise<Record<string, string>> {
   return Object.fromEntries(rows.map(r => [r.ticker, r.d]));
 }
 
+/** Première et dernière dates connues — la profondeur compte autant que la fraîcheur. */
+export async function fetchBarDateBounds(): Promise<Record<string, { earliest: string; latest: string }>> {
+  const db = await getDb();
+  const rows = await db.select<{ ticker: string; earliest: string; latest: string }[]>(
+    `SELECT ticker, MIN(date) AS earliest, MAX(date) AS latest
+     FROM price_bars GROUP BY ticker`
+  );
+  return Object.fromEntries(rows.map(r => [r.ticker, { earliest: r.earliest, latest: r.latest }]));
+}
+
 export async function fetchPriceBars(ticker: string): Promise<PriceBarRow[]> {
   const db = await getDb();
   return db.select<PriceBarRow[]>(

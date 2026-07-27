@@ -9,6 +9,8 @@ import {
   findClusters,
   buildClusterInputs,
   isBreakout,
+  barsSinceBreakout,
+  poolCandidates,
   DEFAULT_FILTER,
   DEFAULT_CLUSTER,
   type Bar,
@@ -202,6 +204,90 @@ describe('isBreakout', () => {
     // plus haut d une fenetre qui l inclut, donc aucune cassure ne sortirait.
     const v = base(400, 1.02).map(b => b.value);
     expect(Math.max(...v.slice(-P.pivotBars - 1, -1))).toBeLessThan(v[v.length - 1]);
+  });
+});
+
+describe('barsSinceBreakout — levier B', () => {
+  const P = { ...DEFAULT_FILTER.breakout, freshness: 'recency' as const };
+
+  /** Base plate de `n` séances a 100, puis `apres` séances au-dessus du pivot. */
+  function casse(n: number, apres: number, pas = 1): number[] {
+    const v = Array.from({ length: n }, (_, i) => 100 + (i % 7) * 0.3);
+    const pivot = Math.max(...v.slice(-P.pivotBars));
+    for (let j = 1; j <= apres; j++) v.push(pivot * (1 + (pas * j) / 100));
+    return v;
+  }
+
+  it('compte les seances depuis le franchissement, pas depuis l etat', () => {
+    // Un titre reste « au-dessus de son pivot » pendant toute la hausse : tester
+    // l etat ne daterait rien, c est la transition qu on cherche.
+    expect(barsSinceBreakout(casse(400, 1), P)).toBe(0);
+    expect(barsSinceBreakout(casse(400, 4), P)).toBe(3);
+    expect(barsSinceBreakout(casse(400, 9), P)).toBe(8);
+  });
+
+  it('Infinity au-dela de la fenetre examinee', () => {
+    expect(barsSinceBreakout(casse(400, 30), P)).toBe(Infinity);
+  });
+
+  it('la vitesse du mouvement ne change pas l anciennete — tout l interet du levier', () => {
+    // La zone d achat des 5 % laissait 10 seances a un titre lent et une seule a
+    // un titre rapide. L anciennete, elle, est identique.
+    expect(barsSinceBreakout(casse(400, 5, 0.4), P)).toBe(4);   // +0,4 %/j
+    expect(barsSinceBreakout(casse(400, 5, 3.0), P)).toBe(4);   // +3 %/j
+  });
+
+  it('un gap passe en anciennete, pas en zone d achat', () => {
+    // Un saut en UNE seance : c est le seul cas ou la zone d achat rejette
+    // vraiment. Sur une montee progressive elle ne rejette rien — voir le test
+    // suivant, qui documente cette limite.
+    const gap = casse(400, 1, 30);
+    const s = bars(gap, new Array(gap.length).fill(100_000));
+    expect(isBreakout(s, { ...DEFAULT_FILTER.breakout, freshness: 'buyZone' })).toBe(false);
+    expect(isBreakout(s, P)).toBe(true);
+  });
+
+  it('LIMITE : la zone d achat ne date rien sur une montee progressive', () => {
+    // Le pivot etant un maximum GLISSANT, il vaut le plus haut d hier des le
+    // deuxieme jour de hausse. « A moins de 5 % du pivot » est donc satisfait
+    // chaque jour d une montee reguliere, quelle qu en soit l ampleur cumulee.
+    // C est pour ca que la distance au pivot ne peut pas servir de mesure de
+    // fraicheur, et que l anciennete existe.
+    const monteeLongue = casse(400, 25, 3.0);
+    const s = bars(monteeLongue, new Array(monteeLongue.length).fill(100_000));
+    const v = s.map(b => b.value);
+    const pivot = Math.max(...v.slice(-253, -1));
+    expect(v[v.length - 1] / pivot).toBeLessThan(1.05); // toujours dans la zone
+    expect(barsSinceBreakout(v, P)).toBe(Infinity);      // mais parti depuis 25 seances
+  });
+});
+
+describe('poolCandidates — levier A', () => {
+  const c = (ticker: string, z = 1) => ({ ticker, z, streak: 6, baseline: 1e7, distToHigh: 0 });
+
+  it('rassemble les candidats de plusieurs seances', () => {
+    const p = poolCandidates([[c('AAA')], [c('BBB')], [], [c('CCC')]], 20);
+    expect(p.map(x => x.ticker).sort()).toEqual(['AAA', 'BBB', 'CCC']);
+  });
+
+  it('ne remonte pas au-dela de la fenetre', () => {
+    const hist = [[c('VIEUX')], ...Array.from({ length: 20 }, () => [] as ReturnType<typeof c>[]), [c('NEUF')]];
+    expect(poolCandidates(hist, 20).map(x => x.ticker)).toEqual(['NEUF']);
+  });
+
+  it('en cas de doublon, la qualification la plus recente gagne', () => {
+    // C est elle qui decrit l etat actuel du titre.
+    const p = poolCandidates([[c('AAA', 9)], [c('AAA', 2)]], 20);
+    expect(p).toHaveLength(1);
+    expect(p[0].z).toBe(2);
+  });
+
+  it('trie par intensite, comme l etage 1', () => {
+    expect(poolCandidates([[c('BAS', 1), c('HAUT', 5)]], 20)[0].ticker).toBe('HAUT');
+  });
+
+  it('historique vide', () => {
+    expect(poolCandidates([], 20)).toEqual([]);
   });
 });
 
