@@ -1,7 +1,15 @@
-"""Télécharge un snapshot 2 ans du scanner dans un JSON temporaire.
+"""Télécharge un snapshot du scanner dans un JSON temporaire.
 
 Usage:
     python scripts/download_scanner_backtest.py OUTPUT.json
+    python scripts/download_scanner_backtest.py OUTPUT.json 2009-01-01 2024-07-24
+
+Sans dates, fenêtre de deux ans. Avec dates, `period1`/`period2` : c'est la
+forme utilisée pour le rejeu hors échantillon, où `range=2y` ne suffit pas.
+
+Les séries sont écrites en colonnes (`t`/`o`/`v`/`c`/`vol`) et non en objets par
+bougie. Sur quinze ans le format par objet dépasse les 400 Mo et met `JSON.parse`
+en limite de taille de chaîne ; en colonnes on reste autour de 150 Mo.
 
 La base Folio est ouverte en lecture seule pour récupérer l'univers. Aucune
 donnée applicative n'est modifiée. Les prix viennent du même endpoint et avec
@@ -11,6 +19,7 @@ les mêmes ajustements que `fetchScannerBars`.
 from __future__ import annotations
 
 import concurrent.futures
+import datetime as dt
 import json
 import os
 import sqlite3
@@ -19,12 +28,15 @@ import time
 import urllib.parse
 import urllib.request
 
+WINDOW = ""
+
 
 def fetch(ticker: str) -> tuple[str, list[dict], str | None]:
     url = (
         "https://query1.finance.yahoo.com/v8/finance/chart/"
         + urllib.parse.quote(ticker, safe="")
-        + "?interval=1d&range=2y&events=div%7Csplit&includeAdjustedClose=true"
+        + "?interval=1d&events=div%7Csplit&includeAdjustedClose=true"
+        + WINDOW
     )
     for attempt in range(3):
         try:
@@ -66,10 +78,32 @@ def fetch(ticker: str) -> tuple[str, list[dict], str | None]:
     return ticker, [], "unreachable"
 
 
+def epoch(day: str) -> int:
+    return int(dt.datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=dt.timezone.utc).timestamp())
+
+
+def columns(bars: list[dict]) -> dict:
+    return {
+        "t": [b["time"] for b in bars],
+        "o": [round(b["open"], 6) for b in bars],
+        "v": [round(b["value"], 6) for b in bars],
+        "c": [round(b["close"], 6) for b in bars],
+        "vol": [b["volume"] for b in bars],
+    }
+
+
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: download_scanner_backtest.py OUTPUT.json", file=sys.stderr)
+    global WINDOW
+    if len(sys.argv) not in (2, 4):
+        print(
+            "usage: download_scanner_backtest.py OUTPUT.json [FROM TO]",
+            file=sys.stderr,
+        )
         return 2
+    if len(sys.argv) == 4:
+        WINDOW = f"&period1={epoch(sys.argv[2])}&period2={epoch(sys.argv[3])}"
+    else:
+        WINDOW = "&range=2y"
     output = os.path.abspath(sys.argv[1])
     db_path = os.path.join(os.environ["APPDATA"], "com.folio.app", "folio-dev.db")
     db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -98,8 +132,17 @@ def main() -> int:
 
     os.makedirs(os.path.dirname(output), exist_ok=True)
     with open(output, "w", encoding="utf-8") as handle:
-        json.dump({"universe": universe, "series": series, "errors": errors}, handle)
-    print(f"écrit: {output}")
+        json.dump(
+            {
+                "format": "columns",
+                "universe": universe,
+                "series": {k: columns(v) for k, v in series.items()},
+                "errors": errors,
+            },
+            handle,
+        )
+    total = sum(len(v) for v in series.values())
+    print(f"écrit: {output} — {total} bougies")
     return 0
 
 

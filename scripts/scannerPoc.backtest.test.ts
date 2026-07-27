@@ -5,10 +5,39 @@ import { runAccelerationPoc } from '../src/lib/scannerAcceleration';
 import { sectorEtf, MARKET_TICKER } from '../src/lib/universe';
 import type { Bar } from '../src/lib/scanner';
 
+interface Columns {
+  t: number[];
+  o: number[];
+  v: number[];
+  c: number[];
+  vol: number[];
+}
+
 interface Snapshot {
+  format?: 'columns';
   universe: { ticker: string; sectorId: string | null; source: string }[];
-  series: Record<string, Bar[]>;
+  series: Record<string, Bar[] | Columns>;
   errors: Record<string, string>;
+}
+
+/**
+ * Les snapshots longs sont écrits en colonnes : sur quinze ans, un objet par
+ * bougie dépasse les 400 Mo et met `JSON.parse` en limite de taille de chaîne.
+ * Les snapshots courts restent au format historique.
+ */
+function toBars(snapshot: Snapshot): Record<string, Bar[]> {
+  if (snapshot.format !== 'columns') return snapshot.series as Record<string, Bar[]>;
+  const out: Record<string, Bar[]> = {};
+  for (const [ticker, col] of Object.entries(snapshot.series as Record<string, Columns>)) {
+    out[ticker] = col.t.map((time, i) => ({
+      time,
+      open: col.o[i],
+      value: col.v[i],
+      close: col.c[i],
+      volume: col.vol[i],
+    }));
+  }
+  return out;
 }
 
 const snapshotPath = process.env.SCANNER_BACKTEST_SNAPSHOT;
@@ -31,8 +60,19 @@ function median(values: number[]): number | null {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+/** Index temps → position, construit une fois par série. */
+const barIndex = new WeakMap<Bar[], Map<number, number>>();
+function indexOfTime(bars: Bar[], time: number): number {
+  let index = barIndex.get(bars);
+  if (!index) {
+    index = new Map(bars.map((b, i) => [b.time, i]));
+    barIndex.set(bars, index);
+  }
+  return index.get(time) ?? -1;
+}
+
 function perf(bars: Bar[], entryTime: number, horizon: number): number | null {
-  const i = bars.findIndex(b => b.time === entryTime);
+  const i = indexOfTime(bars, entryTime);
   if (i < 0 || i + 1 + horizon >= bars.length) return null;
   const entry = bars[i + 1].open;
   const exit = bars[i + 1 + horizon].value;
@@ -99,11 +139,13 @@ function forwardSummary(values: (number | null)[]) {
 }
 
 describe.skipIf(!snapshotPath)(`backtest scanner POC ${mode} sur snapshot réel`, () => {
-  it('rejoue exactement le pipeline et rapporte les épisodes', { timeout: 180_000 }, () => {
+  // Le rejeu hors échantillon couvre ~3 600 séances contre 199 en in-sample.
+  it('rejoue exactement le pipeline et rapporte les épisodes', { timeout: 3_600_000 }, () => {
     const snapshot = JSON.parse(fs.readFileSync(snapshotPath!, 'utf8')) as Snapshot;
+    const series = toBars(snapshot);
     const sectorByTicker = new Map(snapshot.universe.map(x => [x.ticker, x.sectorId]));
     const controls = new Set(snapshot.universe.filter(x => x.source === 'control').map(x => x.ticker));
-    const spy = snapshot.series[MARKET_TICKER] ?? [];
+    const spy = series[MARKET_TICKER] ?? [];
     expect(spy.length).toBeGreaterThan(300);
 
     const sessions = spy.slice(260, -41);
@@ -126,14 +168,26 @@ describe.skipIf(!snapshotPath)(`backtest scanner POC ${mode} sur snapshot réel`
     let totalRawCandidates = 0;
     let totalReferenceUniverse = 0;
 
+    // Fenêtre d'historique remise au moteur à chaque séance. Constante par
+    // choix : le moteur ne regarde jamais au-delà de ~330 séances (260 de
+    // profondeur minimale, 250 d'estimation des bêtas, 120 pour le plus haut),
+    // et une fenêtre qui grandit ferait dépendre le résultat de la longueur du
+    // snapshot. Rend aussi le coût par séance indépendant de la période.
+    const WINDOW = 400;
+    // Les séries sont croissantes : un curseur par ticker avance avec les
+    // séances au lieu de refiltrer toute l'histoire à chaque fois. Sur quinze
+    // ans le filtre complet coûterait des milliards d'opérations.
+    const cursors = new Map<string, number>();
+    for (const ticker of Object.keys(series)) cursors.set(ticker, 0);
+
     for (let sessionIndex = 0; sessionIndex < sessions.length; sessionIndex++) {
       const session = sessions[sessionIndex];
       const truncated: Record<string, Bar[]> = {};
-      for (const [ticker, bars] of Object.entries(snapshot.series)) {
-        // Les séries sont croissantes et courtes (~500 barres) : la copie
-        // bornée reste plus simple et assez rapide pour ce harnais ponctuel.
-        const cut = bars.filter(b => b.time <= session.time);
-        if (cut.length) truncated[ticker] = cut;
+      for (const [ticker, bars] of Object.entries(series)) {
+        let end = cursors.get(ticker)!;
+        while (end < bars.length && bars[end].time <= session.time) end++;
+        cursors.set(ticker, end);
+        if (end) truncated[ticker] = bars.slice(Math.max(0, end - WINDOW), end);
       }
       const deps = {
         marketTicker: MARKET_TICKER,
@@ -172,8 +226,8 @@ describe.skipIf(!snapshotPath)(`backtest scanner POC ${mode} sur snapshot réel`
           date: new Date(session.time * 1000).toISOString().slice(0, 10),
           time: session.time,
           cluster,
-          j20: clusterRelPerf(cluster, snapshot.series, session.time, 20),
-          j40: clusterRelPerf(cluster, snapshot.series, session.time, 40),
+          j20: clusterRelPerf(cluster, series, session.time, 20),
+          j40: clusterRelPerf(cluster, series, session.time, 40),
           lastSeenSession: sessionIndex,
           pool,
           universe,
@@ -197,7 +251,7 @@ describe.skipIf(!snapshotPath)(`backtest scanner POC ${mode} sur snapshot réel`
     const perfCache = new Map<string, number | null>();
     function cachedPerf(ticker: string, time: number, horizon: number): number | null {
       const key = `${ticker}|${time}|${horizon}`;
-      if (!perfCache.has(key)) perfCache.set(key, perf(snapshot.series[ticker] ?? [], time, horizon));
+      if (!perfCache.has(key)) perfCache.set(key, perf(series[ticker] ?? [], time, horizon));
       return perfCache.get(key)!;
     }
     function basketRelPerf(tickers: string[], time: number, horizon: number): number | null {
@@ -273,7 +327,7 @@ describe.skipIf(!snapshotPath)(`backtest scanner POC ${mode} sur snapshot réel`
     const confirmed = episodes.filter(e => e.cluster.score >= 80);
     const report = {
       source: {
-        instruments: Object.keys(snapshot.series).length,
+        instruments: Object.keys(series).length,
         unresolved: Object.keys(snapshot.errors).length,
         spyBars: spy.length,
         from: new Date(spy[0].time * 1000).toISOString().slice(0, 10),

@@ -55,6 +55,11 @@ export const ACCELERATION_POC = {
     bars: 15,
   },
   cluster: {
+    // Profondeur d'estimation des bêtas résiduels. Constante par choix : sans
+    // borne, elle vaut « toute l'histoire fournie par l'appelant », soit 261 à
+    // 459 séances selon le moment du rejeu, et deux rejeux de longueurs
+    // différentes cessent de mesurer la même chose. 250 ≈ un an.
+    residualBars: 250,
     correlationBars: 60,
     minPairCorrelation: 0.40,
     minCohesion: 0.45,
@@ -361,7 +366,9 @@ export function runAccelerationPoc(
     if (!stock.length) continue;
     const current = accelerationAt(stock, market, sector, stock[stock.length - 1].time);
     if (!current) continue;
-    const residual = alignedResidualReturns(stock, market, sector);
+    const residual = alignedResidualReturns(
+      stock, market, sector, ACCELERATION_POC.cluster.residualBars,
+    );
     measured.push({
       ticker,
       stock,
@@ -394,8 +401,9 @@ export function runAccelerationPoc(
   for (const c of candidates) {
     const sectorId = deps.sectorOf(c.ticker)!;
     const etf = deps.etfOf(sectorId)!;
-    const r = alignedResidualReturns(series[c.ticker], market, series[etf] ?? [])
-      .slice(-ACCELERATION_POC.cluster.correlationBars);
+    const r = alignedResidualReturns(
+      series[c.ticker], market, series[etf] ?? [], ACCELERATION_POC.cluster.residualBars,
+    ).slice(-ACCELERATION_POC.cluster.correlationBars);
     residuals.set(c.ticker, r);
     inputs.push({ ticker: c.ticker, sectorId, residuals: r.map(x => x.value) });
   }

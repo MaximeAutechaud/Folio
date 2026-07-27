@@ -1,9 +1,13 @@
 # POC scanner d'accélération post-cassure
 
 **Branche :** `poc-scanner-breakouts`  
-**Statut :** variante v2 élargie, destinée à produire des pistes de réflexion.  
+**Statut :** **invalidé hors échantillon.** Le rejeu 2009-2024 ne montre aucune
+valeur prédictive, ni pour l'écran d'accélération ni pour le clustering. Voir
+`POC-SCANNER-ACCELERATION-BACKTEST.md`. Ce document reste la description exacte
+de ce qui a été testé.  
 **Dernière révision :** 27 juillet 2026 — correction des deux critères de
-grappe tautologiques et du dénominateur des percentiles.
+grappe tautologiques, du dénominateur des percentiles et de la fenêtre
+d'estimation des bêtas.
 
 ## Hypothèse
 
@@ -77,6 +81,7 @@ dire et restent à recalibrer.
 
 ### Cluster
 
+- fenêtre d'estimation des bêtas résiduels : 250 séances ;
 - corrélation résiduelle : 60 séances ;
 - lien minimal : 0,40 ;
 - cohésion minimale : 0,45 ;
@@ -101,6 +106,15 @@ sont corrigés :
 
 La largeur d'accélération pèse 15 % du score : tant qu'elle valait 1, ces 15
 points étaient une constante ajoutée à toutes les grappes.
+
+**Fenêtre d'estimation.** `alignedResiduals` régressait sur toute la série
+fournie par l'appelant : la profondeur d'estimation des bêtas valait donc « ce
+que le contexte d'appel avait sous la main » — 261 à 459 séances selon le moment
+du rejeu, quinze ans sur un snapshot long. Deux rejeux de longueurs différentes
+ne mesuraient pas la même chose. La fenêtre est désormais bornée à 250 séances,
+passée explicitement par le moteur d'accélération. Le comportement du moteur de
+cassure est inchangé : sans borne, `alignedResidualReturns` garde sa sémantique
+d'origine.
 
 Le score sert uniquement au tri. Aucun seuil d'affichage ou d'alerte n'est
 déclaré avant validation.

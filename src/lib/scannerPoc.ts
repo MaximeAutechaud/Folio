@@ -179,12 +179,14 @@ function alignThree(stock: Bar[], market: Bar[], sector: Bar[]): AlignedPoint[] 
   return out;
 }
 
-function alignedResiduals(points: AlignedPoint[]): { time: number; value: number }[] {
+function alignedResiduals(
+  points: AlignedPoint[], maxBars?: number,
+): { time: number; value: number }[] {
   if (points.length < 3) return [];
-  const stock: number[] = [];
-  const market: number[] = [];
-  const sector: number[] = [];
-  const times: number[] = [];
+  let stock: number[] = [];
+  let market: number[] = [];
+  let sector: number[] = [];
+  let times: number[] = [];
   for (let i = 1; i < points.length; i++) {
     const prev = points[i - 1];
     const cur = points[i];
@@ -197,15 +199,28 @@ function alignedResiduals(points: AlignedPoint[]): { time: number; value: number
     sector.push(((cur.sector - prev.sector) / prev.sector) * 100);
     times.push(cur.time);
   }
+  // Sans borne, les bêtas sont estimés sur toute l'histoire fournie par
+  // l'appelant : la profondeur d'estimation dépend alors du contexte d'appel,
+  // et deux rejeux de longueurs différentes ne mesurent plus la même chose.
+  if (maxBars != null && times.length > maxBars) {
+    stock = stock.slice(-maxBars);
+    market = market.slice(-maxBars);
+    sector = sector.slice(-maxBars);
+    times = times.slice(-maxBars);
+  }
   const residuals = residualize(stock, market, sector);
   return residuals.map((value, i) => ({ time: times[i], value }));
 }
 
-/** Rendements résiduels joints par timestamp, exposés pour la non-régression. */
+/**
+ * Rendements résiduels joints par timestamp, exposés pour la non-régression.
+ * `maxBars` borne la fenêtre d'estimation des bêtas ; sans lui, comportement
+ * historique inchangé (toute la série fournie).
+ */
 export function alignedResidualReturns(
-  stock: Bar[], market: Bar[], sector: Bar[],
+  stock: Bar[], market: Bar[], sector: Bar[], maxBars?: number,
 ): { time: number; value: number }[] {
-  return alignedResiduals(alignThree(stock, market, sector));
+  return alignedResiduals(alignThree(stock, market, sector), maxBars);
 }
 
 function breakoutIndex(values: number[], pivotBars: number, maxAge: number): number {
