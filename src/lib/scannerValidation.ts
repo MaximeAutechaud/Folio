@@ -202,3 +202,84 @@ export const BIRTH_CRITERIA = {
   minDetections: 3,
   maxDetections: 60,
 } as const;
+
+/**
+ * ## RÉSULTAT du mode naissance v1 — échec, 27 juillet 2026
+ *
+ * **Zéro détection** sur le calibrage. Les deux critères échouent, et ce résultat
+ * est acquis : le mode cassure tel que spécifié ne voit pas le thème mémoire.
+ *
+ * Le diagnostic distingue deux causes indépendantes, et c'est ce qui rend
+ * l'échec instructif :
+ *
+ * 1. **Simultanéité.** 1,43 candidat par séance, alors que le clustering en exige
+ *    quatre le même jour ; seules 11 séances sur 88 en comptaient assez. Les
+ *    membres d'un thème ne cassent pas ensemble — un leader, puis les suiveurs
+ *    sur trois à quatre semaines.
+ * 2. **La règle des 5 % n'est pas un filtre de fraîcheur.** Aucun membre du
+ *    complexe mémoire n'a jamais franchi le filtre. La zone d'achat mesure **où
+ *    placer un stop**, pas depuis quand le mouvement a commencé — et le temps
+ *    qu'un titre y passe dépend entièrement de sa vitesse : ~10 séances à
+ *    +0,5 %/jour, une seule à +3 %/jour. MU montait à ~2 %/jour. La règle exclut
+ *    donc **mécaniquement les mouvements les plus violents**, soit exactement
+ *    ceux qu'on cherche. Ce n'est pas un seuil trop serré, c'est une métrique qui
+ *    mesure autre chose que ce qu'on lui demande.
+ */
+export const BIRTH_V1_OUTCOME = 'echec-0-detection-2026-07-27' as const;
+
+/**
+ * ## Plan factoriel gelé le 27 juillet 2026 — isoler laquelle fait quoi
+ *
+ * Deux corrections répondent chacune à **une** des deux causes. Testées ensemble,
+ * on saurait que « ça marche » sans savoir pourquoi, et on garderait peut-être
+ * celle qui n'apporte rien. D'où quatre passes déclarées d'avance, toutes
+ * rapportées, y compris les décevantes.
+ *
+ * ```text
+ *              base       A seul     B seul     A + B
+ * fraîcheur    zone 5 %   zone 5 %   ancienneté ancienneté
+ * réservoir    aucun      20 s.      aucun      20 s.
+ * ```
+ *
+ * ### A — réservoir glissant
+ *
+ * Un candidat reste éligible au clustering pendant `poolBars` séances après avoir
+ * qualifié. Vingt séances : le rythme auquel un thème se propage. La corrélation
+ * reste mesurée sur ses 60 séances habituelles — mutualiser ne change **que**
+ * l'entrée dans la matrice, jamais la façon de corréler.
+ *
+ * ### B — ancienneté plutôt que distance au pivot
+ *
+ * `maxBarsSincePivot` remplace `maxAbovePivot`. Les deux axes redeviennent
+ * distincts : la distance au pivot dit où placer le stop, l'ancienneté dit si on
+ * est tôt. Dix séances ≈ deux semaines, durée usuelle pendant laquelle une
+ * cassure est considérée exploitable.
+ *
+ * ### Un aveu nécessaire sur B
+ *
+ * Je sais que B ferait entrer la mémoire — MU cassait, il devenait seulement trop
+ * cher trop vite. **La détection de la mémoire n'est donc PAS un critère pour B**,
+ * seulement une observation rapportée. Un test dont je connais la réponse ne teste
+ * rien. B se juge sur le fait qu'il produise des clusters plausibles et que son
+ * effet se distingue de celui de A.
+ */
+export const FACTORIAL_PARAMS = {
+  /** A : séances pendant lesquelles un candidat reste dans le réservoir. */
+  poolBars: 20,
+  /** B : séances écoulées depuis la cassure au-delà desquelles ce n'est plus « tôt ». */
+  maxBarsSincePivot: 10,
+} as const;
+
+/**
+ * Critères, volontairement faibles et assumés comme tels.
+ *
+ * Sans thème connu à rattraper — la mémoire étant disqualifiée comme juge par
+ * l'aveu ci-dessus — il n'existe **aucun juge externe** à ce stade. Ce sont des
+ * tests de faisabilité, pas de validation. La performance ne se jugera que plus
+ * tard, sur la cartouche hors-échantillon, encore intacte.
+ */
+export const FACTORIAL_CRITERIA = {
+  minDetections: 3,
+  maxDetections: 60,
+  maxClusterSize: 12,
+} as const;

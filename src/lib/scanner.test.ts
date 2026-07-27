@@ -8,6 +8,7 @@ import {
   correlation,
   findClusters,
   buildClusterInputs,
+  isBreakout,
   DEFAULT_FILTER,
   DEFAULT_CLUSTER,
   type Bar,
@@ -133,6 +134,91 @@ describe('scanCandidates', () => {
       })(),
     });
     expect(hits[0].ticker).toBe('FORT');
+  });
+});
+
+describe('isBreakout', () => {
+  const P = DEFAULT_FILTER.breakout;
+
+  /**
+   * Base de `n` séances : oscillation serrée plus une dérive minime, pour que la
+   * MM150 soit non décroissante — la condition de régime de Weinstein. Une base
+   * purement sinusoïdale ferait osciller la moyenne et rendrait le test instable.
+   * Le dernier cours est fixé en proportion du **pivot réellement obtenu**,
+   * jamais d'une valeur devinée.
+   */
+  function base(n: number, facteurFin: number): Bar[] {
+    // Dérive linéaire faible + dent de scie a 7 séances. La dent de scie
+    // s'annule sur 150 séances (21,4 périodes), donc la MM150 est strictement
+    // croissante — condition de régime satisfaite de façon déterministe.
+    const p = Array.from({ length: n }, (_, i) => 100 * (1 + 0.08 * i / n) + (i % 7) * 0.3);
+    const pivot = Math.max(...p.slice(-P.pivotBars));
+    p.push(pivot * facteurFin);
+    return bars(p, new Array(p.length).fill(100_000));
+  }
+
+  it('serie trop courte → pas de cassure inventee', () => {
+    expect(isBreakout(base(100, 1.02), P)).toBe(false);
+  });
+
+  it('cassure nette au-dessus d une base plate', () => {
+    expect(isBreakout(base(400, 1.02), P)).toBe(true);
+  });
+
+  it('juste sous le pivot → pas de cassure', () => {
+    expect(isBreakout(base(400, 0.999), P)).toBe(false);
+  });
+
+  it('trop loin au-dessus du pivot → deja parti, c est la regle des 5 %', () => {
+    // La condition qui DATE l entree : sans elle, « au-dessus du pivot » resterait
+    // vrai pendant toute la hausse et on retomberait sur des detections tardives.
+    expect(isBreakout(base(400, 1.051), P)).toBe(false);
+    // et la borne elle-meme est bien a 5 %
+    expect(isBreakout(base(400, 1.049), P)).toBe(true);
+  });
+
+  it('base trop profonde → ce n est pas une accumulation', () => {
+    // Chute de 60 % puis rebond : le cours revient au sommet, mais rien
+    // d une base d accumulation.
+    const n = 400;
+    const p: number[] = [];
+    for (let i = 0; i < n; i++) {
+      p.push(i < n - 120 ? 100 : i < n - 60 ? 40 : 40 + (100 - 40) * ((i - (n - 60)) / 60));
+    }
+    p.push(103);
+    expect(isBreakout(bars(p, new Array(p.length).fill(100_000)), P)).toBe(false);
+  });
+
+  it('moyenne de regime encore baissiere → rebond, pas etape 2', () => {
+    // Cours en baisse reguliere, puis un sursaut : la MM150 baisse toujours.
+    const n = 400;
+    const p = Array.from({ length: n }, (_, i) => 200 - i * 0.3);
+    p.push(p[n - 1] * 1.02);
+    expect(isBreakout(bars(p, new Array(p.length).fill(100_000)), P)).toBe(false);
+  });
+
+  it('le pivot exclut la seance en cours', () => {
+    // Sinon la comparaison serait tautologique : un cours est toujours <= au
+    // plus haut d une fenetre qui l inclut, donc aucune cassure ne sortirait.
+    const v = base(400, 1.02).map(b => b.value);
+    expect(Math.max(...v.slice(-P.pivotBars - 1, -1))).toBeLessThan(v[v.length - 1]);
+  });
+});
+
+describe('scanCandidates — modes', () => {
+  it('les deux modes s excluent : un repli n est pas une cassure', () => {
+    // Le fond du probleme : le mode pullback exige d etre SOUS le plus haut,
+    // donc il ne peut structurellement pas voir une naissance de mouvement.
+    const n = 400;
+    const p = Array.from({ length: n }, (_, i) => 100 * (1 + Math.sin(i / 9) * 0.04));
+    p[300] = 140;              // un plus haut en arriere
+    p.push(100);               // on est en repli
+    const vols = Array.from({ length: p.length }, (_, i) => 200_000 + (i % 7) * 6_000);
+    for (let i = p.length - 6; i < p.length; i++) vols[i] = 1_500_000;
+    const s = { AAA: bars(p, vols) };
+
+    expect(scanCandidates(s, DEFAULT_FILTER).map(c => c.ticker)).toEqual(['AAA']);
+    expect(scanCandidates(s, { ...DEFAULT_FILTER, mode: 'breakout' })).toEqual([]);
   });
 });
 

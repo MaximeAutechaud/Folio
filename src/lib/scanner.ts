@@ -92,7 +92,43 @@ export function liquidityStat(bars: Bar[], baseBars = 60, z = 1.0): LiquiditySta
   return { z: zOf(dv[dv.length - 1]), streak, baseline: med };
 }
 
+/**
+ * Deux façons d'être « pas encore consommé », et elles s'excluent.
+ *
+ * `pullback` — repli à l'intérieur d'un mouvement installé : le titre est sous
+ * son plus haut. C'est ce que le scanner faisait exclusivement, et ça l'empêchait
+ * structurellement de voir une naissance : une naissance **est** une cassure vers
+ * de nouveaux plus hauts, donc jamais sous son plus haut.
+ *
+ * `breakout` — sortie de base, au sens de Weinstein (étape 1 → 2) et d'O'Neil.
+ * Moins de signaux, faux départs plus fréquents, gagnants plus gros.
+ */
+export type ScanMode = 'pullback' | 'breakout';
+
+/** Paramètres du mode cassure. Valeurs figées dans `scannerValidation.ts`. */
+export interface BreakoutParams {
+  /** Le pivot est le plus haut des `pivotBars` séances précédentes. */
+  pivotBars: number;
+  /**
+   * Zone d'achat, en % au-dessus du pivot.
+   *
+   * La règle des 5 % d'O'Neil, et c'est elle qui porte tout le sens : sans
+   * plafond, « au-dessus du pivot » attraperait aussi bien une cassure du jour
+   * qu'un titre parti de 200 % depuis. C'est ce plafond qui date l'entrée.
+   */
+  maxAbovePivot: number;
+  /** Fenêtre sur laquelle est jugée la base qui précède la cassure. */
+  baseBars: number;
+  /** Profondeur de base admissible, en % de son plus haut. */
+  maxBaseDepth: number;
+  /** Moyenne mobile de régime — les 30 semaines de Weinstein. */
+  trendBars: number;
+  /** Recul sur lequel cette moyenne ne doit pas baisser. */
+  trendLookback: number;
+}
+
 export interface CandidateFilter {
+  mode: ScanMode;
   /** Séances consécutives d'afflux exigées. Un pic isolé n'est pas un afflux. */
   minStreak: number;
   /** Écart minimal à la base, en MAD. */
@@ -100,18 +136,28 @@ export interface CandidateFilter {
   /** Dollar volume médian minimal — seul filtre légitime sur l'entrée. */
   minBaseline: number;
   /**
-   * Distance minimale au plus haut 52 semaines, en %. Le filtre « naissant » :
-   * on veut l'argent qui arrive **avant** que le mouvement soit consommé, pas
-   * après. Négatif (ex. −5 signifie « au moins 5 % sous le plus haut »).
+   * Mode `pullback` : distance minimale au plus haut 52 semaines, en %.
+   * Négatif (−3 signifie « au moins 3 % sous le plus haut »).
    */
   maxProximityToHigh: number;
+  /** Mode `breakout`. */
+  breakout: BreakoutParams;
 }
 
 export const DEFAULT_FILTER: CandidateFilter = {
+  mode: 'pullback',
   minStreak: 5,
   minZ: 1.0,
   minBaseline: 5_000_000,
   maxProximityToHigh: -3,
+  breakout: {
+    pivotBars: 252,
+    maxAbovePivot: 5,
+    baseBars: 120,
+    maxBaseDepth: 35,
+    trendBars: 150,
+    trendLookback: 21,
+  },
 };
 
 export interface Candidate {
@@ -142,15 +188,63 @@ export function scanCandidates(
     if (stat.z < filter.minZ) continue;
     if (stat.baseline < filter.minBaseline) continue;
 
-    const window = bars.slice(-252);
-    const high = Math.max(...window.map(b => b.value));
     const last = bars[bars.length - 1].value;
+    const high = Math.max(...bars.slice(-252).map(b => b.value));
     const distToHigh = high > 0 ? ((last - high) / high) * 100 : 0;
-    if (distToHigh > filter.maxProximityToHigh) continue;
+
+    if (filter.mode === 'pullback') {
+      if (distToHigh > filter.maxProximityToHigh) continue;
+    } else if (!isBreakout(bars, filter.breakout)) {
+      continue;
+    }
 
     out.push({ ticker, z: stat.z, streak: stat.streak, baseline: stat.baseline, distToHigh });
   }
   return out.sort((a, b) => b.z - a.z);
+}
+
+/**
+ * Sortie de base au sens de Weinstein (étape 1 → 2) et d'O'Neil.
+ *
+ * Quatre conditions, dans l'ordre où elles éliminent le plus :
+ *
+ * 1. **Cassure** — le cours dépasse le plus haut des `pivotBars` séances
+ *    précédentes. Le pivot exclut la séance en cours, sinon la comparaison est
+ *    tautologique (un cours est toujours ≤ au plus haut qui l'inclut).
+ * 2. **Zone d'achat** — pas plus de `maxAbovePivot` % au-dessus de ce pivot.
+ *    C'est la condition qui **date** l'entrée : sans elle, « au-dessus du pivot »
+ *    serait vrai pendant toute la hausse qui suit, et on retomberait sur des
+ *    détections tardives.
+ * 3. **Base** — le range des `baseBars` séances précédentes reste dans
+ *    `maxBaseDepth` %. Un titre qui a chuté de 60 % puis rebondi n'est pas en
+ *    train de sortir d'une base d'accumulation.
+ * 4. **Régime** — cours au-dessus de la moyenne mobile de régime, et cette
+ *    moyenne qui ne baisse plus. C'est ce qui distingue une étape 2 naissante
+ *    d'un rebond technique dans une tendance encore baissière.
+ */
+export function isBreakout(bars: Bar[], p: BreakoutParams): boolean {
+  const need = Math.max(p.pivotBars, p.baseBars, p.trendBars + p.trendLookback) + 1;
+  if (bars.length < need) return false;
+
+  const v = bars.map(b => b.value);
+  const last = v[v.length - 1];
+
+  const pivot = Math.max(...v.slice(-p.pivotBars - 1, -1));
+  if (!(last > pivot)) return false;
+  if (last > pivot * (1 + p.maxAbovePivot / 100)) return false;
+
+  const base = v.slice(-p.baseBars - 1, -1);
+  const hi = Math.max(...base);
+  const lo = Math.min(...base);
+  if (hi <= 0 || ((hi - lo) / hi) * 100 > p.maxBaseDepth) return false;
+
+  const ma = (end: number) => {
+    const w = v.slice(end - p.trendBars, end);
+    return w.reduce((a, b) => a + b, 0) / w.length;
+  };
+  const maNow = ma(v.length);
+  const maBefore = ma(v.length - p.trendLookback);
+  return last > maNow && maNow >= maBefore;
 }
 
 // ── Étage 3 : résidualisation ────────────────────────────────────────────────
