@@ -81,7 +81,7 @@ const YAHOO_RANGE: Record<string, { range: string; interval: string }> = {
   '2Y_daily': { range: '2y',  interval: '1d' },
 };
 
-export async function fetchYahooHistory(ticker: string, period: string): Promise<{ time: number; value: number }[]> {
+export async function fetchYahooHistory(ticker: string, period: string): Promise<{ time: number; value: number; volume: number | null }[]> {
   const { range, interval } = YAHOO_RANGE[period] ?? YAHOO_RANGE['1M'];
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${range}`;
   const raw: string = await invoke('fetch_url', { url });
@@ -90,9 +90,10 @@ export async function fetchYahooHistory(ticker: string, period: string): Promise
   if (!result) return [];
   const timestamps: number[] = result.timestamp ?? [];
   const closes: (number | null)[] = result.indicators?.quote?.[0]?.close ?? [];
-  const points: { time: number; value: number }[] = [];
+  const volumes: (number | null)[] = result.indicators?.quote?.[0]?.volume ?? [];
+  const points: { time: number; value: number; volume: number | null }[] = [];
   for (let i = 0; i < timestamps.length; i++) {
-    if (closes[i] != null) points.push({ time: timestamps[i], value: closes[i]! });
+    if (closes[i] != null) points.push({ time: timestamps[i], value: closes[i]!, volume: volumes[i] ?? null });
   }
   return points;
 }

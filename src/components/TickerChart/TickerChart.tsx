@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   createChart, ColorType, LineStyle,
-  AreaSeries, LineSeries,
+  AreaSeries, LineSeries, HistogramSeries,
   type LogicalRange,
 } from 'lightweight-charts';
 import { fetchYahooHistory, detectCurrency } from '../../lib/api/yahoo';
@@ -73,6 +73,7 @@ export function TickerChart({ ticker, assetType, name, entryPrice, currency }: P
       time: p.time,
       value: p.value,
       marketCap: 'marketCap' in p ? (p.marketCap as number | null) : null,
+      volume: 'volume' in p ? (p.volume as number | null) : null,
     })),
     [data]
   );
@@ -121,6 +122,26 @@ export function TickerChart({ ticker, assetType, name, entryPrice, currency }: P
         title: 'PRU',
         axisLabelVisible: true,
       });
+    }
+
+    const volumeData = convertedData.filter(p => p.volume != null);
+    if (volumeData.length > 0) {
+      const volumeSeries = chart.addSeries(HistogramSeries, {
+        priceFormat: { type: 'volume' },
+        priceScaleId: 'volume',
+        color: '#3b82f6',
+      });
+      chart.priceScale('volume').applyOptions({
+        scaleMargins: { top: 0.85, bottom: 0 },
+      });
+      let prevClose: number | null = null;
+      volumeSeries.setData(volumeData.map(p => {
+        const color = prevClose != null && p.value < prevClose
+          ? 'rgba(248, 81, 73, 0.3)'
+          : 'rgba(63, 185, 80, 0.3)';
+        prevClose = p.value;
+        return { time: p.time as TS, value: p.volume!, color };
+      }));
     }
 
     if (mcapData.length > 0) {

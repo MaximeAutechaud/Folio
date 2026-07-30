@@ -41,6 +41,7 @@ export interface CryptoHistoryPoint {
   time: number;
   value: number;
   marketCap: number | null;
+  volume: number | null;
 }
 
 export async function fetchCryptoHistory(id: string, period: string): Promise<CryptoHistoryPoint[]> {
@@ -50,10 +51,12 @@ export async function fetchCryptoHistory(id: string, period: string): Promise<Cr
   const data = JSON.parse(raw);
   const prices: [number, number][] = data?.prices ?? [];
   const marketCaps: [number, number][] = data?.market_caps ?? [];
+  const volumes: [number, number][] = data?.total_volumes ?? [];
   const mcapByTs = new Map(marketCaps.map(([ts, mc]) => [Math.floor(ts / 1000), mc]));
+  const volByTs = new Map(volumes.map(([ts, v]) => [Math.floor(ts / 1000), v]));
   return prices.map(([ts, price]) => {
     const t = Math.floor(ts / 1000);
-    return { time: t, value: price, marketCap: mcapByTs.get(t) ?? null };
+    return { time: t, value: price, marketCap: mcapByTs.get(t) ?? null, volume: volByTs.get(t) ?? null };
   });
 }
 
