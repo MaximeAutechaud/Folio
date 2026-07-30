@@ -30,6 +30,10 @@ export interface MacroScoreData {
    *  d'alertes pour recalculer le macro a une date de cloture passee sans
    *  refetcher. */
   histories: Record<string, { time: number; value: number }[]>;
+  /** Renseigne quand une entree ponderee manque et a ete neutralisee a 50 :
+   *  sans ca le score garde une allure normale en etant construit sur du vide.
+   *  Affiche en tete du panneau (`MacroScorePanel`). */
+  warning?: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

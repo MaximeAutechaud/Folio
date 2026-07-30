@@ -240,6 +240,18 @@
   border-top: 1px solid var(--border);
 }
 
+/* ── Dégradation ───────────────────────────────────── */
+
+.warning {
+  padding: 7px 14px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #f0883e;
+  background: rgba(240, 136, 62, 0.08);
+  border-top: 1px solid rgba(240, 136, 62, 0.25);
+  font-family: var(--font-mono);
+}
+
 /* ── Footnote ──────────────────────────────────────── */
 
 .footnote {
