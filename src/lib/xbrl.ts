@@ -371,6 +371,21 @@ export function sharesChangeWithinFiling(
 }
 
 /**
+ * Actions en circulation a la date de couverture du dernier depot, pour le
+ * calcul de la capitalisation.
+ *
+ * Volontairement pris dans le namespace `dei` et non dans `dilutedShares` :
+ * ce dernier est une moyenne ponderee SUR l'exercice, ce qui n'a pas de sens
+ * multiplie par un cours du jour.
+ */
+export function sharesOutstanding(facts: CompanyFacts): number | null {
+  const pts = facts.facts?.dei?.EntityCommonStockSharesOutstanding?.units?.shares;
+  if (!Array.isArray(pts) || pts.length === 0) return null;
+  const latest = [...pts].sort((a, b) => a.end.localeCompare(b.end))[pts.length - 1];
+  return typeof latest?.val === 'number' ? latest.val : null;
+}
+
+/**
  * Postes de scoring non resolus d'un exercice. Sert a distinguer "test echoue"
  * de "test non calculable" : un score degrade ne doit jamais avoir l'air normal.
  *

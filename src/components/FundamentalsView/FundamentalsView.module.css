@@ -7,9 +7,40 @@
   gap: 12px;
 }
 
+/* Tooltips — pattern data-tooltip + ::after (cf. CLAUDE.md) */
+[data-tooltip] { position: relative; }
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--text-primary);
+  white-space: normal;
+  width: max-content;
+  max-width: 260px;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 20;
+}
+[data-tooltip]:hover::after { opacity: 1; }
+
 .searchRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   max-width: 520px;
 }
+
+.loading { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
 
 .notice {
   display: flex;
@@ -20,90 +51,56 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--text-muted);
 }
 .notice strong { color: var(--text-secondary); font-weight: 600; }
+.noticeIcon { flex-shrink: 0; }
 
-.noticeIcon {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
+/* ── Identite ────────────────────────────────────── */
 
-/* ── Ligne du ticker selectionne ─────────────────── */
+.identity { display: flex; flex-direction: column; gap: 2px; }
+.company { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+.sub { font-size: 11px; color: var(--text-muted); }
 
-.pickedRow {
+/* ── Verdict ─────────────────────────────────────── */
+
+.verdictCard {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.pickedTicker {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.pickedName {
-  font-size: 11px;
-  color: var(--text-muted);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.loading {
-  font-size: 11px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.copyBtn {
-  padding: 4px 10px;
-  background: none;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-family: var(--font-mono);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: color 0.15s, border-color 0.15s;
-}
-.copyBtn:hover { color: var(--text-primary); border-color: var(--text-secondary); }
-
-/* ── Messages ────────────────────────────────────── */
-
-.errorBox,
-.warnBox {
-  padding: 10px 12px;
+  border-left-width: 3px;
   border-radius: 6px;
-  font-size: 11px;
-  line-height: 1.55;
-}
-
-.errorBox {
-  background: rgba(248, 81, 73, 0.08);
-  border: 1px solid rgba(248, 81, 73, 0.3);
-  color: var(--text-secondary);
-}
-
-/* Hors perimetre n'est pas une erreur : ton neutre, jamais rouge. */
-.warnBox {
   background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  color: var(--text-muted);
 }
-.warnBox strong,
-.errorBox strong { color: var(--text-primary); font-weight: 600; }
 
-/* ── Resume ──────────────────────────────────────── */
+.vSolide     { border-left-color: var(--green); }
+.vCorrect    { border-left-color: #3b82f6; }
+.vFragile    { border-left-color: #e3b341; }
+.vDifficulte { border-left-color: var(--red); }
+.vInconnu    { border-left-color: var(--text-muted); }
 
-.summary {
+.verdictScore {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.verdictOutOf { font-size: 15px; font-weight: 500; color: var(--text-muted); }
+
+.verdictBody { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.verdictLabel { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.verdictNote { font-size: 11px; color: var(--text-muted); line-height: 1.45; }
+
+/* ── Detail des tests ────────────────────────────── */
+
+.testGroups {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 1px;
   background: var(--border);
   border: 1px solid var(--border);
@@ -111,7 +108,134 @@
   overflow: hidden;
 }
 
-.summaryItem {
+.testGroup {
+  background: var(--bg-secondary);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.testGroupTitle {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.testRow { display: flex; align-items: baseline; gap: 7px; font-size: 11px; }
+
+.markOk { color: var(--green); font-weight: 700; width: 10px; flex-shrink: 0; }
+.markKo { color: var(--red);   font-weight: 700; width: 10px; flex-shrink: 0; }
+.markNa { color: var(--text-muted); opacity: 0.5; width: 10px; flex-shrink: 0; }
+
+.testLabel   { color: var(--text-primary); }
+.testLabelNa { color: var(--text-muted); opacity: 0.6; }
+
+.naTag {
+  font-size: 9px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  font-style: italic;
+}
+
+/* ── Encarts ─────────────────────────────────────── */
+
+.errorBox, .warnBox, .flagBox {
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.errorBox {
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  color: var(--text-secondary);
+}
+/* Hors perimetre ou non applicable : ton neutre, jamais rouge. */
+.warnBox {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.flagBox {
+  background: rgba(227, 179, 65, 0.08);
+  border: 1px solid rgba(227, 179, 65, 0.3);
+  color: var(--text-secondary);
+}
+.errorBox strong, .warnBox strong, .flagBox strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ── Historique ──────────────────────────────────── */
+
+.history {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.historyLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+
+.historyItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.historyYear { font-size: 9px; color: var(--text-muted); }
+.historyScore { font-size: 11px; font-weight: 600; color: var(--text-primary); }
+
+/* ── Contexte ────────────────────────────────────── */
+
+.sectionTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.sectionNote {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.75;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.metric {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -119,26 +243,56 @@
   background: var(--bg-secondary);
 }
 
-.summaryLabel {
+.metricLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.metricValue {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+/* ── Lecture marche ──────────────────────────────── */
+
+.marketRead {
+  padding: 9px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.marketRead strong { color: var(--text-primary); font-weight: 600; }
+
+.marketReadLabel {
+  display: block;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
+  margin-bottom: 3px;
+}
+
+/* ── JSON brut ───────────────────────────────────── */
+
+.rawWrap { margin-top: 4px; }
+
+.rawSummary {
+  font-size: 10px;
   color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 0;
 }
-
-.summaryValue {
-  font-size: 12px;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ── Sortie JSON ─────────────────────────────────── */
+.rawSummary:hover { color: var(--text-primary); }
 
 .json {
-  margin: 0;
+  margin: 6px 0 0;
   padding: 12px 14px;
   background: var(--bg-primary);
   border: 1px solid var(--border);
@@ -149,6 +303,6 @@
   color: var(--text-secondary);
   overflow-x: auto;
   white-space: pre;
-  max-height: 60vh;
+  max-height: 50vh;
   overflow-y: auto;
 }

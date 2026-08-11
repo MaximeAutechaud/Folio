@@ -7,7 +7,15 @@ import {
   type CikEntry,
   type CompanyProfile,
 } from '../lib/api/sec';
-import { buildAnnualSeries, missingFields, type AnnualFigures } from '../lib/xbrl';
+import {
+  buildAnnualSeries, missingFields, sharesChangeWithinFiling, sharesOutstanding,
+  type AnnualFigures,
+} from '../lib/xbrl';
+import { computePiotroskiSeries, type PiotroskiScore } from '../lib/piotroski';
+import { computeAltman, type AltmanScore } from '../lib/altman';
+import { computeContextIndicators, type ContextIndicators } from '../lib/contextIndicators';
+import { isFinancialSic } from '../lib/sic';
+import { fetchYahooPrices } from '../lib/api/yahoo';
 import { getSetting } from '../lib/db';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -37,6 +45,22 @@ export interface FundamentalsData {
   series: AnnualFigures[];
   /** Postes non resolus, par exercice — seulement ceux qui en ont. */
   missing: Record<string, string[]>;
+
+  /**
+   * `true` pour une societe financiere : aucun score n'est calcule, et les
+   * champs de scoring restent nuls. Le bilan d'une banque ne se lit pas comme
+   * les autres — mesure sur JPMorgan : 5 postes sur 12 absents. Mieux vaut
+   * « non applicable » qu'un chiffre faux.
+   */
+  isFinancial: boolean;
+  /** Historique du F-Score, du plus ancien au plus recent. Vide si financiere. */
+  piotroski: PiotroskiScore[];
+  /** Altman sur le dernier exercice. `null` si financiere. */
+  altman: AltmanScore | null;
+  /** Indicateurs hors score sur le dernier exercice. `null` si financiere. */
+  context: ContextIndicators | null;
+  /** Cours x actions en circulation. `null` si Yahoo n'a pas repondu. */
+  marketCap: number | null;
 }
 
 /** Adresse de contact SEC, saisie dans les reglages. */
@@ -99,7 +123,32 @@ export function useFundamentals(ticker: string | null) {
         if (m.length > 0) missing[row.periodEnd] = m;
       }
 
-      return { ticker: symbol, cik: entry.cik, profile, series, missing };
+      const isFinancial = isFinancialSic(profile.sic);
+      const last = series[series.length - 1] ?? null;
+
+      // La capitalisation ne sert qu'aux ratios de valorisation et a la lecture
+      // de l'effet marche : son absence ne prive d'aucun verdict.
+      const shares = sharesOutstanding(facts);
+      let marketCap: number | null = null;
+      if (!isFinancial && shares != null) {
+        const prices = await fetchYahooPrices([symbol]).catch(
+          (): Record<string, number> => ({}),
+        );
+        const price = prices[symbol];
+        if (typeof price === 'number') marketCap = shares * price;
+      }
+
+      return {
+        ticker: symbol, cik: entry.cik, profile, series, missing,
+        isFinancial,
+        piotroski: isFinancial
+          ? []
+          : computePiotroskiSeries(series, (a, b) => sharesChangeWithinFiling(facts, a, b)),
+        altman: isFinancial || !last ? null : computeAltman({ figures: last, marketCap }),
+        context:
+          isFinancial || !last ? null : computeContextIndicators({ figures: last, marketCap }),
+        marketCap,
+      };
     },
   });
 
