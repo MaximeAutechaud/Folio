@@ -7,7 +7,7 @@ import {
   type CompanyProfile,
 } from '../lib/api/sec';
 import {
-  buildAnnualSeries, missingFields, reportingCurrency, sharesChangeWithinFiling,
+  buildAnnualSeries, reportingCurrency, sharesChangeWithinFiling,
   sharesOutstanding, type AnnualFigures,
 } from '../lib/xbrl';
 import { computePiotroskiSeries, type PiotroskiScore } from '../lib/piotroski';
@@ -80,7 +80,6 @@ export interface FundamentalsData {
   cik: string;
   profile: CompanyProfile;
   series: AnnualFigures[];
-  missing: Record<string, string[]>;
 
   isFinancial: boolean;
   piotroski: PiotroskiScore[];
@@ -203,11 +202,6 @@ export function useFundamentals(ticker: string | null) {
       }
 
       const { profile, series } = payload;
-      const missing: Record<string, string[]> = {};
-      for (const row of series) {
-        const m = missingFields(row);
-        if (m.length > 0) missing[row.periodEnd] = m;
-      }
 
       const isFinancial = isFinancialSic(profile.sic);
       const last = series[series.length - 1] ?? null;
@@ -222,7 +216,7 @@ export function useFundamentals(ticker: string | null) {
       }
 
       return {
-        ticker: symbol, cik, profile, series, missing,
+        ticker: symbol, cik, profile, series,
         isFinancial,
         piotroski: isFinancial
           ? []

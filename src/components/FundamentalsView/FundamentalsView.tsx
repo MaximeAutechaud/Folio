@@ -182,11 +182,6 @@ function Report({ data }: { data: FundamentalsData }) {
           contient que l'opinion du marché.
         </div>
       )}
-
-      <details className={styles.rawWrap}>
-        <summary className={styles.rawSummary}>Données brutes (JSON)</summary>
-        <pre className={styles.json}>{JSON.stringify(data, null, 2)}</pre>
-      </details>
     </>
   );
 }

@@ -268,32 +268,3 @@
   text-transform: uppercase;
   margin-bottom: 3px;
 }
-
-/* ── JSON brut ───────────────────────────────────── */
-
-.rawWrap { margin-top: 4px; }
-
-.rawSummary {
-  font-size: 10px;
-  color: var(--text-muted);
-  cursor: pointer;
-  user-select: none;
-  padding: 4px 0;
-}
-.rawSummary:hover { color: var(--text-primary); }
-
-.json {
-  margin: 6px 0 0;
-  padding: 12px 14px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-  overflow-x: auto;
-  white-space: pre;
-  max-height: 50vh;
-  overflow-y: auto;
-}
