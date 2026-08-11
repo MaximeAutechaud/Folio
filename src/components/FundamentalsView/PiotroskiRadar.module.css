@@ -9,6 +9,16 @@
   border-radius: 6px;
 }
 
+/* Occupe sa propre ligne dans le flex : l'explication precede les deux colonnes. */
+.caption {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.caption strong { color: var(--text-secondary); font-weight: 600; }
+
 .chartCol {
   display: flex;
   flex-direction: column;
@@ -115,6 +125,66 @@
   flex: 1 1 260px;
   max-width: 420px;
 }
+
+/* Meme gabarit de colonnes que les lignes, sinon l'en-tete ne titre rien. */
+.head {
+  display: grid;
+  grid-template-columns: 16px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.headYear { text-align: center; font-size: 8px; }
+
+.headHint {
+  position: relative;
+  border-bottom: 1px dotted var(--text-muted);
+  cursor: help;
+  justify-self: start;
+}
+
+.headRate { text-align: right; }
+
+.headCount {
+  min-width: 30px;
+  text-align: right;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+.head [data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.45;
+  color: var(--text-primary);
+  white-space: normal;
+  width: max-content;
+  max-width: 240px;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 20;
+}
+.head [data-tooltip]:hover::after { opacity: 1; }
 
 .row {
   position: relative;

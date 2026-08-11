@@ -111,6 +111,7 @@ export function PiotroskiRadar({ history }: { history: PiotroskiScore[] }) {
 
   const n = axes.length;
   const years = history.length;
+  const currentYear = history[history.length - 1].periodEnd.slice(0, 4);
 
   const historyPoints = axes.map((a, i) => polar(a.rate ?? 0, i, n).join(',')).join(' ');
   const currentPoints = axes
@@ -119,6 +120,12 @@ export function PiotroskiRadar({ history }: { history: PiotroskiScore[] }) {
 
   return (
     <div className={styles.wrap}>
+      <p className={styles.caption}>
+        Chaque test vaut <strong>0 ou 1</strong> sur l'exercice — c'est ce que compte le score.
+        Le radar montre autre chose : à quelle <strong>fréquence</strong> chaque test a été réussi
+        sur les {years} exercices disponibles.
+      </p>
+
       <div className={styles.chartCol}>
         <svg
           viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
@@ -177,14 +184,30 @@ export function PiotroskiRadar({ history }: { history: PiotroskiScore[] }) {
             <span className={styles.swatchHist} /> régularité sur {years} exercice{years > 1 ? 's' : ''}
           </span>
           <span className={styles.legendItem}>
-            <span className={styles.swatchCurrent} /> exercice {axes.length ? history[history.length - 1].periodEnd.slice(0, 4) : ''}
+            <span className={styles.swatchCurrent} /> résultat {currentYear} (0 ou 1 par test)
           </span>
         </div>
       </div>
 
       {/* Equivalent tabulaire : chaque valeur du graphique est lisible ici sans
-          survol, le survol n'etant qu'un confort. */}
+          survol, le survol n'etant qu'un confort.
+
+          L'en-tete n'est pas decoratif. Deux echelles de temps cohabitent dans
+          une meme ligne — le resultat binaire de l'exercice et la frequence de
+          reussite sur l'historique — et sans les nommer, une ligne comme
+          « x Accruals 94 % » se lit comme une contradiction. */}
       <ul className={styles.table}>
+        <li className={styles.head}>
+          <span className={styles.headYear}>{currentYear}</span>
+          <span
+            className={styles.headHint}
+            data-tooltip="Chaque test vaut 0 ou 1 sur l'exercice : c'est la coche ou la croix. Le pourcentage est autre chose — la part des exercices où le test a été réussi."
+          >
+            test
+          </span>
+          <span className={styles.headRate}>régularité</span>
+          <span className={styles.headCount}>réussis</span>
+        </li>
         {axes.map((a) => (
           <li key={a.id} className={styles.row} data-tooltip={a.fullLabel}>
             <span
