@@ -106,6 +106,17 @@ function Report({ data }: { data: FundamentalsData }) {
         <span className={styles.sub}>
           {data.ticker} · {data.profile.sicDescription || 'secteur inconnu'} ·
           {' '}{data.series.length} exercices · capitalisation {usd(data.marketCap)}
+          {' · '}
+          <span
+            className={styles.source}
+            data-tooltip={
+              data.fromCache
+                ? `Comptes en base, relus sans téléchargement. Dernière vérification le ${new Date(data.fetchedAt).toLocaleString('fr-FR')}. Le cours, lui, est toujours récupéré à chaque consultation.`
+                : `Comptes téléchargés à l'instant depuis la SEC (~4 Mo) et mis en base.`
+            }
+          >
+            {data.fromCache ? 'cache' : 'téléchargé'}
+          </span>
         </span>
       </div>
 

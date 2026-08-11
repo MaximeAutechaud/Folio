@@ -63,6 +63,11 @@
 .company { font-size: 16px; font-weight: 700; color: var(--text-primary); }
 .sub { font-size: 11px; color: var(--text-muted); }
 
+.source {
+  border-bottom: 1px dotted var(--text-muted);
+  cursor: help;
+}
+
 /* ── Verdict ─────────────────────────────────────── */
 
 .verdictCard {

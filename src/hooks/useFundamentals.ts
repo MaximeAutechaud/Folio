@@ -4,7 +4,6 @@ import {
   fetchCompanyProfile,
   fetchTickerDirectory,
   SEC_CONTACT_EMAIL_SETTING,
-  type CikEntry,
   type CompanyProfile,
 } from '../lib/api/sec';
 import {
@@ -16,15 +15,28 @@ import { computeAltman, type AltmanScore } from '../lib/altman';
 import { computeContextIndicators, type ContextIndicators } from '../lib/contextIndicators';
 import { isFinancialSic } from '../lib/sic';
 import { fetchYahooPrices } from '../lib/api/yahoo';
-import { getSetting } from '../lib/db';
+import {
+  countTickerDirectory, getCachedCompany, getSetting, lookupCik, putCachedCompany,
+  replaceTickerDirectory, touchCachedCompany, SEC_DIRECTORY_FETCHED_AT,
+} from '../lib/db';
 
-const DAY = 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Motifs d'echec distingues explicitement : un ticker hors perimetre americain
- * n'est pas une panne, et ne doit surtout pas s'afficher comme telle. La SEC ne
- * couvre que les societes cotees aux Etats-Unis.
+ * Delai pendant lequel un snapshot est servi SANS aucun appel reseau. Les
+ * comptes ne bougent qu'a chaque publication trimestrielle : re-verifier plus
+ * souvent ne rapporterait rien.
  */
+const TRUST_DAYS = 7;
+
+/** Au-dela, l'annuaire est recharge — introductions et changements de ticker. */
+const DIRECTORY_MAX_AGE_DAYS = 7;
+
+function ageInDays(iso: string): number {
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? (Date.now() - t) / DAY_MS : Number.POSITIVE_INFINITY;
+}
+
 export type FundamentalsError =
   | { kind: 'no_email' }
   | { kind: 'directory_failed' }
@@ -44,32 +56,44 @@ export class FundamentalsFailure extends Error {
   }
 }
 
+/**
+ * Ce qui est reellement mis en cache : quelques Ko, jamais les ~4 Mo bruts de
+ * `companyfacts`.
+ *
+ * Les scores ne sont volontairement PAS stockes — ils sont recalcules a chaque
+ * lecture depuis la serie. Une regle de scoring qui evolue doit s'appliquer
+ * retroactivement, alors qu'un score fige survivrait a sa propre correction.
+ *
+ * `sharesChanges` est en revanche precalcule : la variation du nombre d'actions
+ * se mesure au sein d'un meme depot et exige donc les faits bruts, qu'on ne
+ * garde pas. La calculer a la volee obligerait a retelecharger 4 Mo.
+ */
+interface CachedPayload {
+  profile: CompanyProfile;
+  series: AnnualFigures[];
+  sharesChanges: Record<string, number | null>;
+  sharesOutstanding: number | null;
+}
+
 export interface FundamentalsData {
   ticker: string;
   cik: string;
   profile: CompanyProfile;
   series: AnnualFigures[];
-  /** Postes non resolus, par exercice — seulement ceux qui en ont. */
   missing: Record<string, string[]>;
 
-  /**
-   * `true` pour une societe financiere : aucun score n'est calcule, et les
-   * champs de scoring restent nuls. Le bilan d'une banque ne se lit pas comme
-   * les autres — mesure sur JPMorgan : 5 postes sur 12 absents. Mieux vaut
-   * « non applicable » qu'un chiffre faux.
-   */
   isFinancial: boolean;
-  /** Historique du F-Score, du plus ancien au plus recent. Vide si financiere. */
   piotroski: PiotroskiScore[];
-  /** Altman sur le dernier exercice. `null` si financiere. */
   altman: AltmanScore | null;
-  /** Indicateurs hors score sur le dernier exercice. `null` si financiere. */
   context: ContextIndicators | null;
-  /** Cours x actions en circulation. `null` si Yahoo n'a pas repondu. */
   marketCap: number | null;
+
+  /** Date du dernier telechargement des comptes. */
+  fetchedAt: string;
+  /** `true` si les comptes viennent du cache, sans telechargement. */
+  fromCache: boolean;
 }
 
-/** Adresse de contact SEC, saisie dans les reglages. */
 export function useSecContactEmail() {
   return useQuery({
     queryKey: ['setting', SEC_CONTACT_EMAIL_SETTING],
@@ -79,60 +103,106 @@ export function useSecContactEmail() {
 }
 
 /**
- * Annuaire ticker -> CIK. ~800 Ko, il ne bouge qu'a la marge : on le garde une
- * semaine plutot que de le rappeler a chaque recherche.
+ * Resout un ticker en CIK via l'annuaire local, en le rechargeant s'il est
+ * absent ou perime. L'adresse de contact n'est donc exigee qu'au premier
+ * chargement, pas a chaque recherche.
  */
-export function useSecDirectory(email: string | null | undefined) {
-  return useQuery({
-    queryKey: ['sec', 'directory'],
-    enabled: Boolean(email),
-    staleTime: 7 * DAY,
-    gcTime: 7 * DAY,
-    queryFn: async (): Promise<CikEntry[]> => {
-      const rows = await fetchTickerDirectory(email!);
-      if (!rows) throw new FundamentalsFailure({ kind: 'directory_failed' });
-      return rows;
-    },
-  });
+async function resolveCik(symbol: string): Promise<string> {
+  const cached = await lookupCik(symbol);
+  const fetchedAt = await getSetting(SEC_DIRECTORY_FETCHED_AT);
+  const stale = !fetchedAt || ageInDays(fetchedAt) > DIRECTORY_MAX_AGE_DAYS;
+  const empty = (await countTickerDirectory()) === 0;
+
+  if (cached && !stale) return cached;
+  if (cached && stale) {
+    // On tient un CIK utilisable : rafraichir est un confort, pas une
+    // condition. Un annuaire perime ne doit pas bloquer une recherche qui
+    // aboutit deja.
+    void refreshDirectory().catch(() => undefined);
+    return cached;
+  }
+
+  if (!stale && !empty) throw new FundamentalsFailure({ kind: 'not_us_listed', ticker: symbol });
+
+  await refreshDirectory();
+  const after = await lookupCik(symbol);
+  if (!after) throw new FundamentalsFailure({ kind: 'not_us_listed', ticker: symbol });
+  return after;
 }
 
-/**
- * Fondamentaux d'une societe. `staleTime` d'un jour : les comptes ne bougent
- * qu'a chaque publication trimestrielle, rien ne justifie de retelecharger les
- * ~4 Mo de `companyfacts` plus souvent.
- */
-export function useFundamentals(ticker: string | null) {
-  const { data: email, isLoading: emailLoading } = useSecContactEmail();
-  const directory = useSecDirectory(email);
+async function refreshDirectory(): Promise<void> {
+  const email = await getSetting(SEC_CONTACT_EMAIL_SETTING);
+  if (!email) throw new FundamentalsFailure({ kind: 'no_email' });
 
+  const rows = await fetchTickerDirectory(email);
+  if (!rows) throw new FundamentalsFailure({ kind: 'directory_failed' });
+  await replaceTickerDirectory(rows);
+}
+
+/** Telecharge les comptes et en tire le snapshot normalise. */
+async function buildPayload(cik: string, profile: CompanyProfile): Promise<CachedPayload> {
+  const facts = await fetchCompanyFacts(cik);
+  if (!facts) throw new FundamentalsFailure({ kind: 'fetch_failed', step: 'facts' });
+
+  const series = buildAnnualSeries(facts);
+  if (series.length === 0) {
+    throw new FundamentalsFailure({
+      kind: 'unsupported_currency',
+      currency: reportingCurrency(facts),
+      name: profile.name,
+    });
+  }
+
+  const sharesChanges: Record<string, number | null> = {};
+  for (let i = 1; i < series.length; i++) {
+    sharesChanges[series[i].periodEnd] =
+      sharesChangeWithinFiling(facts, series[i].periodEnd, series[i - 1].periodEnd);
+  }
+
+  return { profile, series, sharesChanges, sharesOutstanding: sharesOutstanding(facts) };
+}
+
+export function useFundamentals(ticker: string | null) {
   const query = useQuery({
     queryKey: ['sec', 'fundamentals', ticker],
-    enabled: Boolean(ticker) && Boolean(directory.data),
-    staleTime: DAY,
+    enabled: Boolean(ticker),
+    staleTime: DAY_MS,
     retry: false,
     queryFn: async (): Promise<FundamentalsData> => {
       const symbol = ticker!.toUpperCase();
-      const entry = directory.data!.find((e) => e.ticker === symbol);
-      if (!entry) throw new FundamentalsFailure({ kind: 'not_us_listed', ticker: symbol });
+      const cik = await resolveCik(symbol);
+      const cached = await getCachedCompany(cik);
 
-      const [profile, facts] = await Promise.all([
-        fetchCompanyProfile(entry.cik),
-        fetchCompanyFacts(entry.cik),
-      ]);
-      if (!profile) throw new FundamentalsFailure({ kind: 'fetch_failed', step: 'profile' });
-      if (!facts) throw new FundamentalsFailure({ kind: 'fetch_failed', step: 'facts' });
+      let payload: CachedPayload;
+      let fetchedAt: string;
+      let fromCache: boolean;
 
-      const series = buildAnnualSeries(facts);
-      // Une serie vide vient presque toujours d'une devise de publication autre
-      // que le dollar : mieux vaut le dire que rendre un rapport blanc.
-      if (series.length === 0) {
-        throw new FundamentalsFailure({
-          kind: 'unsupported_currency',
-          currency: reportingCurrency(facts),
-          name: profile.name,
-        });
+      if (cached && ageInDays(cached.fetchedAt) < TRUST_DAYS) {
+        // Dans le delai de confiance : aucun appel reseau du tout.
+        payload = JSON.parse(cached.payload) as CachedPayload;
+        fetchedAt = cached.fetchedAt;
+        fromCache = true;
+      } else {
+        // `submissions` pese ~160 Ko contre ~4 Mo pour les comptes : on paie le
+        // petit appel pour savoir s'il faut payer le gros.
+        const profile = await fetchCompanyProfile(cik);
+        if (!profile) throw new FundamentalsFailure({ kind: 'fetch_failed', step: 'profile' });
+
+        const latestAccn = profile.lastAnnualReport?.accn ?? null;
+        if (cached && latestAccn && cached.reportAccn === latestAccn) {
+          await touchCachedCompany(cik);
+          payload = JSON.parse(cached.payload) as CachedPayload;
+          fetchedAt = new Date().toISOString();
+          fromCache = true;
+        } else {
+          payload = await buildPayload(cik, profile);
+          await putCachedCompany(cik, symbol, JSON.stringify(payload), latestAccn);
+          fetchedAt = new Date().toISOString();
+          fromCache = false;
+        }
       }
 
+      const { profile, series } = payload;
       const missing: Record<string, string[]> = {};
       for (const row of series) {
         const m = missingFields(row);
@@ -142,45 +212,36 @@ export function useFundamentals(ticker: string | null) {
       const isFinancial = isFinancialSic(profile.sic);
       const last = series[series.length - 1] ?? null;
 
-      // La capitalisation ne sert qu'aux ratios de valorisation et a la lecture
-      // de l'effet marche : son absence ne prive d'aucun verdict.
-      const shares = sharesOutstanding(facts);
       let marketCap: number | null = null;
-      if (!isFinancial && shares != null) {
+      if (!isFinancial && payload.sharesOutstanding != null) {
         const prices = await fetchYahooPrices([symbol]).catch(
           (): Record<string, number> => ({}),
         );
         const price = prices[symbol];
-        if (typeof price === 'number') marketCap = shares * price;
+        if (typeof price === 'number') marketCap = payload.sharesOutstanding * price;
       }
 
       return {
-        ticker: symbol, cik: entry.cik, profile, series, missing,
+        ticker: symbol, cik, profile, series, missing,
         isFinancial,
         piotroski: isFinancial
           ? []
-          : computePiotroskiSeries(series, (a, b) => sharesChangeWithinFiling(facts, a, b)),
+          : computePiotroskiSeries(series, (a) => payload.sharesChanges[a] ?? null),
         altman: isFinancial || !last ? null : computeAltman({ figures: last, marketCap }),
         context:
           isFinancial || !last ? null : computeContextIndicators({ figures: last, marketCap }),
-        marketCap,
+        marketCap, fetchedAt, fromCache,
       };
     },
   });
 
   const failure: FundamentalsError | null =
-    !emailLoading && !email
-      ? { kind: 'no_email' }
-      : directory.error instanceof FundamentalsFailure
-        ? directory.error.detail
-        : query.error instanceof FundamentalsFailure
-          ? query.error.detail
-          : null;
+    query.error instanceof FundamentalsFailure ? query.error.detail : null;
 
   return {
     data: query.data,
     failure,
-    isLoading: emailLoading || directory.isLoading || query.isLoading,
-    isFetching: directory.isFetching || query.isFetching,
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
   };
 }
