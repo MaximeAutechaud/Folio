@@ -25,6 +25,9 @@ import type { CompanyFacts } from '../xbrl';
  * fournie par l'appelant, qui la lit depuis `settings`.
  */
 
+/** Cle `settings` ou vit l'adresse de contact envoyee a la SEC. */
+export const SEC_CONTACT_EMAIL_SETTING = 'sec_contact_email';
+
 /** Construit le UA conforme attendu par `www.sec.gov`. */
 export function secContactUserAgent(contactEmail: string): string {
   return `Folio Portfolio Tracker ${contactEmail}`;

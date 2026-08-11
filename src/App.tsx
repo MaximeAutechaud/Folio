@@ -9,8 +9,9 @@ import { ChartsView } from './components/ChartsView/ChartsView';
 import { MarketView, type MarketSubTab } from './components/MarketView/MarketView';
 import { WatchlistView } from './components/WatchlistView/WatchlistView';
 import { TradesView } from './components/TradesView/TradesView';
+import { FundamentalsView } from './components/FundamentalsView/FundamentalsView';
 import { AlertPanel } from './components/AlertPanel/AlertPanel';
-import { BriefingSettings } from './components/Briefing/BriefingSettings';
+import { AppSettings } from './components/Settings/AppSettings';
 import { BriefingTab } from './components/Briefing/BriefingTab';
 import { CorporateActionModal } from './components/CorporateActionModal/CorporateActionModal';
 import { SessionRecap } from './components/SessionRecap/SessionRecap';
@@ -29,7 +30,7 @@ import { computePRU } from './lib/pru';
 import type { PendingCorporateAction, PositionInput, TransactionInput } from './types';
 import styles from './App.module.css';
 
-type Tab = 'portfolio' | 'charts' | 'market' | 'watchlist' | 'trades' | 'ia';
+type Tab = 'portfolio' | 'charts' | 'market' | 'watchlist' | 'trades' | 'fonda' | 'ia';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('portfolio');
@@ -40,7 +41,7 @@ export default function App() {
   const [alertOpen, setAlertOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [tourMarketSubTab, setTourMarketSubTab] = useState<MarketSubTab | null>(null);
-  const [briefingSettingsOpen, setBriefingSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [corpActionModal, setCorpActionModal] = useState<PendingCorporateAction | null>(null);
   const [backup, setBackup] = useState<
     { state: 'idle' } | { state: 'running' } | { state: 'done'; path: string } | { state: 'error'; message: string }
@@ -158,11 +159,11 @@ export default function App() {
     setCorpActionModal(null);
   }
 
-  const TAB_LABELS: Record<Tab, string> = { portfolio: 'Portfolio', charts: 'Charts', market: 'Market', watchlist: 'Watchlist', trades: 'Trades', ia: 'IA' };
+  const TAB_LABELS: Record<Tab, string> = { portfolio: 'Portfolio', charts: 'Charts', market: 'Market', watchlist: 'Watchlist', trades: 'Trades', fonda: 'Fonda', ia: 'IA' };
 
   const nav = (
     <>
-      {(['portfolio', 'charts', 'market', 'watchlist', 'trades', 'ia'] as Tab[]).map((tab) => (
+      {(['portfolio', 'charts', 'market', 'watchlist', 'trades', 'fonda', 'ia'] as Tab[]).map((tab) => (
         <button
           key={tab}
           data-tour={`tab-${tab}`}
@@ -203,8 +204,8 @@ export default function App() {
       </button>
       <button
         className={styles.bellBtn}
-        onClick={() => setBriefingSettingsOpen(true)}
-        title="Briefing IA — réglages"
+        onClick={() => setSettingsOpen(true)}
+        title="Réglages"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="3"/>
@@ -296,10 +297,12 @@ export default function App() {
         <WatchlistView />
       ) : activeTab === 'trades' ? (
         <TradesView />
+      ) : activeTab === 'fonda' ? (
+        <FundamentalsView />
       ) : (
         <BriefingTab
-          settingsOpen={briefingSettingsOpen}
-          onOpenSettings={() => setBriefingSettingsOpen(true)}
+          settingsOpen={settingsOpen}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       )}
 
@@ -321,7 +324,7 @@ export default function App() {
 
       <AlertPanel open={alertOpen} onClose={() => setAlertOpen(false)} />
 
-      {briefingSettingsOpen && <BriefingSettings onClose={() => setBriefingSettingsOpen(false)} />}
+      {settingsOpen && <AppSettings onClose={() => setSettingsOpen(false)} />}
       {restorePath && <RestoreModal path={restorePath} onClose={() => setRestorePath(null)} />}
       {pendingDelete && (
         <ConfirmDelete
