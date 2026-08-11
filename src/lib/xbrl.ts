@@ -73,6 +73,13 @@ export interface AnnualFigures {
   capex: number | null;
   receivables: number | null;
   inventory: number | null;
+  /**
+   * Charge d'interets — le meilleur indicateur de solvabilite quand il existe,
+   * mais sa couverture est mauvaise et le restera : Apple s'arrete en 2023,
+   * Caterpillar ne publie aucune des variantes courantes. A traiter comme
+   * facultatif, jamais comme un pilier.
+   */
+  interestExpense: number | null;
 }
 
 /**
@@ -235,6 +242,7 @@ const CHAINS = {
   capex: ['PaymentsToAcquirePropertyPlantAndEquipment', 'PaymentsToAcquireProductiveAssets'],
   receivables: ['AccountsReceivableNetCurrent', 'ReceivablesNetCurrent'],
   inventory: ['InventoryNet'],
+  interestExpense: ['InterestExpense', 'InterestExpenseNonoperating', 'InterestExpenseDebt'],
 } as const;
 
 const GAAP = 'us-gaap';
@@ -264,6 +272,7 @@ export function buildAnnualSeries(facts: CompanyFacts): AnnualFigures[] {
   const operatingCashFlow = annualMap(facts, CHAINS.operatingCashFlow);
   const dilutedShares = annualMap(facts, CHAINS.dilutedShares, 'shares');
   const capex = annualMap(facts, CHAINS.capex);
+  const interestExpense = annualMap(facts, CHAINS.interestExpense);
 
   const assets = instantMap(facts, CHAINS.assets);
   const assetsCurrent = instantMap(facts, CHAINS.assetsCurrent);
@@ -312,6 +321,7 @@ export function buildAnnualSeries(facts: CompanyFacts): AnnualFigures[] {
       capex: val(capex),
       receivables: val(receivables),
       inventory: val(inventory),
+      interestExpense: val(interestExpense),
     };
   });
 }

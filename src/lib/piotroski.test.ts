@@ -16,7 +16,7 @@ function year(periodEnd: string, o: Partial<AnnualFigures> = {}): AnnualFigures 
     operatingCashFlow: 250, assets: 2000, assetsCurrent: 600, liabilities: 900,
     liabilitiesCurrent: 300, longTermDebt: 400, retainedEarnings: 500,
     stockholdersEquity: 1100, dilutedShares: 100,
-    cash: 200, capex: 80, receivables: 150, inventory: 120,
+    cash: 200, capex: 80, receivables: 150, inventory: 120, interestExpense: 20,
     ...o,
   };
 }

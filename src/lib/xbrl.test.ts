@@ -397,7 +397,7 @@ describe('missingFields', () => {
       liabilitiesCurrent: 1, longTermDebt: 1, retainedEarnings: 1,
       stockholdersEquity: 1, dilutedShares: 1,
       // Postes de contexte laisses a null : ils ne doivent pas remonter.
-      cash: null, capex: null, receivables: null, inventory: null,
+      cash: null, capex: null, receivables: null, inventory: null, interestExpense: null,
     };
     expect(missingFields(complete)).toEqual([]);
   });
