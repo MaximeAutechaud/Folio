@@ -211,17 +211,40 @@ function Report({ data }: { data: FundamentalsData }) {
   );
 }
 
+/**
+ * Ne garde que ce que la SEC sait couvrir : des actions cotees aux Etats-Unis.
+ *
+ * Chez Yahoo, une cotation etrangere porte toujours un suffixe d'place separe
+ * par un point (`ASML.AS`, `AAPL34.SA` — le certificat bresilien d'Apple) ;
+ * les lignes americaines n'en ont jamais, les actions a categories multiples
+ * utilisant un tiret (`BRK-B`). Le point est donc un discriminant fiable, et
+ * il laisse passer les ADR sans suffixe, qui deposent bien aupres de la SEC.
+ */
+/**
+ * Contrats d'options, que Yahoo melange aux societes : format OCC, soit le
+ * sous-jacent puis AAMMJJ, C ou P, et le prix d'exercice sur 8 chiffres
+ * (`ASMG260821P00019000`). Motif assez specifique pour n'ecarter aucun ticker
+ * reel.
+ */
+const OPTION_SYMBOL = /^.{1,6}\d{6}[CP]\d{8}$/;
+
+function isUsListedStock(r: TickerResult): boolean {
+  return r.assetType === 'stock'
+    && !r.ticker.includes('.')
+    && !OPTION_SYMBOL.test(r.ticker);
+}
+
 /** Vue d'analyse fondamentale — donnees SEC EDGAR, societes americaines. */
 export function FundamentalsView() {
   const [picked, setPicked] = useState<TickerResult | null>(null);
-  const isCrypto = picked?.assetType === 'crypto';
-  const { data, failure, isFetching } = useFundamentals(isCrypto ? null : picked?.ticker ?? null);
+  const { data, failure, isFetching } = useFundamentals(picked?.ticker ?? null);
 
   return (
     <div className={styles.root}>
       <div className={styles.searchRow}>
         <TickerSearch
           onSelect={setPicked}
+          filter={isUsListedStock}
           placeholder="Rechercher une société — « AAPL », « Caterpillar »…"
         />
         {isFetching && <span className={styles.loading}>chargement…</span>}
@@ -239,10 +262,23 @@ export function FundamentalsView() {
         </div>
       )}
 
-      {isCrypto && (
-        <div className={styles.errorBox}>
-          <strong>{picked?.name}</strong> est une crypto — la SEC ne publie de comptes que pour les
-          sociétés.
+      {failure?.kind === 'unsupported_currency' && (
+        <div className={styles.warnBox}>
+          {failure.currency && failure.currency !== 'USD' ? (
+            <>
+              <strong>{failure.name}</strong> dépose bien auprès de la SEC, mais publie ses comptes
+              en <strong>{failure.currency}</strong>. Cet outil ne lit que les comptes libellés en
+              dollars — le cas des émetteurs étrangers cotés aux États-Unis.
+            </>
+          ) : (
+            <>
+              <strong>{failure.name}</strong> ne publie aucun état financier exploitable. C'est
+              attendu pour un ETF, un fonds ou une fiducie : ces véhicules déposent d'autres
+              formulaires que les sociétés d'exploitation, et n'ont ni chiffre d'affaires ni
+              résultat opérationnel à analyser.
+            </>
+          )}{' '}
+          <strong>Ce n'est pas un mauvais signal</strong>, c'est une absence de couverture.
         </div>
       )}
 

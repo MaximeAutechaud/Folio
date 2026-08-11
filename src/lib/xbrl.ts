@@ -371,6 +371,28 @@ export function sharesChangeWithinFiling(
 }
 
 /**
+ * Devise de publication des comptes, lue sur l'unite des postes monetaires.
+ *
+ * Tout le resolver interroge l'unite `USD` en dur. Un emetteur etranger cote
+ * aux Etats-Unis depose bien aupres de la SEC, mais dans SA monnaie : ASML
+ * publie en EUR, si bien que chaque poste ressort vide et que la serie annuelle
+ * est silencieusement de longueur zero. Exposer la devise permet de le dire au
+ * lieu d'afficher un rapport blanc.
+ */
+export function reportingCurrency(facts: CompanyFacts): string | null {
+  for (const tag of ['Assets', 'NetIncomeLoss', 'StockholdersEquity']) {
+    const units = facts.facts?.[GAAP]?.[tag]?.units;
+    if (!units) continue;
+    const codes = Object.keys(units).filter((u) => u !== 'shares' && u !== 'pure');
+    if (codes.length === 0) continue;
+    // Une societe peut publier en double : le dollar l'emporte, c'est celui
+    // que le resolver sait lire.
+    return codes.includes('USD') ? 'USD' : codes[0];
+  }
+  return null;
+}
+
+/**
  * Actions en circulation a la date de couverture du dernier depot, pour le
  * calcul de la capitalisation.
  *

@@ -8,8 +8,8 @@ import {
   type CompanyProfile,
 } from '../lib/api/sec';
 import {
-  buildAnnualSeries, missingFields, sharesChangeWithinFiling, sharesOutstanding,
-  type AnnualFigures,
+  buildAnnualSeries, missingFields, reportingCurrency, sharesChangeWithinFiling,
+  sharesOutstanding, type AnnualFigures,
 } from '../lib/xbrl';
 import { computePiotroskiSeries, type PiotroskiScore } from '../lib/piotroski';
 import { computeAltman, type AltmanScore } from '../lib/altman';
@@ -29,6 +29,12 @@ export type FundamentalsError =
   | { kind: 'no_email' }
   | { kind: 'directory_failed' }
   | { kind: 'not_us_listed'; ticker: string }
+  /**
+   * Depose bien aupres de la SEC, mais dans une monnaie que le resolver ne lit
+   * pas — il interroge l'unite USD en dur. Cas des emetteurs etrangers cotes
+   * aux Etats-Unis : ASML publie en EUR.
+   */
+  | { kind: 'unsupported_currency'; currency: string | null; name: string }
   | { kind: 'fetch_failed'; step: 'profile' | 'facts' };
 
 export class FundamentalsFailure extends Error {
@@ -117,6 +123,16 @@ export function useFundamentals(ticker: string | null) {
       if (!facts) throw new FundamentalsFailure({ kind: 'fetch_failed', step: 'facts' });
 
       const series = buildAnnualSeries(facts);
+      // Une serie vide vient presque toujours d'une devise de publication autre
+      // que le dollar : mieux vaut le dire que rendre un rapport blanc.
+      if (series.length === 0) {
+        throw new FundamentalsFailure({
+          kind: 'unsupported_currency',
+          currency: reportingCurrency(facts),
+          name: profile.name,
+        });
+      }
+
       const missing: Record<string, string[]> = {};
       for (const row of series) {
         const m = missingFields(row);

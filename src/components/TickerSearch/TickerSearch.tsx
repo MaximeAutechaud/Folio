@@ -14,9 +14,19 @@ export interface TickerResult {
 interface Props {
   onSelect: (result: TickerResult) => void;
   placeholder?: string;
+  /**
+   * Restreint les suggestions affichees. Applique apres la recherche, pour que
+   * les appelants dont le perimetre est plus etroit que Yahoo/CoinGecko ne
+   * proposent pas des lignes qu'ils ne sauront pas traiter.
+   */
+  filter?: (result: TickerResult) => boolean;
 }
 
-export function TickerSearch({ onSelect, placeholder = 'Rechercher un ticker — "NVDA", "bitcoin"…' }: Props) {
+export function TickerSearch({
+  onSelect,
+  placeholder = 'Rechercher un ticker — "NVDA", "bitcoin"…',
+  filter,
+}: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<TickerResult[]>([]);
   const [open, setOpen] = useState(false);
@@ -71,10 +81,13 @@ export function TickerSearch({ onSelect, placeholder = 'Rechercher un ticker —
         sublabel: `#${c.market_cap_rank ?? '—'} · ${c.symbol.toUpperCase()}`,
       }));
 
-      setResults([...stockResults, ...cryptoResults]);
+      const merged = [...stockResults, ...cryptoResults];
+      const visible = filter ? merged.filter(filter) : merged;
+
+      setResults(visible);
       setLoading(false);
       updateDropPos();
-      setOpen(stockResults.length + cryptoResults.length > 0);
+      setOpen(visible.length > 0);
     }, 280);
   }
 

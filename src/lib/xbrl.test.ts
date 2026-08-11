@@ -5,6 +5,7 @@ import {
   collectInstants,
   durationDays,
   missingFields,
+  reportingCurrency,
   resolveChainPoints,
   sharesChangeWithinFiling,
   type CompanyFacts,
@@ -376,6 +377,43 @@ describe('capitaux propres', () => {
     // Z_bilan en depend : leur absence doit se voir.
     const f = facts({ NetIncomeLoss: [dur('2024-09-29', '2025-09-27', 10)] });
     expect(missingFields(buildAnnualSeries(f)[0])).toContain('stockholdersEquity');
+  });
+});
+
+describe('reportingCurrency', () => {
+  /**
+   * Cas ASML : l'emetteur depose bien aupres de la SEC mais publie en euros.
+   * Le resolver interrogeant l'unite USD en dur, chaque poste ressort vide et
+   * la serie est silencieusement de longueur zero — d'ou l'interet de pouvoir
+   * nommer la devise plutot que d'afficher un rapport blanc.
+   */
+  it('detecte une publication en euros et l\'associe a une serie vide', () => {
+    const f = facts({ Assets: [inst('2025-12-31', 40_000)] }, 'EUR');
+    expect(reportingCurrency(f)).toBe('EUR');
+    expect(buildAnnualSeries(f)).toEqual([]);
+  });
+
+  it('detecte le dollar', () => {
+    const f = facts({ Assets: [inst('2025-09-27', 359_000)] });
+    expect(reportingCurrency(f)).toBe('USD');
+  });
+
+  it('prefere le dollar quand la societe publie en double', () => {
+    const f: CompanyFacts = {
+      cik: 1, entityName: 'Double', facts: {
+        'us-gaap': { Assets: { units: { EUR: [inst('2025-12-31', 1)], USD: [inst('2025-12-31', 2)] } } },
+      },
+    };
+    expect(reportingCurrency(f)).toBe('USD');
+  });
+
+  it('ignore les unites non monetaires', () => {
+    const f = facts({ Assets: [inst('2025-12-31', 100)] }, 'shares');
+    expect(reportingCurrency(f)).toBeNull();
+  });
+
+  it('retourne null sans aucun poste monetaire', () => {
+    expect(reportingCurrency(facts({}))).toBeNull();
   });
 });
 
