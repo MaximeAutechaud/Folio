@@ -1,17 +1,17 @@
 /**
  * Classification sectorielle SIC, telle que publiee par la SEC dans
- * `submissions.sic`. Deux usages dans le scoring, et un seul endroit ou vivent
- * les bornes :
+ * `submissions.sic`.
  *
- * - ecarter les societes financieres, dont le bilan ne se lit pas comme les
- *   autres (ni marge brute, ni resultat operationnel, ni distinction
- *   courant/non-courant — mesure sur JPM : 5 postes sur 12 absents) ;
- * - choisir la variante d'Altman, dont la formule d'origine est calibree sur
- *   l'industrie manufacturiere.
+ * Un seul usage, et un seul endroit ou vivent les bornes : ecarter les societes
+ * financieres, dont le bilan ne se lit pas comme les autres — ni marge brute,
+ * ni resultat operationnel, ni distinction courant/non-courant. Mesure sur
+ * JPMorgan : 5 postes sur 12 absents.
+ *
+ * Il n'y a volontairement pas de test « manufacturier » : Altman applique la
+ * meme variante (Z'') a toutes les societes non financieres, cf. `altman.ts`.
  */
 
-/** Divisions SIC standard, bornes incluses. */
-const MANUFACTURING = [2000, 3999] as const;
+/** Division SIC « Finance, Insurance, Real Estate », bornes incluses. */
 const FINANCE = [6000, 6799] as const;
 
 function inRange(sic: string, [lo, hi]: readonly [number, number]): boolean {
@@ -25,9 +25,4 @@ function inRange(sic: string, [lo, hi]: readonly [number, number]): boolean {
  */
 export function isFinancialSic(sic: string): boolean {
   return inRange(sic, FINANCE);
-}
-
-/** Industrie manufacturiere — le perimetre sur lequel Altman a calibre le Z d'origine. */
-export function isManufacturingSic(sic: string): boolean {
-  return inRange(sic, MANUFACTURING);
 }

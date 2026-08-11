@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeAltman } from './altman';
-import { isFinancialSic, isManufacturingSic } from './sic';
+import { isFinancialSic } from './sic';
 import type { AnnualFigures } from './xbrl';
 
 function year(o: Partial<AnnualFigures> = {}): AnnualFigures {
@@ -15,8 +15,8 @@ function year(o: Partial<AnnualFigures> = {}): AnnualFigures {
   };
 }
 
-const run = (o: Partial<AnnualFigures> = {}, marketCap: number | null = 1800, sic = '3674') =>
-  computeAltman({ figures: year(o), marketCap, sic });
+const run = (o: Partial<AnnualFigures> = {}, marketCap: number | null = 1800) =>
+  computeAltman({ figures: year(o), marketCap });
 
 describe('classification SIC', () => {
   it('identifie les financieres', () => {
@@ -26,17 +26,9 @@ describe('classification SIC', () => {
     expect(isFinancialSic('7372')).toBe(false);  // logiciel
   });
 
-  it('identifie le manufacturier', () => {
-    expect(isManufacturingSic('3674')).toBe(true);  // semi-conducteurs
-    expect(isManufacturingSic('3531')).toBe(true);  // engins de chantier
-    expect(isManufacturingSic('7372')).toBe(false); // logiciel
-    expect(isManufacturingSic('6021')).toBe(false); // banque
-  });
-
   it('ne se laisse pas piegier par un code vide ou aberrant', () => {
     expect(isFinancialSic('')).toBe(false);
-    expect(isManufacturingSic('')).toBe(false);
-    expect(isManufacturingSic('abc')).toBe(false);
+    expect(isFinancialSic('abc')).toBe(false);
   });
 });
 
@@ -87,37 +79,68 @@ describe('isolation de l\'effet marche', () => {
   });
 });
 
-describe('choix de variante et zones', () => {
-  it('retient le Z d\'origine pour un manufacturier', () => {
-    const s = run({}, 1800, '3674');
-    expect(s.variant).toBe('z');
-    expect(s.headline).toBe(s.zMarket);
-  });
-
-  it('retient Z\'\' pour un non-manufacturier', () => {
-    const s = run({}, 1800, '7372');
-    expect(s.variant).toBe('zDoublePrime');
-    expect(s.headline).toBe(s.zDoublePrime);
+describe('verdict : Z\'\' fait foi, quel que soit le secteur', () => {
+  it('le verdict ne depend jamais de la capitalisation', () => {
+    // Z'' n'utilise que les capitaux propres comptables : multiplier la
+    // capitalisation par cinq ne doit rien changer au verdict.
+    const bas = run({}, 1800);
+    const haut = run({}, 9000);
+    expect(haut.headline).toBeCloseTo(bas.headline!, 9);
+    expect(haut.zone).toBe(bas.zone);
   });
 
   it('Z\'\' ignore X5 et n\'utilise que les capitaux propres comptables', () => {
     const s = run();
     const expected = 6.56 * s.x1! + 3.26 * s.x2! + 6.72 * s.x3! + 1.05 * s.x4Book!;
     expect(s.zDoublePrime).toBeCloseTo(expected, 9);
-    // Changer la capitalisation ne doit pas bouger Z''.
-    expect(run({}, 9999).zDoublePrime).toBeCloseTo(s.zDoublePrime!, 9);
+    expect(s.headline).toBe(s.zDoublePrime);
   });
 
-  it('applique les seuils propres a chaque variante', () => {
-    // Le Z est en zone sure au-dessus de 2,99, Z'' au-dessus de 2,6.
-    const solide = run({ retainedEarnings: 1400, operatingIncome: 600 }, 4000, '3674');
+  it('applique les seuils de Z\'\' — 2,6 et 1,1', () => {
+    const solide = run({ retainedEarnings: 1400, operatingIncome: 600 });
     expect(solide.zone).toBe('sur');
 
-    const enDetresse = run(
-      { assetsCurrent: 100, liabilitiesCurrent: 800, retainedEarnings: -900, operatingIncome: -300 },
-      200, '3674',
-    );
+    const enDetresse = run({
+      assetsCurrent: 100, liabilitiesCurrent: 800,
+      retainedEarnings: -900, operatingIncome: -300,
+    });
     expect(enDetresse.zone).toBe('detresse');
+  });
+});
+
+describe('signal de detresse — le seul champ actionnable', () => {
+  it('ne se declenche qu\'en zone de detresse', () => {
+    const enDetresse = run({
+      assetsCurrent: 100, liabilitiesCurrent: 800,
+      retainedEarnings: -900, operatingIncome: -300,
+    });
+    expect(enDetresse.distressSignal).toBe(true);
+  });
+
+  /**
+   * Cas Apple mesure : reserves accumulees negatives a force de rachats
+   * d'actions, BFR negatif parce qu'elle encaisse avant de payer ses
+   * fournisseurs. Z'' tombe a 2,31 pour un seuil a 2,60 — zone grise. Traiter
+   * cette zone comme un avertissement produirait un faux positif sur l'une des
+   * entreprises les plus solvables qui soient.
+   */
+  it('reste muet en zone grise, y compris avec des reserves negatives', () => {
+    const apple = run({
+      assetsCurrent: 133, liabilitiesCurrent: 165,   // BFR negatif
+      retainedEarnings: -14,                          // rachats d'actions cumules
+      assets: 359, liabilities: 285, stockholdersEquity: 74,
+      operatingIncome: 133, revenue: 416,
+    });
+    expect(apple.zone).toBe('grise');
+    expect(apple.distressSignal).toBe(false);
+  });
+
+  it('reste muet en zone sure', () => {
+    expect(run({ retainedEarnings: 1400, operatingIncome: 600 }).distressSignal).toBe(false);
+  });
+
+  it('vaut null quand le score n\'est pas calculable', () => {
+    expect(run({ retainedEarnings: null }).distressSignal).toBeNull();
   });
 });
 
@@ -141,11 +164,12 @@ describe('donnees manquantes', () => {
     expect(s.missing).toContain('marketCap');
   });
 
-  it('un non-manufacturier reste notable sans capitalisation', () => {
-    // Z'' n'en a pas besoin : le verdict tient malgre l'absence de cours.
-    const s = run({}, null, '7372');
+  it('le verdict tient malgre l\'absence de cours', () => {
+    // Z'' n'utilise pas la capitalisation : une panne Yahoo ne prive pas du score.
+    const s = run({}, null);
     expect(s.headline).not.toBeNull();
     expect(s.zone).not.toBeNull();
+    expect(s.distressSignal).not.toBeNull();
   });
 
   it('un passif nul ne produit pas d\'infini', () => {
