@@ -11,6 +11,7 @@
 
 .subNav {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   border-bottom: 1px solid var(--border);
   padding-bottom: 12px;
@@ -48,16 +49,28 @@
 }
 .subNavActive .tabIndex { opacity: 0.8; }
 
-.tabHint {
-  font-size: 10px;
+/* Tooltips — pattern data-tooltip + ::after (cf. CLAUDE.md) */
+.subNavBtn[data-tooltip] { position: relative; }
+.subNavBtn[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
   font-weight: 400;
-  color: var(--text-muted);
+  color: var(--text-primary);
+  white-space: nowrap;
+  pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s;
-  white-space: nowrap;
+  z-index: 10;
 }
-.subNavBtn:hover .tabHint,
-.subNavActive .tabHint { opacity: 0.6; }
+.subNavBtn[data-tooltip]:hover::after { opacity: 1; }
 
 .topBar {
   display: flex;

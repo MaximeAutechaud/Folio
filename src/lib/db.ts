@@ -1,5 +1,5 @@
 import Database from '@tauri-apps/plugin-sql';
-import type { Position, PositionInput, Snapshot, Transaction, TransactionInput, Narrative, NarrativeInput, NarrativeTicker, NarrativeTickerInput, NarrativeKeyword, AlertRule, AlertRuleInput, AlertEvent, WatchlistItem, WatchlistCategory, SignalLogRow } from '../types';
+import type { Position, PositionInput, Snapshot, Transaction, TransactionInput, Narrative, NarrativeInput, NarrativeTicker, NarrativeTickerInput, NarrativeKeyword, AlertRule, AlertRuleInput, AlertEvent, WatchlistItem, WatchlistCategory, SignalLogRow, ScreenerLogRow } from '../types';
 import { NARRATIVE_SEED } from './narratives-seed';
 
 // Pas de constante « version courante » : chaque migrateToVN écrit son propre
@@ -118,6 +118,7 @@ async function runMigrations(db: Database): Promise<void> {
   // qui référence `is_system`, absente des bases créées avant ce patch.
   await migrateToV12(db);
   await migrateToV13(db);
+  await migrateToV14(db);
 
   // positions: second take-profit target (Phase 1 extension)
   const tp2Col = await db.select<{ name: string }[]>(
@@ -438,6 +439,34 @@ async function migrateToV13(db: Database): Promise<void> {
 
   await db.execute(
     `INSERT INTO settings (key, value) VALUES ('schema_version', '13')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
+// screener_log : classement quotidien du top 15 "chaud" du screener crypto
+// (branche experimentale). Table dediee plutot qu'un nouveau scope sur
+// signal_log : l'univers du top 100 est ouvert et change de composition
+// chaque jour, contrairement aux 11 secteurs fixes que signal_log suppose.
+async function migrateToV14(db: Database): Promise<void> {
+  if (await tableExists(db, 'screener_log')) return;
+
+  await db.execute(`
+    CREATE TABLE screener_log (
+      id      INTEGER PRIMARY KEY AUTOINCREMENT,
+      date    TEXT    NOT NULL,
+      coin_id TEXT    NOT NULL,
+      symbol  TEXT    NOT NULL,
+      heat    INTEGER NOT NULL,
+      rank    INTEGER NOT NULL,
+      UNIQUE(date, coin_id)
+    )
+  `);
+  await db.execute(
+    `CREATE INDEX IF NOT EXISTS idx_screener_log_lookup ON screener_log(coin_id, date)`
+  );
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '14')
      ON CONFLICT(key) DO UPDATE SET value=excluded.value`
   );
 }
@@ -1096,5 +1125,38 @@ export async function fetchSignalLogs(scope: string): Promise<SignalLogRow[]> {
   return db.select<SignalLogRow[]>(
     'SELECT * FROM signal_log WHERE scope = $1 ORDER BY date DESC',
     [scope]
+  );
+}
+
+// ── Screener log (branche experimentale) ──────────────────────────────────────
+
+// Upsert du classement du jour — un appel par piece du top affiche. Rejoue
+// dans la meme journee (plusieurs ouvertures de l'app) ecrase le rang/score
+// avec la derniere lecture, comme insertSignalLog pour les secteurs.
+export async function insertScreenerLog(
+  date: string,
+  coinId: string,
+  symbol: string,
+  heat: number,
+  rank: number
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO screener_log (date, coin_id, symbol, heat, rank)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT(date, coin_id)
+     DO UPDATE SET symbol=excluded.symbol, heat=excluded.heat, rank=excluded.rank`,
+    [date, coinId, symbol, heat, rank]
+  );
+}
+
+// Historique borne dans le temps, toutes pieces confondues — sert a calculer
+// les streaks cote client (lib/cryptoScreener.ts::computeStreaks).
+export async function fetchScreenerLog(sinceDays = 30): Promise<ScreenerLogRow[]> {
+  const db = await getDb();
+  const cutoff = new Date(Date.now() - sinceDays * 86400_000).toISOString().slice(0, 10);
+  return db.select<ScreenerLogRow[]>(
+    'SELECT * FROM screener_log WHERE date >= $1 ORDER BY date DESC',
+    [cutoff]
   );
 }

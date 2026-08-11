@@ -3,16 +3,18 @@ import { SectorDashboard } from './SectorDashboard';
 import { NarrativeDashboard } from './NarrativeDashboard';
 import { MacroScore } from './MacroScore';
 import { CryptoMacroScore } from './CryptoMacroScore';
+import { CryptoScreener } from './CryptoScreener';
 import { MacroPulse } from './MacroPulse';
 import { SignalStats } from './SignalStats';
 import { useMacroScore } from '../../hooks/useMacroScore';
 import styles from './MarketView.module.css';
 
-export type MarketSubTab = 'macro' | 'crypto' | 'secteurs' | 'narratives' | 'signaux';
+export type MarketSubTab = 'macro' | 'crypto' | 'screener' | 'secteurs' | 'narratives' | 'signaux';
 
 const TABS: { id: MarketSubTab; label: string; hint: string }[] = [
   { id: 'macro',      label: 'Macro',      hint: 'régime & indicateurs' },
   { id: 'crypto',     label: 'Crypto',     hint: 'régime & liquidité' },
+  { id: 'screener',   label: 'Screener',   hint: 'top 100 · configs chaudes' },
   { id: 'secteurs',   label: 'Secteurs',   hint: 'rotation & opportunités' },
   { id: 'narratives', label: 'Narratives', hint: 'thèmes & tickers' },
   { id: 'signaux',    label: 'Signaux',    hint: 'fiabilité historique' },
@@ -58,18 +60,19 @@ export function MarketView({ forcedSubTab }: Props) {
           <button
             key={t.id}
             data-tour={`market-sub-${t.id}`}
+            data-tooltip={t.hint}
             className={`${styles.subNavBtn} ${subTab === t.id ? styles.subNavActive : ''}`}
             onClick={() => handleSubTabChange(t.id)}
           >
             <span className={styles.tabIndex}>{i + 1}</span>
             {t.label}
-            <span className={styles.tabHint}>{t.hint}</span>
           </button>
         ))}
       </div>
 
       {subTab === 'macro'      && <MacroScore />}
       {subTab === 'crypto'     && <CryptoMacroScore />}
+      {subTab === 'screener'   && <CryptoScreener />}
       {subTab === 'secteurs'   && <SectorDashboard />}
       {subTab === 'narratives' && <NarrativeDashboard />}
       {subTab === 'signaux'    && <SignalStats />}

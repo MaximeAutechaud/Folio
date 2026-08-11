@@ -150,6 +150,75 @@ export async function fetchCoinMarketCaps(
   return rows.map(([ts, v]) => ({ time: Math.floor(ts / 1000), value: v }));
 }
 
+// ── Screener top 100 ─────────────────────────────────────────────────────────
+
+export interface Top100Coin {
+  id: string;
+  symbol: string;
+  name: string;
+  price: number;
+  marketCap: number;
+  marketCapRank: number | null;
+  volume24h: number;
+  perf24h: number | null;
+  perf7d: number | null;
+  perf30d: number | null;
+  /** Points horaires sur 7 jours (~168 points), inclus dans le meme appel. */
+  sparkline7d: number[];
+}
+
+/**
+ * `cgFetch`/`cgFetchRetry` detectent un echec via `status.error_code` sur un
+ * objet — `/coins/markets` renvoie un tableau en cas de succes, donc ce garde
+ * ne s'applique pas ici : un tableau absent (objet d'erreur ou reponse
+ * inattendue) *est* le signal d'echec.
+ */
+async function cgFetchArray(url: string): Promise<unknown[] | null> {
+  try {
+    const raw: string = await invoke('fetch_url', { url });
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+async function cgFetchArrayRetry(url: string, retryDelayMs = 8000): Promise<unknown[] | null> {
+  const first = await cgFetchArray(url);
+  if (first) return first;
+  await coingeckoDelay(retryDelayMs);
+  return cgFetchArray(url);
+}
+
+/**
+ * Top 100 par capitalisation en **un seul appel** — prix, volume, variations
+ * 24h/7d/30d et sparkline horaire 7j sont tous dans la meme reponse. Alimente
+ * le screener (`lib/cryptoScreener.ts`) sans multiplier les appels par piece,
+ * contrairement au score macro crypto qui doit espacer ses requetes.
+ */
+export async function fetchTop100Markets(): Promise<Top100Coin[] | null> {
+  const url =
+    'https://api.coingecko.com/api/v3/coins/markets' +
+    '?vs_currency=usd&order=market_cap_desc&per_page=100&page=1' +
+    '&sparkline=true&price_change_percentage=24h,7d,30d';
+  const rows = await cgFetchArrayRetry(url);
+  if (!rows) return null;
+
+  return (rows as Record<string, unknown>[]).map((r) => ({
+    id: r.id as string,
+    symbol: ((r.symbol as string) ?? '').toUpperCase(),
+    name: r.name as string,
+    price: r.current_price as number,
+    marketCap: (r.market_cap as number) ?? 0,
+    marketCapRank: (r.market_cap_rank as number) ?? null,
+    volume24h: (r.total_volume as number) ?? 0,
+    perf24h: (r.price_change_percentage_24h_in_currency as number) ?? null,
+    perf7d: (r.price_change_percentage_7d_in_currency as number) ?? null,
+    perf30d: (r.price_change_percentage_30d_in_currency as number) ?? null,
+    sparkline7d: (r.sparkline_in_7d as { price: number[] } | undefined)?.price ?? [],
+  }));
+}
+
 // For known symbols → CoinGecko ID (fallback: use id directly)
 const SYMBOL_TO_ID: Record<string, string> = {
   BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binancecoin',

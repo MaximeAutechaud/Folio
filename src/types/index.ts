@@ -189,6 +189,16 @@ export interface SignalLogRow {
   rel_perf_j20: number | null;
 }
 
+// Screener crypto (branche experimentale) — classement quotidien du top "chaud".
+export interface ScreenerLogRow {
+  id: number;
+  date: string;   // 'YYYY-MM-DD'
+  coin_id: string;
+  symbol: string;
+  heat: number;
+  rank: number;
+}
+
 export interface WatchlistCategory {
   id: number;
   name: string;
