@@ -5,7 +5,7 @@ import {
   collectInstants,
   durationDays,
   missingFields,
-  resolveChain,
+  resolveChainPoints,
   sharesChangeWithinFiling,
   type CompanyFacts,
   type XbrlPoint,
@@ -107,20 +107,70 @@ describe('collectInstants', () => {
   });
 });
 
-describe('resolveChain', () => {
+describe('resolveChainPoints', () => {
   it('fusionne les tags successifs d\'un meme poste', () => {
     const f = facts({
       SalesRevenueNet: [dur('2016-09-25', '2017-09-30', 229)],
       RevenueFromContractWithCustomerExcludingAssessedTax: [dur('2024-09-29', '2025-09-27', 416)],
     });
-    const pts = resolveChain(f, 'us-gaap', [
+    const pts = resolveChainPoints(f, 'us-gaap', [
       'RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues', 'SalesRevenueNet',
     ], 'USD');
     expect(pts).toHaveLength(2);
   });
 
   it('retourne un tableau vide si aucun tag de la chaine n\'existe', () => {
-    expect(resolveChain(facts({}), 'us-gaap', ['Absent'], 'USD')).toEqual([]);
+    expect(resolveChainPoints(facts({}), 'us-gaap', ['Absent'], 'USD')).toEqual([]);
+  });
+});
+
+describe('priorite de chaine', () => {
+  /**
+   * Regression Caterpillar 2024 : `CostOfRevenue` (le total, 40,2 Md$) et
+   * `CostOfGoodsAndServicesSold` (une composante, ~0) couvrent le meme exercice.
+   * Arbitrer au depot le plus recent au lieu de l'ordre de la chaine donnait une
+   * marge brute de ~100 %.
+   */
+  it('le premier tag de la chaine gagne, meme si un autre est depose plus tard', () => {
+    const f = facts({
+      NetIncomeLoss: [dur('2023-12-31', '2024-12-31', 10_800)],
+      Revenues:      [dur('2023-12-31', '2024-12-31', 64_800)],
+      CostOfRevenue: [dur('2023-12-31', '2024-12-31', 40_200, { filed: '2025-02-01' })],
+      // Depose plus tard, mais ce n'est qu'une composante : ne doit pas l'emporter.
+      CostOfGoodsAndServicesSold: [dur('2023-12-31', '2024-12-31', 12, { filed: '2026-02-01' })],
+    });
+    expect(buildAnnualSeries(f)[0].grossProfit).toBe(64_800 - 40_200);
+  });
+
+  it('un tag secondaire comble les exercices que le premier ne couvre pas', () => {
+    // Apple ne publie pas CostOfRevenue : la composante doit alors servir.
+    const f = facts({
+      NetIncomeLoss:              [dur('2024-09-29', '2025-09-27', 112)],
+      Revenues:                   [dur('2024-09-29', '2025-09-27', 416_200)],
+      CostOfGoodsAndServicesSold: [dur('2024-09-29', '2025-09-27', 221_000)],
+    });
+    expect(buildAnnualSeries(f)[0].grossProfit).toBe(416_200 - 221_000);
+  });
+
+  it('n\'ecrase pas un exercice deja resolu par un tag prioritaire', () => {
+    const f = facts({
+      NetIncomeLoss: [
+        dur('2022-12-31', '2023-12-31', 1),
+        dur('2023-12-31', '2024-12-31', 2),
+      ],
+      CostOfRevenue:              [dur('2023-12-31', '2024-12-31', 100)],
+      CostOfGoodsAndServicesSold: [
+        dur('2022-12-31', '2023-12-31', 90),  // comble 2023
+        dur('2023-12-31', '2024-12-31', 999), // ignore : 2024 deja pris
+      ],
+      Revenues: [
+        dur('2022-12-31', '2023-12-31', 200),
+        dur('2023-12-31', '2024-12-31', 300),
+      ],
+    });
+    const s = buildAnnualSeries(f);
+    expect(s.find((r) => r.periodEnd === '2023-12-31')!.grossProfit).toBe(200 - 90);
+    expect(s.find((r) => r.periodEnd === '2024-12-31')!.grossProfit).toBe(300 - 100);
   });
 });
 

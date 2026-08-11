@@ -114,11 +114,8 @@ function conceptPoints(
   return Array.isArray(pts) && pts.length > 0 ? pts : null;
 }
 
-/**
- * Premiere entree exploitable d'une chaine de tags. L'ordre compte : le tag le
- * plus recent de la norme passe en premier, les tags historiques ensuite.
- */
-export function resolveChain(
+/** Tous les points d'une chaine, sans arbitrage. Reserve aux traitements qui ont besoin du brut. */
+export function resolveChainPoints(
   facts: CompanyFacts,
   ns: string,
   tags: readonly string[],
@@ -130,6 +127,40 @@ export function resolveChain(
     if (pts) merged.push(...pts);
   }
   return merged;
+}
+
+/**
+ * Resout une chaine de tags en une serie par date de cloture, **dans l'ordre de
+ * priorite de la chaine** : pour une periode donnee, le premier tag qui fournit
+ * une valeur gagne. Les tags suivants ne servent qu'a combler les periodes
+ * laissees vides.
+ *
+ * Ne surtout pas fusionner les tags avant d'arbitrer : deux tags d'un meme
+ * poste se chevauchent souvent, et departager au depot le plus recent revient a
+ * choisir au hasard entre un total et une de ses composantes. Chez Caterpillar
+ * en 2024, `CostOfGoodsAndServicesSold` vaut ~0 alors que `CostOfRevenue` vaut
+ * 40,2 Md$ : l'arbitrage par date donnait une marge brute de ~100 %.
+ *
+ * L'arbitrage entre republications d'un MEME tag (retraitements) reste au depot
+ * le plus recent — c'est le role de `collectAnnualDurations` / `collectInstants`.
+ */
+function resolveSeries(
+  facts: CompanyFacts,
+  ns: string,
+  tags: readonly string[],
+  unit: string,
+  kind: 'duration' | 'instant',
+): Map<string, XbrlPoint> {
+  const out = new Map<string, XbrlPoint>();
+  for (const tag of tags) {
+    const pts = conceptPoints(facts, ns, tag, unit);
+    if (!pts) continue;
+    const resolved = kind === 'duration' ? collectAnnualDurations(pts) : collectInstants(pts);
+    for (const [end, p] of resolved) {
+      if (!out.has(end)) out.set(end, p);
+    }
+  }
+  return out;
 }
 
 // ── Chaines de repli par poste ────────────────────────────────────────────────
@@ -144,7 +175,10 @@ const CHAINS = {
     'Revenues',
     'SalesRevenueNet',
   ],
-  costOfRevenue: ['CostOfGoodsAndServicesSold', 'CostOfRevenue', 'CostOfGoodsSold'],
+  // `CostOfRevenue` est le TOTAL dans la taxonomie US-GAAP ; les deux suivants
+  // n'en sont que des composantes, et servent aux emetteurs (Apple) qui ne
+  // publient pas le total. L'ordre inverse donnait la marge brute de Caterpillar.
+  costOfRevenue: ['CostOfRevenue', 'CostOfGoodsAndServicesSold', 'CostOfGoodsSold'],
   grossProfit: ['GrossProfit'],
   operatingIncome: ['OperatingIncomeLoss'],
   netIncome: ['NetIncomeLoss', 'ProfitLoss'],
@@ -165,11 +199,11 @@ const CHAINS = {
 const GAAP = 'us-gaap';
 
 function annualMap(facts: CompanyFacts, tags: readonly string[], unit = 'USD') {
-  return collectAnnualDurations(resolveChain(facts, GAAP, tags, unit));
+  return resolveSeries(facts, GAAP, tags, unit, 'duration');
 }
 
 function instantMap(facts: CompanyFacts, tags: readonly string[], unit = 'USD') {
-  return collectInstants(resolveChain(facts, GAAP, tags, unit));
+  return resolveSeries(facts, GAAP, tags, unit, 'instant');
 }
 
 /**
@@ -250,7 +284,7 @@ export function sharesChangeWithinFiling(
   periodEnd: string,
   prevPeriodEnd: string,
 ): number | null {
-  const pts = resolveChain(facts, GAAP, CHAINS.dilutedShares, 'shares');
+  const pts = resolveChainPoints(facts, GAAP, CHAINS.dilutedShares, 'shares');
 
   // Regroupe par depot : un accession number = une base de split homogene.
   const byAccn = new Map<string, Map<string, XbrlPoint>>();
