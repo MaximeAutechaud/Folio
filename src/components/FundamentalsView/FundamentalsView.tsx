@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { TickerSearch, type TickerResult } from '../TickerSearch/TickerSearch';
 import { useFundamentals, type FundamentalsData } from '../../hooks/useFundamentals';
 import { MIN_AVAILABLE_TESTS, type PiotroskiScore } from '../../lib/piotroski';
+import { PiotroskiRadar } from './PiotroskiRadar';
 import styles from './FundamentalsView.module.css';
 
 const VERDICT_LABEL: Record<string, string> = {
@@ -53,39 +54,6 @@ function Verdict({ score }: { score: PiotroskiScore }) {
   );
 }
 
-function TestList({ score }: { score: PiotroskiScore }) {
-  const groups = [
-    ['rentabilite', 'Rentabilité'],
-    ['structure', 'Structure financière'],
-    ['efficacite', 'Efficacité opérationnelle'],
-  ] as const;
-
-  return (
-    <div className={styles.testGroups}>
-      {groups.map(([cat, label]) => (
-        <div key={cat} className={styles.testGroup}>
-          <div className={styles.testGroupTitle}>{label}</div>
-          {score.tests.filter((t) => t.category === cat).map((t) => (
-            <div key={t.id} className={styles.testRow}>
-              <span
-                className={
-                  t.passed == null ? styles.markNa : t.passed ? styles.markOk : styles.markKo
-                }
-              >
-                {t.passed == null ? '?' : t.passed ? '✓' : '×'}
-              </span>
-              <span className={t.passed == null ? styles.testLabelNa : styles.testLabel}>
-                {t.label}
-              </span>
-              {t.passed == null && <span className={styles.naTag}>non calculable</span>}
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className={styles.metric} {...(hint ? { 'data-tooltip': hint } : {})}>
@@ -132,7 +100,7 @@ function Report({ data }: { data: FundamentalsData }) {
       {last && (
         <>
           <Verdict score={last} />
-          <TestList score={last} />
+          <PiotroskiRadar history={data.piotroski} />
 
           {last.nonOperatingShare != null && last.nonOperatingShare > 0.25 && (
             <div className={styles.flagBox}>

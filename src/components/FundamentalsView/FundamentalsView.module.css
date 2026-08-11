@@ -7,6 +7,12 @@
   gap: 12px;
 }
 
+/* Dans une colonne flex de hauteur contrainte, les enfants se COMPRIMENT au
+   lieu de deborder : sans cela la grille des indicateurs s'ecrasait a 11 px de
+   haut des que le contenu depassait la fenetre. Meme correctif que `.subNav`
+   dans MarketView. */
+.root > * { flex-shrink: 0; }
+
 /* Tooltips — pattern data-tooltip + ::after (cf. CLAUDE.md) */
 [data-tooltip] { position: relative; }
 [data-tooltip]::after {
@@ -100,51 +106,6 @@
 .verdictBody { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .verdictLabel { font-size: 14px; font-weight: 600; color: var(--text-primary); }
 .verdictNote { font-size: 11px; color: var(--text-muted); line-height: 1.45; }
-
-/* ── Detail des tests ────────────────────────────── */
-
-.testGroups {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1px;
-  background: var(--border);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.testGroup {
-  background: var(--bg-secondary);
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.testGroupTitle {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin-bottom: 2px;
-}
-
-.testRow { display: flex; align-items: baseline; gap: 7px; font-size: 11px; }
-
-.markOk { color: var(--green); font-weight: 700; width: 10px; flex-shrink: 0; }
-.markKo { color: var(--red);   font-weight: 700; width: 10px; flex-shrink: 0; }
-.markNa { color: var(--text-muted); opacity: 0.5; width: 10px; flex-shrink: 0; }
-
-.testLabel   { color: var(--text-primary); }
-.testLabelNa { color: var(--text-muted); opacity: 0.6; }
-
-.naTag {
-  font-size: 9px;
-  color: var(--text-muted);
-  opacity: 0.7;
-  font-style: italic;
-}
 
 /* ── Encarts ─────────────────────────────────────── */
 

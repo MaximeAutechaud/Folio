@@ -1,0 +1,178 @@
+.wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.chartCol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.svg {
+  width: 400px;
+  height: 367px;
+}
+
+/* ── Trame ───────────────────────────────────────── */
+/* Traits pleins et d'une seule nuance au-dessus du fond : une trame pointillee
+   se lirait comme un seuil ou une projection. */
+
+.ring {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.spoke {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+/* ── Series ──────────────────────────────────────── */
+/* Emphase : le contexte historique est un aplat gris, l'exercice courant porte
+   la seule teinte accentuee. */
+
+.histShape {
+  fill: rgba(110, 118, 129, 0.28);
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.currentShape {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+  stroke-linejoin: round;
+}
+
+/* Anneau de la couleur du fond : separe le point du trace sans lui dessiner
+   de bordure. */
+.currentDot {
+  fill: var(--accent);
+  stroke: var(--bg-secondary);
+  stroke-width: 2;
+}
+
+/* ── Etiquettes d'axe ────────────────────────────── */
+
+.axisLabel,
+.axisLabelNa {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--text-muted);
+}
+.axisLabelNa { opacity: 0.45; }
+
+/* ── Legende ─────────────────────────────────────── */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.legendItem { display: flex; align-items: center; gap: 5px; }
+
+.swatchHist {
+  width: 14px;
+  height: 8px;
+  border-radius: 2px;
+  background: rgba(110, 118, 129, 0.28);
+  border: 1px solid var(--text-muted);
+}
+
+.swatchCurrent {
+  width: 14px;
+  height: 0;
+  border-top: 2px dashed var(--accent);
+}
+
+/* ── Equivalent tabulaire ────────────────────────── */
+
+.table {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Largeur bornee : etiree sur toute la carte, la valeur se retrouvait a des
+     centaines de pixels de son libelle. */
+  flex: 1 1 260px;
+  max-width: 420px;
+}
+
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.row:hover { background: var(--bg-hover); }
+
+/* Tooltip — pattern data-tooltip + ::after (cf. CLAUDE.md) */
+.row[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 20;
+}
+.row[data-tooltip]:hover::after { opacity: 1; }
+
+/* Statut jamais porte par la seule couleur : chaque pastille a son glyphe. */
+.badgeOk, .badgeKo, .badgeNa {
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1;
+}
+.badgeOk { color: var(--green); }
+.badgeKo { color: var(--red); }
+.badgeNa { color: var(--text-muted); opacity: 0.6; }
+
+.name   { color: var(--text-primary); }
+.nameNa { color: var(--text-muted); opacity: 0.6; }
+
+.rate {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 30px;
+  text-align: right;
+}
