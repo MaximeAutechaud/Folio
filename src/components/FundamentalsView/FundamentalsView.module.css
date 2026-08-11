@@ -198,7 +198,18 @@
   background: var(--border);
   border: 1px solid var(--border);
   border-radius: 6px;
-  overflow: hidden;
+  /* Surtout pas `overflow: hidden` malgre les coins arrondis : les infobulles
+     des cases sortent de la grille par le haut et se faisaient decouper — donc
+     ne s'affichaient jamais. */
+}
+
+/* Infobulle centree sur sa case et bornee a 240 px : ancree a gauche, celle de
+   la derniere colonne depasserait la fenetre et provoquerait un defilement
+   horizontal. */
+.metric[data-tooltip]::after {
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 240px;
 }
 
 .metric {

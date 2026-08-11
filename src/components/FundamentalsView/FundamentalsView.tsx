@@ -149,24 +149,25 @@ function Report({ data }: { data: FundamentalsData }) {
           </div>
           <div className={styles.metrics}>
             <Metric label="FCF" value={usd(context.freeCashFlow)}
-              hint="Cash-flow d'exploitation moins investissements corporels" />
-            <Metric label="Marge de FCF" value={pct(context.freeCashFlowMargin)} />
+              hint="Le cash qui reste une fois l'exploitation payée et les investissements faits. C'est lui qui finance dividendes, rachats d'actions et désendettement. Durablement négatif : l'entreprise brûle du cash et devra emprunter ou émettre des actions." />
+            <Metric label="Marge de FCF" value={pct(context.freeCashFlowMargin)}
+              hint="Part du chiffre d'affaires qui finit en cash disponible. Au-dessus de 15 %, la conversion est excellente ; sous 5 %, la marge de manœuvre est mince. Très sectoriel : un éditeur de logiciels dépasse souvent 25 %, un distributeur reste sous 5 %." />
             <Metric label="Rendement FCF" value={pct(context.freeCashFlowYield)}
-              hint="FCF rapporté à la capitalisation" />
+              hint="Ce que rapporterait l'entreprise en cash si tu la rachetais entière au cours actuel. À comparer au rendement des obligations d'État : en dessous, tu paies d'avance une croissance espérée. Au-dessus de 8 %, soit c'est une affaire, soit le marché anticipe une chute." />
             <Metric label="PER" value={num(context.priceEarnings)}
-              hint="Non affiché sur un résultat négatif : un PER négatif se lirait « bon marché »" />
+              hint="Années de bénéfice actuel pour rembourser le prix payé. Un PER élevé n'est pas « cher » en soi, il traduit une croissance attendue. Ne se compare qu'à l'intérieur d'un même secteur, et n'a aucun sens sur un bénéfice dopé par une cession." />
             <Metric label="EV / résultat opé." value={num(context.enterpriseValueToEbit)}
-              hint="À la place d'EV/EBITDA : les dotations aux amortissements n'ont pas de tag XBRL exploitable" />
+              hint="Même idée que le PER, mais dette incluse et avant impôt. Plus honnête pour comparer deux entreprises dont l'endettement diffère, là où le PER ignore la dette. Sous 12 c'est modéré, au-delà de 25 le marché attend beaucoup." />
             <Metric label="Dette nette" value={usd(context.netDebt)}
-              hint="Dette long terme moins trésorerie. Négatif = trésorerie nette" />
+              hint="Dette long terme moins trésorerie : le montant réellement dû, pas la dette brute. Négatif = l'entreprise détient plus de cash que de dettes et pourrait tout rembourser demain." />
             <Metric label="Dette nette / CFO" value={num(context.netDebtToOperatingCashFlow, 2)}
-              hint="Années de cash-flow d'exploitation nécessaires au remboursement" />
+              hint="Années de cash-flow d'exploitation nécessaires pour rembourser toute la dette nette. Sous 3, l'endettement est confortable ; au-delà de 5, il contraint, et la moindre baisse d'activité fait mal. Absent en trésorerie nette : il n'y a rien à rembourser." />
             <Metric label="Couverture intérêts" value={num(context.interestCoverage)}
-              hint="Souvent indisponible : la charge d'intérêts n'est pas taguée par tous les émetteurs" />
+              hint="Combien de fois le résultat opérationnel couvre les intérêts de la dette. Sous 2, une mauvaise année suffit à ne plus pouvoir payer ses créanciers ; au-delà de 10, la charge est indolore. Souvent indisponible : tous les émetteurs ne publient pas ce poste." />
             <Metric label="DSO" value={context.daysSalesOutstanding == null ? '—' : `${Math.round(context.daysSalesOutstanding)} j`}
-              hint="Délai de règlement client. À lire en tendance sur une même société, jamais entre sociétés" />
+              hint="Jours entre une vente et son encaissement. À suivre dans le temps sur UNE société : une hausse régulière signale des clients qui paient plus lentement, ou des ventes poussées en fin de trimestre. Ne se compare pas entre secteurs — un distributeur encaisse comptant, un éditeur B2B facture à 90 jours." />
             <Metric label="Jours de stock" value={context.inventoryDays == null ? '—' : `${Math.round(context.inventoryDays)} j`}
-              hint="Rapportés au coût des ventes. À lire en tendance, jamais entre sociétés" />
+              hint="Jours de ventes immobilisés en stock. Une hausse plus rapide que les ventes précède souvent une mauvaise nouvelle : produits qui ne partent pas, dépréciations à venir. À lire en tendance — Apple tourne à 9 jours, un industriel à 150, sans que l'un soit meilleur." />
           </div>
         </>
       )}
