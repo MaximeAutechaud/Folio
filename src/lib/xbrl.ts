@@ -50,6 +50,8 @@ export interface CompanyFacts {
 export interface AnnualFigures {
   /** Date de cloture de l'exercice, ex. `2025-09-27`. */
   periodEnd: string;
+
+  // ── Postes necessaires au scoring (Piotroski / Altman) ──
   revenue: number | null;
   grossProfit: number | null;
   operatingIncome: number | null;
@@ -61,8 +63,28 @@ export interface AnnualFigures {
   liabilitiesCurrent: number | null;
   longTermDebt: number | null;
   retainedEarnings: number | null;
+  stockholdersEquity: number | null;
   dilutedShares: number | null;
+
+  // ── Postes de contexte (FCF, dette nette, DSO, rotation des stocks) ──
+  // Hors score : leur absence est frequente et legitime — un editeur de
+  // logiciels n'a pas de stocks — donc `missingFields` les ignore.
+  cash: number | null;
+  capex: number | null;
+  receivables: number | null;
+  inventory: number | null;
 }
+
+/**
+ * Postes sans lesquels un test de scoring devient incalculable. Sert a separer
+ * « donnee manquante » de « poste sans objet » : un `inventory` a null chez un
+ * editeur de logiciels n'est pas une lacune, un `assets` a null en est une.
+ */
+const CORE_FIELDS: readonly (keyof AnnualFigures)[] = [
+  'revenue', 'grossProfit', 'operatingIncome', 'netIncome', 'operatingCashFlow',
+  'assets', 'assetsCurrent', 'liabilities', 'liabilitiesCurrent', 'longTermDebt',
+  'retainedEarnings', 'stockholdersEquity', 'dilutedShares',
+];
 
 const DAY_MS = 86_400_000;
 
@@ -193,7 +215,26 @@ const CHAINS = {
   liabilitiesCurrent: ['LiabilitiesCurrent'],
   longTermDebt: ['LongTermDebtNoncurrent', 'LongTermDebt', 'LongTermDebtAndCapitalLeaseObligations'],
   retainedEarnings: ['RetainedEarningsAccumulatedDeficit'],
-  stockholdersEquity: ['StockholdersEquity'],
+  // La variante « y compris interets minoritaires » passe EN PREMIER, contre
+  // l'intuition. Deux raisons, et elles vont dans le meme sens :
+  //   - le passif se deduit par `actif - capitaux propres`, identite qui n'est
+  //     vraie qu'avec les capitaux propres TOTAUX ; avec la seule part du
+  //     groupe on surestime le passif du montant des minoritaires ;
+  //   - X4 d'Altman mesure le coussin qui absorbe le passif, et les
+  //     minoritaires en font partie.
+  // Les societes sans minoritaires ne publient que le tag simple (AAPL, MSFT,
+  // MRVL) et y retombent ; Caterpillar ne publie QUE la variante totale.
+  stockholdersEquity: [
+    'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest',
+    'StockholdersEquity',
+  ],
+  cash: [
+    'CashAndCashEquivalentsAtCarryingValue',
+    'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents',
+  ],
+  capex: ['PaymentsToAcquirePropertyPlantAndEquipment', 'PaymentsToAcquireProductiveAssets'],
+  receivables: ['AccountsReceivableNetCurrent', 'ReceivablesNetCurrent'],
+  inventory: ['InventoryNet'],
 } as const;
 
 const GAAP = 'us-gaap';
@@ -222,6 +263,7 @@ export function buildAnnualSeries(facts: CompanyFacts): AnnualFigures[] {
   const netIncome = annualMap(facts, CHAINS.netIncome);
   const operatingCashFlow = annualMap(facts, CHAINS.operatingCashFlow);
   const dilutedShares = annualMap(facts, CHAINS.dilutedShares, 'shares');
+  const capex = annualMap(facts, CHAINS.capex);
 
   const assets = instantMap(facts, CHAINS.assets);
   const assetsCurrent = instantMap(facts, CHAINS.assetsCurrent);
@@ -230,6 +272,9 @@ export function buildAnnualSeries(facts: CompanyFacts): AnnualFigures[] {
   const longTermDebt = instantMap(facts, CHAINS.longTermDebt);
   const retainedEarnings = instantMap(facts, CHAINS.retainedEarnings);
   const equity = instantMap(facts, CHAINS.stockholdersEquity);
+  const cash = instantMap(facts, CHAINS.cash);
+  const receivables = instantMap(facts, CHAINS.receivables);
+  const inventory = instantMap(facts, CHAINS.inventory);
 
   // Les cloturees d'exercice sont celles du compte de resultat : un poste de
   // bilan isole (publie chaque trimestre) ne cree pas un exercice a lui seul.
@@ -260,7 +305,13 @@ export function buildAnnualSeries(facts: CompanyFacts): AnnualFigures[] {
       liabilitiesCurrent: val(liabilitiesCurrent),
       longTermDebt: val(longTermDebt),
       retainedEarnings: val(retainedEarnings),
+      stockholdersEquity: eq,
       dilutedShares: val(dilutedShares),
+
+      cash: val(cash),
+      capex: val(capex),
+      receivables: val(receivables),
+      inventory: val(inventory),
     };
   });
 }
@@ -310,11 +361,13 @@ export function sharesChangeWithinFiling(
 }
 
 /**
- * Postes non resolus d'un exercice. Sert a distinguer "test echoue" de "test
- * non calculable" : un score degrade ne doit jamais avoir l'air normal.
+ * Postes de scoring non resolus d'un exercice. Sert a distinguer "test echoue"
+ * de "test non calculable" : un score degrade ne doit jamais avoir l'air normal.
+ *
+ * Ne considere que `CORE_FIELDS` : les postes de contexte (tresorerie, capex,
+ * creances, stocks) sont souvent absents pour de bonnes raisons et les inclure
+ * ferait passer pour lacunaire une societe qui n'a simplement pas de stocks.
  */
 export function missingFields(row: AnnualFigures): string[] {
-  return Object.entries(row)
-    .filter(([k, v]) => k !== 'periodEnd' && v == null)
-    .map(([k]) => k);
+  return CORE_FIELDS.filter((k) => row[k] == null);
 }

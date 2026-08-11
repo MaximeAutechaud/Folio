@@ -300,6 +300,85 @@ describe('sharesChangeWithinFiling', () => {
   });
 });
 
+describe('postes de contexte', () => {
+  it('resout tresorerie, capex, creances et stocks', () => {
+    const f = facts({
+      NetIncomeLoss:                             [dur('2024-09-29', '2025-09-27', 10)],
+      PaymentsToAcquirePropertyPlantAndEquipment: [dur('2024-09-29', '2025-09-27', 950)],
+      CashAndCashEquivalentsAtCarryingValue:     [inst('2025-09-27', 3000)],
+      AccountsReceivableNetCurrent:              [inst('2025-09-27', 1200)],
+      InventoryNet:                              [inst('2025-09-27', 800)],
+    });
+    const r = buildAnnualSeries(f)[0];
+    expect(r.capex).toBe(950);
+    expect(r.cash).toBe(3000);
+    expect(r.receivables).toBe(1200);
+    expect(r.inventory).toBe(800);
+  });
+
+  it('bascule sur le second tag de capex quand le premier ne couvre pas l\'exercice', () => {
+    // Reel chez Apple et Caterpillar : le capex se repartit sur deux tags.
+    const f = facts({
+      NetIncomeLoss: [
+        dur('2022-12-31', '2023-12-31', 1),
+        dur('2023-12-31', '2024-12-31', 2),
+      ],
+      PaymentsToAcquirePropertyPlantAndEquipment: [dur('2023-12-31', '2024-12-31', 500)],
+      PaymentsToAcquireProductiveAssets:          [dur('2022-12-31', '2023-12-31', 400)],
+    });
+    const s = buildAnnualSeries(f);
+    expect(s.find((r) => r.periodEnd === '2023-12-31')!.capex).toBe(400);
+    expect(s.find((r) => r.periodEnd === '2024-12-31')!.capex).toBe(500);
+  });
+
+  it('ne compte pas les postes de contexte comme manquants', () => {
+    // Un editeur de logiciels sans stocks ne doit pas paraitre lacunaire.
+    const f = facts({
+      NetIncomeLoss: [dur('2024-09-29', '2025-09-27', 10)],
+    });
+    expect(missingFields(buildAnnualSeries(f)[0])).not.toContain('inventory');
+    expect(missingFields(buildAnnualSeries(f)[0])).not.toContain('capex');
+  });
+});
+
+describe('capitaux propres', () => {
+  /**
+   * Regression Caterpillar : la societe ne publie QUE la variante incluant les
+   * interets minoritaires. La prendre en premier garde l'identite
+   * `actif = passif + capitaux propres` vraie, et fournit a Altman le coussin
+   * total plutot que la seule part du groupe.
+   */
+  it('prefere la variante incluant les interets minoritaires', () => {
+    const f = facts({
+      NetIncomeLoss: [dur('2024-12-31', '2025-12-31', 10)],
+      Assets:        [inst('2025-12-31', 1000)],
+      StockholdersEquity: [inst('2025-12-31', 280)],
+      StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest: [
+        inst('2025-12-31', 300),
+      ],
+    });
+    const r = buildAnnualSeries(f)[0];
+    expect(r.stockholdersEquity).toBe(300);
+    // Le passif deduit doit valoir 700, pas 720.
+    expect(r.liabilities).toBe(700);
+  });
+
+  it('retombe sur le tag simple pour une societe sans minoritaires', () => {
+    const f = facts({
+      NetIncomeLoss:      [dur('2024-09-29', '2025-09-27', 10)],
+      Assets:             [inst('2025-09-27', 1000)],
+      StockholdersEquity: [inst('2025-09-27', 300)],
+    });
+    expect(buildAnnualSeries(f)[0].stockholdersEquity).toBe(300);
+  });
+
+  it('compte les capitaux propres comme poste de scoring manquant', () => {
+    // Z_bilan en depend : leur absence doit se voir.
+    const f = facts({ NetIncomeLoss: [dur('2024-09-29', '2025-09-27', 10)] });
+    expect(missingFields(buildAnnualSeries(f)[0])).toContain('stockholdersEquity');
+  });
+});
+
 describe('missingFields', () => {
   it('liste les postes non resolus sans compter periodEnd', () => {
     const f = facts({ NetIncomeLoss: [dur('2024-09-29', '2025-09-27', 10)] });
@@ -315,7 +394,10 @@ describe('missingFields', () => {
       periodEnd: '2025-09-27',
       revenue: 1, grossProfit: 1, operatingIncome: 1, netIncome: 1,
       operatingCashFlow: 1, assets: 1, assetsCurrent: 1, liabilities: 1,
-      liabilitiesCurrent: 1, longTermDebt: 1, retainedEarnings: 1, dilutedShares: 1,
+      liabilitiesCurrent: 1, longTermDebt: 1, retainedEarnings: 1,
+      stockholdersEquity: 1, dilutedShares: 1,
+      // Postes de contexte laisses a null : ils ne doivent pas remonter.
+      cash: null, capex: null, receivables: null, inventory: null,
     };
     expect(missingFields(complete)).toEqual([]);
   });
