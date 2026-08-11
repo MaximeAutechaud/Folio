@@ -28,9 +28,33 @@ import type { CompanyFacts } from '../xbrl';
 /** Cle `settings` ou vit l'adresse de contact envoyee a la SEC. */
 export const SEC_CONTACT_EMAIL_SETTING = 'sec_contact_email';
 
+/**
+ * Le filtre de `www.sec.gov` est purement **syntaxique** : il n'y a aucune
+ * verification de l'adresse, seulement de sa forme. Teste contre l'API reelle :
+ *
+ * | User-Agent                     | reponse |
+ * |--------------------------------|---------|
+ * | `Folio bbb@ccc.ddd` (charabia) | 200     |
+ * | `Folio a@b.co`                 | 200     |
+ * | `x@y.z`      (TLD d'1 lettre)  | **403** |
+ * | `Folio contact@` (sans domaine)| **403** |
+ * | `Folio nimportequoi` (sans @)  | **403** |
+ *
+ * D'ou cette regle, calquee sur le comportement observe : partie locale non
+ * vide, domaine non vide, TLD d'au moins deux caracteres, aucun espace. Valider
+ * ici evite de laisser passer une adresse que la SEC rejettera en 403 — un
+ * echec qui reviendrait sinon sous la forme d'un annuaire injoignable, bien
+ * plus difficile a relier a une faute de frappe.
+ */
+const SEC_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+export function isValidSecContactEmail(email: string): boolean {
+  return SEC_EMAIL_RE.test(email.trim());
+}
+
 /** Construit le UA conforme attendu par `www.sec.gov`. */
 export function secContactUserAgent(contactEmail: string): string {
-  return `Folio Portfolio Tracker ${contactEmail}`;
+  return `Folio Portfolio Tracker ${contactEmail.trim()}`;
 }
 
 /**
@@ -97,7 +121,7 @@ interface RawTickerRow {
  * donc fait pour etre mis en cache longuement, pas rappele a chaque recherche.
  */
 export async function fetchTickerDirectory(contactEmail: string): Promise<CikEntry[] | null> {
-  if (!contactEmail.includes('@')) return null;
+  if (!isValidSecContactEmail(contactEmail)) return null;
 
   const data = await secJson<Record<string, RawTickerRow>>(
     'https://www.sec.gov/files/company_tickers.json',

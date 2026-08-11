@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getSetting, setSetting } from '../../lib/db';
 import { callAnthropic, ANTHROPIC_API_KEY_SETTING, ANTHROPIC_MODEL, ANTHROPIC_MODEL_SETTING, ANTHROPIC_MODELS } from '../../lib/anthropic';
-import { SEC_CONTACT_EMAIL_SETTING } from '../../lib/api/sec';
+import { SEC_CONTACT_EMAIL_SETTING, isValidSecContactEmail } from '../../lib/api/sec';
 import styles from './AppSettings.module.css';
 
 interface Props {
@@ -63,7 +63,9 @@ export function AppSettings({ onClose }: Props) {
     setTimeout(() => setSecSaved(false), 1500);
   }
 
-  const secEmailValid = secEmail.trim().includes('@');
+  // Meme regle que celle appliquee a l'appel reseau : une seule source de verite.
+  const secEmailValid = isValidSecContactEmail(secEmail);
+  const secEmailTouched = secEmail.trim().length > 0;
 
   return (
     <div className={styles.overlay}>
@@ -147,6 +149,13 @@ export function AppSettings({ onClose }: Props) {
             qu'à sec.gov — c'est pour cette raison qu'elle n'est pas inscrite dans le code,
             le dépôt étant public.
           </p>
+
+          {secEmailTouched && !secEmailValid && (
+            <div className={`${styles.status} ${styles.statusErr}`}>
+              Format invalide — la SEC attend <code>nom@domaine.tld</code> et refuse (403) tout ce
+              qui n'y ressemble pas, extension d'une seule lettre comprise.
+            </div>
+          )}
 
           <div className={styles.row}>
             <button className={styles.btn} onClick={handleSecSave} disabled={!secEmailValid}>
