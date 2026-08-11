@@ -60,12 +60,12 @@ export function MarketView({ forcedSubTab }: Props) {
           <button
             key={t.id}
             data-tour={`market-sub-${t.id}`}
+            data-tooltip={t.hint}
             className={`${styles.subNavBtn} ${subTab === t.id ? styles.subNavActive : ''}`}
             onClick={() => handleSubTabChange(t.id)}
           >
             <span className={styles.tabIndex}>{i + 1}</span>
             {t.label}
-            <span className={styles.tabHint}>{t.hint}</span>
           </button>
         ))}
       </div>
