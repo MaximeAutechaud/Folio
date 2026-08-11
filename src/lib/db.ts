@@ -119,6 +119,7 @@ async function runMigrations(db: Database): Promise<void> {
   await migrateToV12(db);
   await migrateToV13(db);
   await migrateToV14(db);
+  await migrateToV15(db);
 
   // positions: second take-profit target (Phase 1 extension)
   const tp2Col = await db.select<{ name: string }[]>(
@@ -471,6 +472,47 @@ async function migrateToV14(db: Database): Promise<void> {
   );
 }
 
+// Cache des données fondamentales SEC. Deux tables, deux rythmes :
+//
+// - `sec_ticker_cik` : l'annuaire des sociétés américaines (~10 000 lignes,
+//   800 Ko à télécharger). Il ne bouge qu'aux introductions et changements de
+//   ticker, donc rafraîchi à la semaine.
+// - `sec_company_cache` : le snapshot **normalisé** d'une société, quelques Ko.
+//   On n'y met surtout pas les ~4 Mo bruts de `companyfacts` : la série
+//   annuelle en est l'unique produit utile, et la garder brute multiplierait la
+//   taille de la base par mille pour rien.
+//
+// `report_accn` porte l'accession du dernier rapport annuel connu : comparer ce
+// numéro coûte un appel à `submissions` (~160 Ko) contre 4 Mo pour retélécharger
+// les comptes. C'est le test de fraîcheur, et il ne se déclenche qu'une fois le
+// délai de confiance écoulé.
+async function migrateToV15(db: Database): Promise<void> {
+  if (await tableExists(db, 'sec_company_cache')) return;
+
+  await db.execute(`
+    CREATE TABLE sec_ticker_cik (
+      ticker TEXT PRIMARY KEY,
+      cik    TEXT NOT NULL,
+      title  TEXT NOT NULL
+    )
+  `);
+
+  await db.execute(`
+    CREATE TABLE sec_company_cache (
+      cik         TEXT PRIMARY KEY,
+      ticker      TEXT NOT NULL,
+      payload     TEXT NOT NULL,
+      report_accn TEXT,
+      fetched_at  TEXT NOT NULL
+    )
+  `);
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '15')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
 // positions.sector_id : rattachement optionnel à un secteur (lib/sectors.ts),
 // pour l'exposition sectorielle et les badges d'essoufflement du Dashboard.
 async function migrateToV11(db: Database): Promise<void> {
@@ -728,6 +770,102 @@ export async function getSetting(key: string): Promise<string | null> {
     [key]
   );
   return rows[0]?.value ?? null;
+}
+
+// ── Cache SEC ─────────────────────────────────────────────────────────────
+
+/** Clé `settings` portant l'horodatage du dernier chargement de l'annuaire. */
+export const SEC_DIRECTORY_FETCHED_AT = 'sec_directory_fetched_at';
+
+/**
+ * SQLite plafonne à 999 paramètres liés par requête. Avec trois colonnes, on
+ * reste sous la limite en groupant par 300 — soit ~34 requêtes pour l'annuaire
+ * complet, contre 10 000 si l'on insérait ligne par ligne. Le plugin SQL fait
+ * un aller-retour par `execute`, donc c'est cette différence-là qui compte.
+ */
+const DIRECTORY_BATCH = 300;
+
+export async function replaceTickerDirectory(
+  rows: { ticker: string; cik: string; title: string }[]
+): Promise<void> {
+  const db = await getDb();
+  await db.execute('DELETE FROM sec_ticker_cik');
+
+  for (let i = 0; i < rows.length; i += DIRECTORY_BATCH) {
+    const chunk = rows.slice(i, i + DIRECTORY_BATCH);
+    const placeholders = chunk
+      .map((_, j) => `($${j * 3 + 1}, $${j * 3 + 2}, $${j * 3 + 3})`)
+      .join(',');
+    const values = chunk.flatMap((r) => [r.ticker, r.cik, r.title]);
+    await db.execute(
+      `INSERT OR REPLACE INTO sec_ticker_cik (ticker, cik, title) VALUES ${placeholders}`,
+      values
+    );
+  }
+
+  await setSetting(SEC_DIRECTORY_FETCHED_AT, new Date().toISOString());
+}
+
+export async function lookupCik(ticker: string): Promise<string | null> {
+  const db = await getDb();
+  const rows = await db.select<{ cik: string }[]>(
+    'SELECT cik FROM sec_ticker_cik WHERE ticker=$1',
+    [ticker.toUpperCase()]
+  );
+  return rows[0]?.cik ?? null;
+}
+
+export async function countTickerDirectory(): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ n: number }[]>('SELECT COUNT(*) AS n FROM sec_ticker_cik');
+  return rows[0]?.n ?? 0;
+}
+
+export interface CachedCompanyRow {
+  /** JSON du snapshot normalisé — jamais les comptes bruts. */
+  payload: string;
+  /** Accession du dernier rapport annuel au moment de la mise en cache. */
+  reportAccn: string | null;
+  fetchedAt: string;
+}
+
+export async function getCachedCompany(cik: string): Promise<CachedCompanyRow | null> {
+  const db = await getDb();
+  const rows = await db.select<{ payload: string; report_accn: string | null; fetched_at: string }[]>(
+    'SELECT payload, report_accn, fetched_at FROM sec_company_cache WHERE cik=$1',
+    [cik]
+  );
+  const r = rows[0];
+  return r ? { payload: r.payload, reportAccn: r.report_accn, fetchedAt: r.fetched_at } : null;
+}
+
+export async function putCachedCompany(
+  cik: string,
+  ticker: string,
+  payload: string,
+  reportAccn: string | null
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO sec_company_cache (cik, ticker, payload, report_accn, fetched_at)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT(cik) DO UPDATE SET
+       ticker=excluded.ticker, payload=excluded.payload,
+       report_accn=excluded.report_accn, fetched_at=excluded.fetched_at`,
+    [cik, ticker, payload, reportAccn, new Date().toISOString()]
+  );
+}
+
+/**
+ * Repousse la date de fraîcheur sans retélécharger les comptes : appelé quand
+ * le dernier rapport annuel déposé est toujours celui du cache.
+ */
+export async function touchCachedCompany(cik: string): Promise<void> {
+  const db = await getDb();
+  await db.execute('UPDATE sec_company_cache SET fetched_at=$1 WHERE cik=$2', [
+    new Date().toISOString(),
+    cik,
+  ]);
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {

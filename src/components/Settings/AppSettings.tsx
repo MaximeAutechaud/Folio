@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { getSetting, setSetting } from '../../lib/db';
 import { callAnthropic, ANTHROPIC_API_KEY_SETTING, ANTHROPIC_MODEL, ANTHROPIC_MODEL_SETTING, ANTHROPIC_MODELS } from '../../lib/anthropic';
-import styles from './BriefingSettings.module.css';
+import { SEC_CONTACT_EMAIL_SETTING, isValidSecContactEmail } from '../../lib/api/sec';
+import styles from './AppSettings.module.css';
 
 interface Props {
   onClose: () => void;
@@ -13,12 +14,15 @@ type TestState =
   | { kind: 'ok'; text: string }
   | { kind: 'err'; message: string };
 
-export function BriefingSettings({ onClose }: Props) {
+export function AppSettings({ onClose }: Props) {
   const [key, setKey] = useState('');
   const [model, setModel] = useState<string>(ANTHROPIC_MODEL);
   const [loaded, setLoaded] = useState(false);
   const [saved, setSaved] = useState(false);
   const [test, setTest] = useState<TestState>({ kind: 'idle' });
+
+  const [secEmail, setSecEmail] = useState('');
+  const [secSaved, setSecSaved] = useState(false);
 
   useEffect(() => {
     getSetting(ANTHROPIC_API_KEY_SETTING).then((v) => {
@@ -28,6 +32,7 @@ export function BriefingSettings({ onClose }: Props) {
     getSetting(ANTHROPIC_MODEL_SETTING).then((v) => {
       if (v) setModel(v);
     });
+    getSetting(SEC_CONTACT_EMAIL_SETTING).then((v) => setSecEmail(v ?? ''));
   }, []);
 
   async function handleModelChange(id: string) {
@@ -52,15 +57,27 @@ export function BriefingSettings({ onClose }: Props) {
     }
   }
 
+  async function handleSecSave() {
+    await setSetting(SEC_CONTACT_EMAIL_SETTING, secEmail.trim());
+    setSecSaved(true);
+    setTimeout(() => setSecSaved(false), 1500);
+  }
+
+  // Meme regle que celle appliquee a l'appel reseau : une seule source de verite.
+  const secEmailValid = isValidSecContactEmail(secEmail);
+  const secEmailTouched = secEmail.trim().length > 0;
+
   return (
     <div className={styles.overlay}>
       <div className={styles.modal}>
         <div className={styles.header}>
-          <span className={styles.title}>Briefing IA — Réglages</span>
+          <span className={styles.title}>Réglages</span>
           <button className={styles.close} onClick={onClose}>✕</button>
         </div>
 
         <div className={styles.body}>
+          <div className={styles.sectionTitle}>Briefing IA</div>
+
           <label className={styles.label}>
             Clé API Anthropic
             <input
@@ -112,6 +129,39 @@ export function BriefingSettings({ onClose }: Props) {
               Échec : {test.message}
             </div>
           )}
+
+          <div className={styles.divider} />
+          <div className={styles.sectionTitle}>Données fondamentales (SEC)</div>
+
+          <label className={styles.label}>
+            Adresse e-mail de contact
+            <input
+              className={styles.input}
+              type="email"
+              placeholder="prenom.nom@exemple.com"
+              value={secEmail}
+              onChange={(e) => setSecEmail(e.target.value)}
+            />
+          </label>
+          <p className={styles.hint}>
+            La SEC exige une adresse de contact dans les requêtes vers son annuaire des sociétés,
+            et refuse (403) celles qui n'en portent pas. Elle reste en local et n'est envoyée
+            qu'à sec.gov — c'est pour cette raison qu'elle n'est pas inscrite dans le code,
+            le dépôt étant public.
+          </p>
+
+          {secEmailTouched && !secEmailValid && (
+            <div className={`${styles.status} ${styles.statusErr}`}>
+              Format invalide — la SEC attend <code>nom@domaine.tld</code> et refuse (403) tout ce
+              qui n'y ressemble pas, extension d'une seule lettre comprise.
+            </div>
+          )}
+
+          <div className={styles.row}>
+            <button className={styles.btn} onClick={handleSecSave} disabled={!secEmailValid}>
+              {secSaved ? 'Enregistré ✓' : 'Enregistrer'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

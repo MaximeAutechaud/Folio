@@ -1,0 +1,270 @@
+.root {
+  padding: 16px;
+  overflow-y: auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Dans une colonne flex de hauteur contrainte, les enfants se COMPRIMENT au
+   lieu de deborder : sans cela la grille des indicateurs s'ecrasait a 11 px de
+   haut des que le contenu depassait la fenetre. Meme correctif que `.subNav`
+   dans MarketView. */
+.root > * { flex-shrink: 0; }
+
+/* Tooltips — pattern data-tooltip + ::after (cf. CLAUDE.md) */
+[data-tooltip] { position: relative; }
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--text-primary);
+  white-space: normal;
+  width: max-content;
+  max-width: 260px;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 20;
+}
+[data-tooltip]:hover::after { opacity: 1; }
+
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 520px;
+}
+
+.loading { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.notice strong { color: var(--text-secondary); font-weight: 600; }
+.noticeIcon { flex-shrink: 0; }
+
+/* ── Identite ────────────────────────────────────── */
+
+.identity { display: flex; flex-direction: column; gap: 2px; }
+.company { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+.sub { font-size: 11px; color: var(--text-muted); }
+
+.source {
+  border-bottom: 1px dotted var(--text-muted);
+  cursor: help;
+}
+
+/* ── Verdict ─────────────────────────────────────── */
+
+.verdictCard {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+
+.vSolide     { border-left-color: var(--green); }
+.vCorrect    { border-left-color: #3b82f6; }
+.vFragile    { border-left-color: #e3b341; }
+.vDifficulte { border-left-color: var(--red); }
+.vInconnu    { border-left-color: var(--text-muted); }
+
+.verdictScore {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.verdictOutOf { font-size: 15px; font-weight: 500; color: var(--text-muted); }
+
+.verdictBody { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.verdictLabel { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.verdictNote { font-size: 11px; color: var(--text-muted); line-height: 1.45; }
+
+/* ── Encarts ─────────────────────────────────────── */
+
+.errorBox, .warnBox, .flagBox {
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.errorBox {
+  background: rgba(248, 81, 73, 0.08);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  color: var(--text-secondary);
+}
+/* Hors perimetre ou non applicable : ton neutre, jamais rouge. */
+.warnBox {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.flagBox {
+  background: rgba(227, 179, 65, 0.08);
+  border: 1px solid rgba(227, 179, 65, 0.3);
+  color: var(--text-secondary);
+}
+.errorBox strong, .warnBox strong, .flagBox strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ── Historique ──────────────────────────────────── */
+
+.history {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.historyLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+
+.historyItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.historyYear { font-size: 9px; color: var(--text-muted); }
+.historyScore { font-size: 11px; font-weight: 600; color: var(--text-primary); }
+
+/* ── Contexte ────────────────────────────────────── */
+
+.sectionTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.sectionNote {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.75;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  /* Surtout pas `overflow: hidden` malgre les coins arrondis : les infobulles
+     des cases sortent de la grille par le haut et se faisaient decouper — donc
+     ne s'affichaient jamais. */
+  position: relative;
+}
+
+/* L'infobulle s'ancre sur la GRILLE, pas sur la case, et s'etire d'un bord a
+   l'autre.
+ *
+ * Ancree sur la case, elle depassait la fenetre aux deux extremites : a droite
+ * en s'etendant vers la droite, a gauche apres centrage. Aucune largeur fixe ne
+ * corrige durablement le probleme, puisque `auto-fit` change le nombre de
+ * colonnes avec la fenetre, et donc la position des cases. En s'alignant sur la
+ * grille — qui, elle, tient toujours dans la vue — le debordement devient
+ * impossible par construction, a n'importe quelle taille. Effet de bord
+ * heureux : l'infobulle parait toujours au meme endroit, sans sautiller d'une
+ * case a l'autre. */
+.metric[data-tooltip] { position: static; }
+
+.metric[data-tooltip]::after {
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  width: auto;
+  max-width: none;
+  transform: none;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 12px;
+  background: var(--bg-secondary);
+}
+
+.metricLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.metricValue {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+/* ── Lecture marche ──────────────────────────────── */
+
+.marketRead {
+  padding: 9px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.marketRead strong { color: var(--text-primary); font-weight: 600; }
+
+.marketReadLabel {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin-bottom: 3px;
+}

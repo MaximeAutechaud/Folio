@@ -70,10 +70,20 @@ async fn restore_database<R: Runtime>(
     Ok(safety.to_string_lossy().to_string())
 }
 
+/// `user_agent` est optionnel : certains hôtes refusent le UA navigateur par
+/// défaut — `www.sec.gov` répond 403 et exige un UA identifiant l'appelant
+/// (`data.sec.gov`, lui, passe sans). Quand l'argument est absent on retombe sur
+/// la chaîne historique, donc le comportement des appels existants (Yahoo,
+/// CoinGecko, Frankfurter…) est inchangé à l'octet près.
+///
+/// Comme les autres commands, cette fonction ne vérifie PAS le statut HTTP :
+/// elle renvoie le corps quel qu'il soit, y compris une page d'erreur.
 #[tauri::command]
-async fn fetch_url(url: String) -> Result<String, String> {
+async fn fetch_url(url: String, user_agent: Option<String>) -> Result<String, String> {
+    const DEFAULT_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .user_agent(user_agent.as_deref().unwrap_or(DEFAULT_UA))
         .build()
         .map_err(|e| e.to_string())?;
 

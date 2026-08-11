@@ -15,6 +15,8 @@
   width: 400px;
   display: flex;
   flex-direction: column;
+  /* Deux sections tiennent mal sur un petit ecran : le corps defile. */
+  max-height: calc(100vh - 80px);
 }
 
 .header {
@@ -42,6 +44,21 @@
   flex-direction: column;
   gap: 12px;
   padding: 16px;
+  overflow-y: auto;
+}
+
+.sectionTitle {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
 }
 
 .label {
