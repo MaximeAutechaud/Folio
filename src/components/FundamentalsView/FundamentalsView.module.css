@@ -201,15 +201,29 @@
   /* Surtout pas `overflow: hidden` malgre les coins arrondis : les infobulles
      des cases sortent de la grille par le haut et se faisaient decouper — donc
      ne s'affichaient jamais. */
+  position: relative;
 }
 
-/* Infobulle centree sur sa case et bornee a 240 px : ancree a gauche, celle de
-   la derniere colonne depasserait la fenetre et provoquerait un defilement
-   horizontal. */
+/* L'infobulle s'ancre sur la GRILLE, pas sur la case, et s'etire d'un bord a
+   l'autre.
+ *
+ * Ancree sur la case, elle depassait la fenetre aux deux extremites : a droite
+ * en s'etendant vers la droite, a gauche apres centrage. Aucune largeur fixe ne
+ * corrige durablement le probleme, puisque `auto-fit` change le nombre de
+ * colonnes avec la fenetre, et donc la position des cases. En s'alignant sur la
+ * grille — qui, elle, tient toujours dans la vue — le debordement devient
+ * impossible par construction, a n'importe quelle taille. Effet de bord
+ * heureux : l'infobulle parait toujours au meme endroit, sans sautiller d'une
+ * case a l'autre. */
+.metric[data-tooltip] { position: static; }
+
 .metric[data-tooltip]::after {
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: 240px;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  width: auto;
+  max-width: none;
+  transform: none;
 }
 
 .metric {
