@@ -20,6 +20,11 @@
  *    `RevenueFromContractWithCustomerExcludingAssessedTax` en 2018 (norme
  *    ASC 606) : lire le seul tag `Revenues` renvoie une serie qui s'arrete en
  *    2018, sans le moindre signal d'erreur.
+ * 5. Ni la taxonomie ni la devise ne sont donnees : il faut les deduire. Un
+ *    emetteur etranger depose en `ifrs-full`, ou aucun nom de tag us-gaap
+ *    n'existe, et souvent en plusieurs devises dont une seule porte la serie
+ *    complete. Supposer `us-gaap` et `USD` rend une serie vide — cf.
+ *    `detectReporting`.
  */
 
 export interface XbrlPoint {
@@ -197,7 +202,16 @@ function resolveSeries(
 // fusionnees puis dedoublonnees par date de cloture, ce qui recolle de lui-meme
 // le raccord ASC 606 de 2018 sans traitement special.
 
-const CHAINS = {
+/** Postes resolus par chaine de tags. Meme jeu de cles dans chaque taxonomie. */
+type ChainKey =
+  | 'revenue' | 'costOfRevenue' | 'grossProfit' | 'operatingIncome' | 'netIncome'
+  | 'operatingCashFlow' | 'dilutedShares' | 'assets' | 'assetsCurrent' | 'liabilities'
+  | 'liabilitiesCurrent' | 'longTermDebt' | 'retainedEarnings' | 'stockholdersEquity'
+  | 'cash' | 'capex' | 'receivables' | 'inventory' | 'interestExpense';
+
+type ChainTable = Record<ChainKey, readonly string[]>;
+
+const GAAP_CHAINS: ChainTable = {
   revenue: [
     'RevenueFromContractWithCustomerExcludingAssessedTax',
     'RevenueFromContractWithCustomerIncludingAssessedTax',
@@ -243,16 +257,226 @@ const CHAINS = {
   receivables: ['AccountsReceivableNetCurrent', 'ReceivablesNetCurrent'],
   inventory: ['InventoryNet'],
   interestExpense: ['InterestExpense', 'InterestExpenseNonoperating', 'InterestExpenseDebt'],
-} as const;
+};
 
-const GAAP = 'us-gaap';
+/**
+ * Meme structure, taxonomie IFRS (`ifrs-full`). Les emetteurs etrangers cotes
+ * aux Etats-Unis deposent bien aupres de la SEC, mais 12 des 15 ADR majeurs
+ * sondes le font en IFRS : aucune chaine us-gaap ne matche, et la serie
+ * ressortait silencieusement de longueur zero. Detail de la mesure dans
+ * `docs/EMETTEURS-ETRANGERS.md`.
+ *
+ * Chaque tag ci-dessous a ete releve sur les comptes reels de Shell,
+ * AstraZeneca, BP, TotalEnergies, Novartis, Rio Tinto, Infosys, SAP, Diageo,
+ * TSMC, Novo Nordisk et Unilever — aucun n'est repris d'une lecture de la
+ * taxonomie. Trois ecarts de couverture connus et assumes :
+ *
+ * - `GrossProfit` et `CostOfSales` sont absents chez les petrolieres et les
+ *   minieres (SHEL, BP, TTE, RIO), qui ne presentent pas de marge brute.
+ * - `ProfitLossFromOperatingActivities` manque chez Shell (jamais publie) et
+ *   chez TotalEnergies depuis 2023. On ne se rabat PAS sur
+ *   `ProfitLossBeforeTax` : melanger resultat d'exploitation et resultat avant
+ *   impot au fil d'une meme serie ferait sauter le delta de ROA sur un simple
+ *   changement de definition — le piege Caterpillar, applique au compte de
+ *   resultat. Ces deux societes sortent donc a 6 tests sur 9, sans verdict.
+ * - BP et TotalEnergies ne publient aucun decompte d'actions : le test de
+ *   dilution y est non calculable, pas echoue.
+ */
+const IFRS_CHAINS: ChainTable = {
+  revenue: ['Revenue', 'RevenueFromContractsWithCustomers', 'RevenueFromSaleOfGoods'],
+  // `CostOfInventoriesRecognisedAsExpenseDuringPeriod` est une note (IAS 2.36d)
+  // et non une ligne du compte de resultat, mais c'est la seule mesure de cout
+  // des ventes de BP — dont l'etat de resultat s'arrete a « Purchases ». Chez
+  // AstraZeneca et Novartis, qui publient les deux, les montants coincident.
+  costOfRevenue: ['CostOfSales', 'CostOfInventoriesRecognisedAsExpenseDuringPeriod'],
+  grossProfit: ['GrossProfit'],
+  operatingIncome: ['ProfitLossFromOperatingActivities'],
+  // `ProfitLoss` est le resultat de l'ensemble consolide, minoritaires compris —
+  // meme perimetre que le flux de tresorerie auquel le test d'accruals le
+  // compare, et que les capitaux propres retenus ci-dessous.
+  netIncome: ['ProfitLoss'],
+  operatingCashFlow: ['CashFlowsFromUsedInOperatingActivities'],
+  // « Adjusted » designe l'ajustement de l'effet dilutif, pas un retraitement :
+  // verifie sur les 10 societes qui publient les deux, la variante ajustee est
+  // toujours la plus elevee.
+  dilutedShares: ['AdjustedWeightedAverageShares', 'WeightedAverageShares'],
+  assets: ['Assets'],
+  assetsCurrent: ['CurrentAssets'],
+  liabilities: ['Liabilities'],
+  liabilitiesCurrent: ['CurrentLiabilities'],
+  // `Borrowings` recouvre parfois l'endettement total, `LongtermBorrowings` sa
+  // seule part non courante. Le melange serait un faux signal de levier s'il
+  // survenait au milieu d'une serie ; mesure sur les 12, chaque societe s'en
+  // tient au meme tag sur tous ses exercices, et le test de Piotroski compare
+  // une societe a elle-meme.
+  longTermDebt: ['LongtermBorrowings', 'Borrowings'],
+  retainedEarnings: ['RetainedEarnings'],
+  // `Equity` est le total, minoritaires inclus — l'equivalent IFRS exact de la
+  // variante retenue en us-gaap, et la seule qui rende vraie l'identite
+  // `passif = actif - capitaux propres` utilisee plus bas.
+  stockholdersEquity: ['Equity'],
+  cash: ['CashAndCashEquivalents'],
+  capex: [
+    'PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities',
+    'PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssets',
+  ],
+  receivables: ['CurrentTradeReceivables', 'TradeAndOtherCurrentReceivables'],
+  inventory: ['Inventories'],
+  // `FinanceCosts` est le poste IFRS courant ; Shell et TotalEnergies ne
+  // publient que `InterestExpense`.
+  interestExpense: ['FinanceCosts', 'InterestExpense'],
+};
 
-function annualMap(facts: CompanyFacts, tags: readonly string[], unit = 'USD') {
-  return resolveSeries(facts, GAAP, tags, unit, 'duration');
+/** Taxonomies couvertes, dans l'ordre de preference en cas d'egalite stricte. */
+export const TAXONOMIES = ['us-gaap', 'ifrs-full'] as const;
+export type Taxonomy = (typeof TAXONOMIES)[number];
+
+const CHAINS: Record<Taxonomy, ChainTable> = {
+  'us-gaap': GAAP_CHAINS,
+  'ifrs-full': IFRS_CHAINS,
+};
+
+/** Postes de flux et de compte de resultat : dates par duree, pas par instant. */
+const DURATION_KEYS = new Set<ChainKey>([
+  'revenue', 'costOfRevenue', 'grossProfit', 'operatingIncome', 'netIncome',
+  'operatingCashFlow', 'dilutedShares', 'capex', 'interestExpense',
+]);
+
+/** Les decomptes d'actions ne sont pas libelles dans une devise. */
+const SHARE_KEYS = new Set<ChainKey>(['dilutedShares']);
+
+/**
+ * Taxonomie et devise dans lesquelles une societe est reellement lisible.
+ *
+ * Rien n'est devine : les deux sont **mesurees** sur les comptes, en comptant
+ * les exercices que chaque combinaison permet de resoudre. C'est necessaire
+ * parce qu'un meme depot melange les unites — un declarant IFRS publie souvent
+ * en double devise, et le dollar n'y est pas forcement la serie complete. SAP
+ * expose 11 exercices en euros et **un seul** en dollars ; Diageo 8 en livres
+ * contre 4 en dollars. Choisir le dollar par principe donnerait une serie
+ * tronquee, donc un F-Score sans historique.
+ */
+export interface Reporting {
+  taxonomy: Taxonomy;
+  /** Code d'unite XBRL, ex. `USD`, `EUR`, `TWD`. */
+  currency: string;
 }
 
-function instantMap(facts: CompanyFacts, tags: readonly string[], unit = 'USD') {
-  return resolveSeries(facts, GAAP, tags, unit, 'instant');
+/** Une unite monetaire, par opposition aux decomptes et aux ratios. */
+function isMoneyUnit(unit: string): boolean {
+  return unit !== 'shares' && unit !== 'pure' && !unit.includes('/');
+}
+
+/**
+ * Postes dont la resolution mesure la completude d'un couple taxonomie/devise.
+ * Les decomptes d'actions en sont exclus : ils sont dans la meme unite quelle
+ * que soit la devise de publication, et ne departageraient donc rien.
+ */
+const COVERAGE_KEYS = CORE_FIELDS.filter((f) => f !== 'dilutedShares') as ChainKey[];
+
+/** Postes ou aller chercher les devises candidates : presents chez tout le monde. */
+const ANCHOR_KEYS: ChainKey[] = ['assets', 'revenue', 'netIncome', 'stockholdersEquity'];
+
+function resolveChain(
+  facts: CompanyFacts,
+  reporting: Reporting,
+  key: ChainKey,
+): Map<string, XbrlPoint> {
+  return resolveSeries(
+    facts,
+    reporting.taxonomy,
+    CHAINS[reporting.taxonomy][key],
+    SHARE_KEYS.has(key) ? 'shares' : reporting.currency,
+    DURATION_KEYS.has(key) ? 'duration' : 'instant',
+  );
+}
+
+/**
+ * Ecart tolere entre la derniere cloture d'un candidat et la plus recente
+ * trouvee, tous candidats confondus. Une combinaison qui accuse plus d'un
+ * exercice de retard decrit un passe revolu et n'est plus candidate, quelle que
+ * soit la longueur de son historique.
+ */
+const MAX_STALENESS_DAYS = 400;
+
+interface Candidate extends Reporting {
+  /** Nombre de couples (poste, exercice) resolus — la completude. */
+  points: number;
+  /** Derniere cloture couverte, ou `null` si la combinaison ne resout rien. */
+  latestPeriodEnd: string | null;
+}
+
+function measure(facts: CompanyFacts, reporting: Reporting): Candidate {
+  let points = 0;
+  for (const key of COVERAGE_KEYS) points += resolveChain(facts, reporting, key).size;
+
+  // La recence se lit sur les memes postes que les cloturees de la serie — le
+  // compte de resultat, jamais le bilan : les etats intermediaires deposes en
+  // cours d'annee y ajoutent des dates qui ne sont pas des fins d'exercice.
+  let latestPeriodEnd: string | null = null;
+  for (const key of ['revenue', 'netIncome'] as ChainKey[]) {
+    for (const end of resolveChain(facts, reporting, key).keys()) {
+      if (latestPeriodEnd == null || end > latestPeriodEnd) latestPeriodEnd = end;
+    }
+  }
+
+  return { ...reporting, points, latestPeriodEnd };
+}
+
+/**
+ * Determine comment lire une societe, ou `null` si aucune combinaison ne resout
+ * quoi que ce soit — cas des ETF, fonds et fiducies, qui deposent d'autres
+ * formulaires et n'ont pas d'etats financiers d'exploitation.
+ *
+ * **La recence prime sur la longueur de l'historique**, et l'ordre compte :
+ * mesure sur comptes reels, trois societes changent de combinaison en cours de
+ * route et l'ancienne serie est toujours la plus longue. Diageo publie en
+ * livres jusqu'en 2023 puis en dollars ; Toyota et Sony passent de us-gaap a
+ * IFRS en 2021. Maximiser la seule completude y elisait le present : le rapport
+ * de Sony s'arretait a l'exercice 2021 sans que rien ne le signale, ce qui est
+ * exactement le genre de donnee fausse qui ressemble a une donnee valide.
+ */
+export function detectReporting(facts: CompanyFacts): Reporting | null {
+  const candidates: Candidate[] = [];
+
+  for (const taxonomy of TAXONOMIES) {
+    const units = new Set<string>();
+    for (const key of ANCHOR_KEYS) {
+      for (const tag of CHAINS[taxonomy][key]) {
+        for (const unit of Object.keys(facts.facts?.[taxonomy]?.[tag]?.units ?? {})) {
+          if (isMoneyUnit(unit)) units.add(unit);
+        }
+      }
+    }
+    for (const currency of units) {
+      const candidate = measure(facts, { taxonomy, currency });
+      if (candidate.points > 0 && candidate.latestPeriodEnd != null) candidates.push(candidate);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  const newest = candidates.reduce(
+    (max, c) => (c.latestPeriodEnd! > max ? c.latestPeriodEnd! : max),
+    candidates[0].latestPeriodEnd!,
+  );
+  const current = candidates.filter(
+    (c) => (Date.parse(newest) - Date.parse(c.latestPeriodEnd!)) / DAY_MS <= MAX_STALENESS_DAYS,
+  );
+
+  // A recence comparable, la completude tranche : SAP publie 11 exercices en
+  // euros et un seul en dollars, tous deux a jour — c'est l'euro qui porte
+  // l'historique dont le F-Score a besoin.
+  const best = current.reduce((a, b) => (b.points > a.points ? b : a));
+  return { taxonomy: best.taxonomy, currency: best.currency };
+}
+
+/** Espaces de noms presents dans les comptes, du plus fourni au moins fourni. */
+export function factNamespaces(facts: CompanyFacts): string[] {
+  return Object.entries(facts.facts ?? {})
+    .map(([ns, concepts]) => [ns, Object.keys(concepts).length] as const)
+    .sort((a, b) => b[1] - a[1])
+    .map(([ns]) => ns);
 }
 
 /**
@@ -263,27 +487,33 @@ function instantMap(facts: CompanyFacts, tags: readonly string[], unit = 'USD') 
  * de `submissions.fiscalYearEnd`, qui ne decrit que l'exercice courant alors
  * qu'une societe peut avoir change de date de cloture dans le passe.
  */
-export function buildAnnualSeries(facts: CompanyFacts): AnnualFigures[] {
-  const revenue = annualMap(facts, CHAINS.revenue);
-  const costOfRevenue = annualMap(facts, CHAINS.costOfRevenue);
-  const grossProfit = annualMap(facts, CHAINS.grossProfit);
-  const operatingIncome = annualMap(facts, CHAINS.operatingIncome);
-  const netIncome = annualMap(facts, CHAINS.netIncome);
-  const operatingCashFlow = annualMap(facts, CHAINS.operatingCashFlow);
-  const dilutedShares = annualMap(facts, CHAINS.dilutedShares, 'shares');
-  const capex = annualMap(facts, CHAINS.capex);
-  const interestExpense = annualMap(facts, CHAINS.interestExpense);
+export function buildAnnualSeries(
+  facts: CompanyFacts,
+  reporting: Reporting | null = detectReporting(facts),
+): AnnualFigures[] {
+  if (!reporting) return [];
+  const chain = (key: ChainKey) => resolveChain(facts, reporting, key);
 
-  const assets = instantMap(facts, CHAINS.assets);
-  const assetsCurrent = instantMap(facts, CHAINS.assetsCurrent);
-  const liabilities = instantMap(facts, CHAINS.liabilities);
-  const liabilitiesCurrent = instantMap(facts, CHAINS.liabilitiesCurrent);
-  const longTermDebt = instantMap(facts, CHAINS.longTermDebt);
-  const retainedEarnings = instantMap(facts, CHAINS.retainedEarnings);
-  const equity = instantMap(facts, CHAINS.stockholdersEquity);
-  const cash = instantMap(facts, CHAINS.cash);
-  const receivables = instantMap(facts, CHAINS.receivables);
-  const inventory = instantMap(facts, CHAINS.inventory);
+  const revenue = chain('revenue');
+  const costOfRevenue = chain('costOfRevenue');
+  const grossProfit = chain('grossProfit');
+  const operatingIncome = chain('operatingIncome');
+  const netIncome = chain('netIncome');
+  const operatingCashFlow = chain('operatingCashFlow');
+  const dilutedShares = chain('dilutedShares');
+  const capex = chain('capex');
+  const interestExpense = chain('interestExpense');
+
+  const assets = chain('assets');
+  const assetsCurrent = chain('assetsCurrent');
+  const liabilities = chain('liabilities');
+  const liabilitiesCurrent = chain('liabilitiesCurrent');
+  const longTermDebt = chain('longTermDebt');
+  const retainedEarnings = chain('retainedEarnings');
+  const equity = chain('stockholdersEquity');
+  const cash = chain('cash');
+  const receivables = chain('receivables');
+  const inventory = chain('inventory');
 
   // Les cloturees d'exercice sont celles du compte de resultat : un poste de
   // bilan isole (publie chaque trimestre) ne cree pas un exercice a lui seul.
@@ -344,8 +574,17 @@ export function sharesChangeWithinFiling(
   facts: CompanyFacts,
   periodEnd: string,
   prevPeriodEnd: string,
+  reporting: Reporting | null = detectReporting(facts),
 ): number | null {
-  const pts = resolveChainPoints(facts, GAAP, CHAINS.dilutedShares, 'shares');
+  // Un decompte d'actions n'est libelle dans aucune devise : quand la detection
+  // n'a rien tranche faute de poste monetaire, la taxonomie se retrouve seule
+  // sur les tags d'actions plutot que de renoncer.
+  const taxonomies = reporting ? [reporting.taxonomy] : TAXONOMIES;
+  let pts: XbrlPoint[] = [];
+  for (const taxonomy of taxonomies) {
+    pts = resolveChainPoints(facts, taxonomy, CHAINS[taxonomy].dilutedShares, 'shares');
+    if (pts.length > 0) break;
+  }
 
   // Regroupe par depot : un accession number = une base de split homogene.
   const byAccn = new Map<string, Map<string, XbrlPoint>>();
@@ -371,34 +610,21 @@ export function sharesChangeWithinFiling(
 }
 
 /**
- * Devise de publication des comptes, lue sur l'unite des postes monetaires.
- *
- * Tout le resolver interroge l'unite `USD` en dur. Un emetteur etranger cote
- * aux Etats-Unis depose bien aupres de la SEC, mais dans SA monnaie : ASML
- * publie en EUR, si bien que chaque poste ressort vide et que la serie annuelle
- * est silencieusement de longueur zero. Exposer la devise permet de le dire au
- * lieu d'afficher un rapport blanc.
- */
-export function reportingCurrency(facts: CompanyFacts): string | null {
-  for (const tag of ['Assets', 'NetIncomeLoss', 'StockholdersEquity']) {
-    const units = facts.facts?.[GAAP]?.[tag]?.units;
-    if (!units) continue;
-    const codes = Object.keys(units).filter((u) => u !== 'shares' && u !== 'pure');
-    if (codes.length === 0) continue;
-    // Une societe peut publier en double : le dollar l'emporte, c'est celui
-    // que le resolver sait lire.
-    return codes.includes('USD') ? 'USD' : codes[0];
-  }
-  return null;
-}
-
-/**
  * Actions en circulation a la date de couverture du dernier depot, pour le
  * calcul de la capitalisation.
  *
  * Volontairement pris dans le namespace `dei` et non dans `dilutedShares` :
  * ce dernier est une moyenne ponderee SUR l'exercice, ce qui n'a pas de sens
  * multiplie par un cours du jour.
+ *
+ * **Ne convient qu'aux societes americaines.** Chez un emetteur etranger, ce
+ * decompte porte les actions ordinaires alors que le cours Yahoo porte l'ADS,
+ * qui en represente souvent plusieurs — et le rapport n'est publie nulle part
+ * dans les donnees SEC. Mesure sur 9 ADR : exact chez SAP, Novartis, Unilever
+ * (1 pour 1), mais 2x trop haut chez Shell, 4x chez Diageo et 10x chez TSMC,
+ * ou le produit donne 11 000 Md$ de capitalisation. L'appelant doit donc
+ * s'appuyer sur le formulaire annuel (10-K contre 20-F/40-F) avant d'en tirer
+ * une capitalisation.
  */
 export function sharesOutstanding(facts: CompanyFacts): number | null {
   const pts = facts.facts?.dei?.EntityCommonStockSharesOutstanding?.units?.shares;

@@ -55,13 +55,22 @@
   flex-direction: column;
   border: 1px solid var(--border);
   border-radius: 6px;
-  overflow: hidden;
+  /* Surtout pas `overflow: hidden` malgre les coins arrondis : les infobulles
+     des lignes sortent du tableau par le haut et se faisaient decouper — celle
+     de la premiere ligne ne s'affichait donc jamais, sans erreur. Les coins
+     sont arrondis sur les lignes extremes a la place. */
 }
 
 .headerRow,
 .row {
   display: grid;
-  grid-template-columns: 28px minmax(120px, 1.4fr) 80px 60px 60px 64px 60px 76px 78px 56px 64px;
+  /* Colonne du nom en `minmax(0, …)` et non `minmax(120px, …)` : a 120 px de
+     plancher, les 11 colonnes exigeaient 870 px quand la fenetre n'en offre que
+     828 a sa taille minimale de 900. La grille debordait donc de sa ligne, et
+     `overflow: hidden` sur le tableau masquait le debordement en **coupant la
+     derniere colonne** — streak — infobulle comprise. Le nom est deja en
+     `text-overflow: ellipsis`, il se tronque proprement. */
+  grid-template-columns: 28px minmax(0, 1.4fr) 80px 60px 60px 64px 60px 76px 78px 56px 64px;
   align-items: center;
   gap: 10px;
   padding: 7px 12px;
@@ -70,6 +79,7 @@
 .headerRow {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
+  border-radius: 5px 5px 0 0;
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -83,9 +93,50 @@
   border-bottom: 1px solid var(--border);
   font-family: var(--font-mono);
   font-size: 12px;
+  /* Reference d'ancrage des infobulles de la ligne, cf. plus bas. */
+  position: relative;
 }
-.row:last-child { border-bottom: none; }
+.row:last-child {
+  border-bottom: none;
+  border-radius: 0 0 5px 5px;
+}
 .row:hover { background: var(--bg-hover); }
+
+/* ── Infobulles des lignes ─────────────────────────────
+ *
+ * Deux corrections, et c'est la seconde qui expliquait le symptome.
+ *
+ * 1. Ancrage sur la LIGNE et non sur la case — meme construction que la grille
+ *    de contexte de l'onglet Fonda. Ancree sur sa case, la bulle de `vol`
+ *    faisait ~400 px en `nowrap` a partir de la 7e colonne sur 11 : elle
+ *    sortait de la ligne par la droite. Aucune largeur fixe ne corrige
+ *    durablement le probleme, la colonne du nom etant en `1.4fr` et deplacant
+ *    toutes les cases suivantes avec la fenetre. Bornee par `left`/`right` sur
+ *    la ligne, la bulle ne peut plus deborder, a n'importe quelle taille.
+ *
+ * Mesure a l'appui, dans un moteur de rendu, sur la ligne du milieu et une
+ * fenetre de 1282 px — le badge `vol` occupe 820..880 :
+ *
+ *   ancrage sur la case  vol::after = 411 px a partir de 820, soit 1231
+ *                        .root = 36..1207, scrollW 1213 / clientW 1171  -> DEBORDE
+ *   ancrage sur la ligne vol::after borne a la ligne, streak::after = 1125 px
+ *                        .root scrollW 1171 / clientW 1171              -> OK
+ *
+ * Le debordement etait donc **permanent** et non lie au survol : une bulle en
+ * `opacity: 0` occupe toujours sa place. `overflow: hidden` sur le tableau le
+ * rognait, ce qui coupait les infobulles — le bug d'origine. Le retirer sans
+ * corriger l'ancrage ne faisait que le rendre visible, sous la forme d'une
+ * barre de defilement horizontale interne au bloc (`.root` est en
+ * `overflow-y: auto`, ce qui bascule l'axe horizontal en `auto`). */
+.volRank::after,
+.rsiBadge::after,
+.streakBadge::after {
+  left: 12px;
+  right: 12px;
+  width: auto;
+  max-width: none;
+  white-space: normal;
+}
 
 .rank {
   font-size: 10px;
@@ -134,20 +185,18 @@
   font-size: 10px;
   color: var(--text-muted);
   cursor: default;
-  position: relative;
+  /* Pas de `position: relative` : l'ancrage est sur la ligne. */
 }
 .volRank::after {
   content: attr(data-tooltip);
   position: absolute;
   bottom: calc(100% + 5px);
-  left: 0;
   background: #1c2128;
   border: 1px solid #30363d;
   border-radius: 4px;
   padding: 4px 8px;
   font-size: 11px;
   color: var(--text-primary);
-  white-space: nowrap;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s;
@@ -167,14 +216,12 @@
   padding: 2px 5px;
   border-radius: 3px;
   cursor: default;
-  position: relative;
   width: fit-content;
 }
 .rsiBadge::after {
   content: attr(data-tooltip);
   position: absolute;
   bottom: calc(100% + 5px);
-  left: 0;
   background: #1c2128;
   border: 1px solid #30363d;
   border-radius: 4px;
@@ -182,7 +229,6 @@
   font-size: 11px;
   font-weight: 400;
   color: var(--text-primary);
-  white-space: nowrap;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s;
@@ -219,13 +265,11 @@
   border-radius: 3px;
   width: fit-content;
   cursor: default;
-  position: relative;
 }
 .streakBadge::after {
   content: attr(data-tooltip);
   position: absolute;
   bottom: calc(100% + 5px);
-  right: 0;
   background: #1c2128;
   border: 1px solid #30363d;
   border-radius: 4px;
@@ -233,8 +277,6 @@
   font-size: 11px;
   font-weight: 400;
   color: var(--text-primary);
-  white-space: normal;
-  width: 200px;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s;

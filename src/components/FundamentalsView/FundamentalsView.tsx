@@ -17,14 +17,26 @@ function num(n: number | null, digits = 1): string {
   return n == null ? '—' : n.toFixed(digits);
 }
 
-function usd(n: number | null): string {
+/**
+ * Symboles des devises rencontrees sur les emetteurs couverts. Un code inconnu
+ * s'affiche tel quel : « 2 894 Md TWD » reste lisible, un symbole invente ne le
+ * serait pas.
+ */
+const CURRENCY_SYMBOL: Record<string, string> = {
+  USD: '$', EUR: '€', GBP: '£', JPY: '¥', CHF: ' CHF', DKK: ' kr', SEK: ' kr', NOK: ' kr',
+  TWD: ' NT$', INR: '₹', CNY: '¥', HKD: ' HK$', KRW: '₩', BRL: ' R$', AUD: ' A$',
+  CAD: ' C$', ILS: '₪', SGD: ' S$', ZAR: ' R', MXN: ' MX$',
+};
+
+function money(n: number | null, currency: string): string {
   if (n == null) return '—';
+  const sym = CURRENCY_SYMBOL[currency] ?? ` ${currency}`;
   const abs = Math.abs(n);
   // Tout en milliards au-dela du seuil : « B$ » pour billion se lirait comme
   // l'anglais « billion » (10^9) alors qu'il vaut 10^12 en francais.
-  if (abs >= 1e9) return `${(n / 1e9).toFixed(abs >= 1e12 ? 0 : 1)} Md$`;
-  if (abs >= 1e6) return `${(n / 1e6).toFixed(0)} M$`;
-  return `${n.toFixed(0)} $`;
+  if (abs >= 1e9) return `${(n / 1e9).toFixed(abs >= 1e12 ? 0 : 1)} Md${sym}`;
+  if (abs >= 1e6) return `${(n / 1e6).toFixed(0)} M${sym}`;
+  return `${n.toFixed(0)}${sym}`;
 }
 
 function Verdict({ score }: { score: PiotroskiScore }) {
@@ -65,7 +77,8 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
 
 function Report({ data }: { data: FundamentalsData }) {
   const last = data.piotroski[data.piotroski.length - 1] ?? null;
-  const { altman, context } = data;
+  const { altman, context, reporting } = data;
+  const amount = (n: number | null) => money(n, reporting.currency);
 
   return (
     <>
@@ -73,14 +86,24 @@ function Report({ data }: { data: FundamentalsData }) {
         <span className={styles.company}>{data.profile.name}</span>
         <span className={styles.sub}>
           {data.ticker} · {data.profile.sicDescription || 'secteur inconnu'} ·
-          {' '}{data.series.length} exercices · capitalisation {usd(data.marketCap)}
+          {' '}{data.series.length} exercices ·{' '}
+          <span
+            data-tooltip={
+              reporting.taxonomy === 'ifrs-full'
+                ? `Comptes déposés en taxonomie IFRS et libellés en ${reporting.currency}. Les tests de Piotroski et le Z″ d'Altman sont des ratios de grandeurs homogènes : ils se calculent dans la devise de publication, sans aucune conversion.`
+                : `Comptes déposés en taxonomie US-GAAP et libellés en ${reporting.currency}.`
+            }
+          >
+            {reporting.taxonomy === 'ifrs-full' ? 'IFRS' : 'US-GAAP'} · {reporting.currency}
+          </span>
+          {data.marketCap != null && ` · capitalisation ${amount(data.marketCap)}`}
           {' · '}
           <span
             className={styles.source}
             data-tooltip={
               data.fromCache
                 ? `Comptes en base, relus sans téléchargement. Dernière vérification le ${new Date(data.fetchedAt).toLocaleString('fr-FR')}. Le cours, lui, est toujours récupéré à chaque consultation.`
-                : `Comptes téléchargés à l'instant depuis la SEC (~4 Mo) et mis en base.`
+                : `Comptes téléchargés à l'instant depuis la SEC (1 à 4 Mo) et mis en base.`
             }
           >
             {data.fromCache ? 'cache' : 'téléchargé'}
@@ -134,7 +157,11 @@ function Report({ data }: { data: FundamentalsData }) {
         <div className={styles.errorBox}>
           <strong>Signal de détresse financière (Altman Z″ = {num(altman.headline, 2)}).</strong>{' '}
           Sous le seuil de 1,1, le modèle associe historiquement ce profil à un risque de
-          défaillance élevé à un ou deux ans.
+          défaillance élevé à un ou deux ans. <strong>À vérifier d'abord sur un groupe qui
+          consolide une activité financière</strong> — crédit captif, banque ou assurance : ses
+          placements gonflent l'actif sans besoin en fonds de roulement et son levier est normal
+          pour le métier, deux traits que cette calibration de 1968 sur l'industrie lourde compte
+          comme de la détresse. Sony tombe à 0,6 pour cette seule raison.
         </div>
       )}
 
@@ -148,17 +175,24 @@ function Report({ data }: { data: FundamentalsData }) {
             </span>
           </div>
           <div className={styles.metrics}>
-            <Metric label="FCF" value={usd(context.freeCashFlow)}
+            <Metric label="FCF" value={amount(context.freeCashFlow)}
               hint="Le cash qui reste une fois l'exploitation payée et les investissements faits. C'est lui qui finance dividendes, rachats d'actions et désendettement. Durablement négatif : l'entreprise brûle du cash et devra emprunter ou émettre des actions." />
             <Metric label="Marge de FCF" value={pct(context.freeCashFlowMargin)}
               hint="Part du chiffre d'affaires qui finit en cash disponible. Au-dessus de 15 %, la conversion est excellente ; sous 5 %, la marge de manœuvre est mince. Très sectoriel : un éditeur de logiciels dépasse souvent 25 %, un distributeur reste sous 5 %." />
-            <Metric label="Rendement FCF" value={pct(context.freeCashFlowYield)}
-              hint="Ce que rapporterait l'entreprise en cash si tu la rachetais entière au cours actuel. À comparer au rendement des obligations d'État : en dessous, tu paies d'avance une croissance espérée. Au-dessus de 8 %, soit c'est une affaire, soit le marché anticipe une chute." />
-            <Metric label="PER" value={num(context.priceEarnings)}
-              hint="Années de bénéfice actuel pour rembourser le prix payé. Un PER élevé n'est pas « cher » en soi, il traduit une croissance attendue. Ne se compare qu'à l'intérieur d'un même secteur, et n'a aucun sens sur un bénéfice dopé par une cession." />
-            <Metric label="EV / résultat opé." value={num(context.enterpriseValueToEbit)}
-              hint="Même idée que le PER, mais dette incluse et avant impôt. Plus honnête pour comparer deux entreprises dont l'endettement diffère, là où le PER ignore la dette. Sous 12 c'est modéré, au-delà de 25 le marché attend beaucoup." />
-            <Metric label="Dette nette" value={usd(context.netDebt)}
+            {/* Les trois ratios de valorisation confrontent un cours a des
+                comptes : sans capitalisation fiable, ils ne sont pas affiches
+                vides mais retires, et l'encart ci-dessous dit pourquoi. */}
+            {data.marketCap != null && (
+              <>
+                <Metric label="Rendement FCF" value={pct(context.freeCashFlowYield)}
+                  hint="Ce que rapporterait l'entreprise en cash si tu la rachetais entière au cours actuel. À comparer au rendement des obligations d'État : en dessous, tu paies d'avance une croissance espérée. Au-dessus de 8 %, soit c'est une affaire, soit le marché anticipe une chute." />
+                <Metric label="PER" value={num(context.priceEarnings)}
+                  hint="Années de bénéfice actuel pour rembourser le prix payé. Un PER élevé n'est pas « cher » en soi, il traduit une croissance attendue. Ne se compare qu'à l'intérieur d'un même secteur, et n'a aucun sens sur un bénéfice dopé par une cession." />
+                <Metric label="EV / résultat opé." value={num(context.enterpriseValueToEbit)}
+                  hint="Même idée que le PER, mais dette incluse et avant impôt. Plus honnête pour comparer deux entreprises dont l'endettement diffère, là où le PER ignore la dette. Sous 12 c'est modéré, au-delà de 25 le marché attend beaucoup." />
+              </>
+            )}
+            <Metric label="Dette nette" value={amount(context.netDebt)}
               hint="Dette long terme moins trésorerie : le montant réellement dû, pas la dette brute. Négatif = l'entreprise détient plus de cash que de dettes et pourrait tout rembourser demain." />
             <Metric label="Dette nette / CFO" value={num(context.netDebtToOperatingCashFlow, 2)}
               hint="Années de cash-flow d'exploitation nécessaires pour rembourser toute la dette nette. Sous 3, l'endettement est confortable ; au-delà de 5, il contraint, et la moindre baisse d'activité fait mal. Absent en trésorerie nette : il n'y a rien à rembourser." />
@@ -172,7 +206,22 @@ function Report({ data }: { data: FundamentalsData }) {
         </>
       )}
 
-      {altman && (
+      {data.isForeignIssuer && (
+        <div className={styles.notice}>
+          <span className={styles.noticeIcon}>ℹ</span>
+          <span>
+            <strong>Émetteur étranger — pas de valorisation.</strong> La ligne cotée est un ADR :
+            le décompte d'actions déposé à la SEC porte les actions ordinaires, alors que le cours
+            porte le certificat, qui en représente souvent plusieurs. Le rapport entre les deux
+            n'est publié nulle part dans les données SEC, et l'ignorer donnerait une
+            capitalisation fausse d'un facteur 2 à 10 — donc un PER faux qui aurait l'air normal.
+            <strong> Le verdict, lui, est complet</strong> : ni le F-Score ni le Z″ n'utilisent de
+            cours.
+          </span>
+        </div>
+      )}
+
+      {altman && data.marketCap != null && (
         <div className={styles.marketRead}>
           <span className={styles.marketReadLabel}>Lecture marché</span>
           Z″ comptable <strong>{num(altman.headline, 2)}</strong> — le verdict n'utilise aucun
@@ -230,29 +279,25 @@ export function FundamentalsView() {
           <span className={styles.noticeIcon}>ℹ</span>
           <span>
             Solidité fondamentale à partir des comptes déposés à la SEC —{' '}
-            <strong>sociétés cotées aux États-Unis uniquement</strong>. Le verdict repose sur le
-            F-Score de Piotroski, neuf tests comptables sans pondération ni seuil à calibrer.
+            <strong>sociétés cotées aux États-Unis</strong>, ADR d'émetteurs étrangers compris. Le
+            verdict repose sur le F-Score de Piotroski, neuf tests comptables sans pondération ni
+            seuil à calibrer.
             Score <strong>descriptif</strong>, jamais validé en forward sur ton univers.
           </span>
         </div>
       )}
 
-      {failure?.kind === 'unsupported_currency' && (
+      {failure?.kind === 'no_financials' && (
         <div className={styles.warnBox}>
-          {failure.currency && failure.currency !== 'USD' ? (
-            <>
-              <strong>{failure.name}</strong> dépose bien auprès de la SEC, mais publie ses comptes
-              en <strong>{failure.currency}</strong>. Cet outil ne lit que les comptes libellés en
-              dollars — le cas des émetteurs étrangers cotés aux États-Unis.
-            </>
-          ) : (
-            <>
-              <strong>{failure.name}</strong> ne publie aucun état financier exploitable. C'est
-              attendu pour un ETF, un fonds ou une fiducie : ces véhicules déposent d'autres
-              formulaires que les sociétés d'exploitation, et n'ont ni chiffre d'affaires ni
-              résultat opérationnel à analyser.
-            </>
-          )}{' '}
+          <strong>{failure.name}</strong> ne publie aucun état financier exploitable. C'est attendu
+          pour un ETF, un fonds ou une fiducie : ces véhicules déposent d'autres formulaires que
+          les sociétés d'exploitation, et n'ont ni chiffre d'affaires ni résultat opérationnel à
+          analyser.
+          {/* Les deux taxonomies lues sont us-gaap et ifrs-full. En nommer une
+              troisieme evite de faire passer une lacune de couverture pour une
+              societe sans comptes. */}
+          {failure.namespaces.some((ns) => ns !== 'us-gaap' && ns !== 'ifrs-full' && ns !== 'dei')
+            && ` Comptes déposés en taxonomie ${failure.namespaces[0]}, non couverte — seules US-GAAP et IFRS le sont.`}{' '}
           <strong>Ce n'est pas un mauvais signal</strong>, c'est une absence de couverture.
         </div>
       )}
