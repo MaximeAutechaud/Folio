@@ -3,9 +3,9 @@ import {
   buildAnnualSeries,
   collectAnnualDurations,
   collectInstants,
+  detectReporting,
   durationDays,
   missingFields,
-  reportingCurrency,
   resolveChainPoints,
   sharesChangeWithinFiling,
   type CompanyFacts,
@@ -37,10 +37,19 @@ function inst(end: string, val: number, extra: Partial<XbrlPoint> = {}): XbrlPoi
   };
 }
 
-function facts(gaap: Record<string, XbrlPoint[]>, unit = 'USD'): CompanyFacts {
+function conceptsOf(tags: Record<string, XbrlPoint[]>, unit: string) {
   const out: Record<string, { units: Record<string, XbrlPoint[]> }> = {};
-  for (const [tag, pts] of Object.entries(gaap)) out[tag] = { units: { [unit]: pts } };
-  return { cik: 1, entityName: 'Test Corp', facts: { 'us-gaap': out } };
+  for (const [tag, pts] of Object.entries(tags)) out[tag] = { units: { [unit]: pts } };
+  return out;
+}
+
+function facts(gaap: Record<string, XbrlPoint[]>, unit = 'USD'): CompanyFacts {
+  return { cik: 1, entityName: 'Test Corp', facts: { 'us-gaap': conceptsOf(gaap, unit) } };
+}
+
+/** Meme fabrique, taxonomie des emetteurs etrangers. */
+function ifrsFacts(tags: Record<string, XbrlPoint[]>, unit = 'EUR'): CompanyFacts {
+  return { cik: 2, entityName: 'Test SE', facts: { 'ifrs-full': conceptsOf(tags, unit) } };
 }
 
 describe('durationDays', () => {
@@ -380,40 +389,183 @@ describe('capitaux propres', () => {
   });
 });
 
-describe('reportingCurrency', () => {
+describe('detectReporting', () => {
+  it('reconnait un declarant us-gaap en dollars', () => {
+    const f = facts({
+      Assets: [inst('2025-09-27', 359_000)],
+      Revenues: [dur('2024-09-29', '2025-09-27', 400_000)],
+    });
+    expect(detectReporting(f)).toEqual({ taxonomy: 'us-gaap', currency: 'USD' });
+  });
+
+  it('reconnait un declarant IFRS dans sa monnaie de publication', () => {
+    const f = ifrsFacts({
+      Assets: [inst('2025-12-31', 40_000)],
+      Revenue: [dur('2025-01-01', '2025-12-31', 36_800)],
+    }, 'EUR');
+    expect(detectReporting(f)).toEqual({ taxonomy: 'ifrs-full', currency: 'EUR' });
+  });
+
   /**
-   * Cas ASML : l'emetteur depose bien aupres de la SEC mais publie en euros.
-   * Le resolver interrogeant l'unite USD en dur, chaque poste ressort vide et
-   * la serie est silencieusement de longueur zero — d'ou l'interet de pouvoir
-   * nommer la devise plutot que d'afficher un rapport blanc.
+   * Cas SAP, mesure sur les comptes reels : 11 exercices en euros et **un seul**
+   * en dollars, publie a cote. Preferer le dollar par principe — ce que faisait
+   * l'ancien `reportingCurrency` — donnerait une serie d'un exercice, donc un
+   * F-Score sans historique et sans verdict. La devise se mesure a la
+   * completude, elle ne se choisit pas.
    */
-  it('detecte une publication en euros et l\'associe a une serie vide', () => {
-    const f = facts({ Assets: [inst('2025-12-31', 40_000)] }, 'EUR');
-    expect(reportingCurrency(f)).toBe('EUR');
-    expect(buildAnnualSeries(f)).toEqual([]);
-  });
-
-  it('detecte le dollar', () => {
-    const f = facts({ Assets: [inst('2025-09-27', 359_000)] });
-    expect(reportingCurrency(f)).toBe('USD');
-  });
-
-  it('prefere le dollar quand la societe publie en double', () => {
+  it('prefere la devise qui porte la serie la plus complete, pas le dollar', () => {
     const f: CompanyFacts = {
-      cik: 1, entityName: 'Double', facts: {
-        'us-gaap': { Assets: { units: { EUR: [inst('2025-12-31', 1)], USD: [inst('2025-12-31', 2)] } } },
+      cik: 1, entityName: 'Double devise', facts: {
+        'ifrs-full': {
+          Assets: {
+            units: {
+              EUR: [inst('2023-12-31', 1), inst('2024-12-31', 2), inst('2025-12-31', 3)],
+              USD: [inst('2025-12-31', 4)],
+            },
+          },
+          Revenue: {
+            units: {
+              EUR: [
+                dur('2023-01-01', '2023-12-31', 10),
+                dur('2024-01-01', '2024-12-31', 11),
+                dur('2025-01-01', '2025-12-31', 12),
+              ],
+              USD: [dur('2025-01-01', '2025-12-31', 13)],
+            },
+          },
+        },
       },
     };
-    expect(reportingCurrency(f)).toBe('USD');
+    expect(detectReporting(f)?.currency).toBe('EUR');
+    expect(buildAnnualSeries(f).map((r) => r.revenue)).toEqual([10, 11, 12]);
+  });
+
+  /**
+   * Cas Diageo, Toyota et Sony, tous trois mesures sur comptes reels : la
+   * societe change de devise (livre puis dollar en 2024) ou de taxonomie
+   * (us-gaap puis IFRS en 2021), et **l'ancienne serie est toujours la plus
+   * longue**. Trancher a la seule completude affichait un rapport arrete quatre
+   * ans plus tot sans que rien ne le signale.
+   */
+  it('prefere la combinaison a jour a un historique plus long mais perime', () => {
+    const f: CompanyFacts = {
+      cik: 3, entityName: 'Changement de taxonomie', facts: {
+        'us-gaap': conceptsOf({
+          Assets: [inst('2019-12-31', 1), inst('2020-12-31', 2)],
+          Revenues: [
+            dur('2019-01-01', '2019-12-31', 10),
+            dur('2020-01-01', '2020-12-31', 11),
+          ],
+          NetIncomeLoss: [
+            dur('2019-01-01', '2019-12-31', 1),
+            dur('2020-01-01', '2020-12-31', 2),
+          ],
+        }, 'USD'),
+        'ifrs-full': conceptsOf({
+          Assets: [inst('2025-12-31', 3)],
+          Revenue: [dur('2025-01-01', '2025-12-31', 12)],
+        }, 'USD'),
+      },
+    };
+    expect(detectReporting(f)?.taxonomy).toBe('ifrs-full');
+    expect(buildAnnualSeries(f).map((r) => r.periodEnd)).toEqual(['2025-12-31']);
+  });
+
+  it('ne disqualifie pas une combinaison decalee d\'un seul exercice', () => {
+    // Un exercice decale de quelques mois (cloture fiscale differente, depot en
+    // retard) doit rester candidat : seul un vrai abandon compte.
+    const f: CompanyFacts = {
+      cik: 4, entityName: 'Decalage court', facts: {
+        'ifrs-full': {
+          Revenue: {
+            units: {
+              EUR: [
+                dur('2024-01-01', '2024-12-31', 10),
+                dur('2025-01-01', '2025-12-31', 11),
+              ],
+              USD: [dur('2025-04-01', '2026-03-31', 12)],
+            },
+          },
+          Assets: {
+            units: {
+              EUR: [inst('2024-12-31', 1), inst('2025-12-31', 2)],
+              USD: [inst('2026-03-31', 3)],
+            },
+          },
+        },
+      },
+    };
+    expect(detectReporting(f)?.currency).toBe('EUR');
   });
 
   it('ignore les unites non monetaires', () => {
-    const f = facts({ Assets: [inst('2025-12-31', 100)] }, 'shares');
-    expect(reportingCurrency(f)).toBeNull();
+    expect(detectReporting(facts({ Assets: [inst('2025-12-31', 100)] }, 'shares'))).toBeNull();
   });
 
-  it('retourne null sans aucun poste monetaire', () => {
-    expect(reportingCurrency(facts({}))).toBeNull();
+  it('retourne null quand aucun poste ne se resout — ETF, fonds, fiducie', () => {
+    expect(detectReporting(facts({}))).toBeNull();
+    expect(buildAnnualSeries(facts({}))).toEqual([]);
+  });
+});
+
+describe('chaines IFRS', () => {
+  /**
+   * Les tags releves sur les comptes reels des 12 ADR sondes. Le test ne verifie
+   * pas la taxonomie mais le cablage : que chaque poste du snapshot trouve bien
+   * sa chaine IFRS, faute de quoi la serie ressort vide sans lever d'erreur.
+   */
+  it('resout un exercice complet depuis les tags IFRS', () => {
+    const f = ifrsFacts({
+      Revenue: [dur('2025-01-01', '2025-12-31', 1000)],
+      CostOfSales: [dur('2025-01-01', '2025-12-31', 600)],
+      ProfitLossFromOperatingActivities: [dur('2025-01-01', '2025-12-31', 250)],
+      ProfitLoss: [dur('2025-01-01', '2025-12-31', 200)],
+      CashFlowsFromUsedInOperatingActivities: [dur('2025-01-01', '2025-12-31', 300)],
+      Assets: [inst('2025-12-31', 2000)],
+      CurrentAssets: [inst('2025-12-31', 800)],
+      Liabilities: [inst('2025-12-31', 1200)],
+      CurrentLiabilities: [inst('2025-12-31', 500)],
+      LongtermBorrowings: [inst('2025-12-31', 400)],
+      RetainedEarnings: [inst('2025-12-31', 700)],
+      Equity: [inst('2025-12-31', 800)],
+      CashAndCashEquivalents: [inst('2025-12-31', 150)],
+      Inventories: [inst('2025-12-31', 120)],
+      CurrentTradeReceivables: [inst('2025-12-31', 90)],
+      FinanceCosts: [dur('2025-01-01', '2025-12-31', 30)],
+    }, 'EUR');
+
+    const [row] = buildAnnualSeries(f);
+    expect(missingFields(row)).toEqual(['dilutedShares']);
+    // Marge brute deduite : les declarants IFRS publient souvent le cout des
+    // ventes sans le sous-total.
+    expect(row.grossProfit).toBe(400);
+    expect(row.longTermDebt).toBe(400);
+    expect(row.interestExpense).toBe(30);
+  });
+
+  it('lit le decompte dilue en unite shares, quelle que soit la devise', () => {
+    const f = ifrsFacts({
+      Revenue: [dur('2025-01-01', '2025-12-31', 1000)],
+    }, 'DKK');
+    f.facts['ifrs-full'].AdjustedWeightedAverageShares = {
+      units: { shares: [dur('2025-01-01', '2025-12-31', 4_447_700_000)] },
+    };
+    expect(buildAnnualSeries(f)[0].dilutedShares).toBe(4_447_700_000);
+  });
+
+  /**
+   * BP et TotalEnergies ne publient aucun decompte d'actions : la variation doit
+   * ressortir null — test non calculable — et non zero, qui se lirait comme une
+   * absence de dilution reussie.
+   */
+  it('rend null quand la taxonomie ne porte aucun decompte d\'actions', () => {
+    const f = ifrsFacts({
+      Revenue: [
+        dur('2024-01-01', '2024-12-31', 900),
+        dur('2025-01-01', '2025-12-31', 1000),
+      ],
+    }, 'USD');
+    expect(sharesChangeWithinFiling(f, '2025-12-31', '2024-12-31')).toBeNull();
   });
 });
 

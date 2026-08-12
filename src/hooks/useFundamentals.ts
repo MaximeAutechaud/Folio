@@ -7,8 +7,8 @@ import {
   type CompanyProfile,
 } from '../lib/api/sec';
 import {
-  buildAnnualSeries, reportingCurrency, sharesChangeWithinFiling,
-  sharesOutstanding, type AnnualFigures,
+  buildAnnualSeries, detectReporting, factNamespaces, sharesChangeWithinFiling,
+  sharesOutstanding, type AnnualFigures, type Reporting,
 } from '../lib/xbrl';
 import { computePiotroskiSeries, type PiotroskiScore } from '../lib/piotroski';
 import { computeAltman, type AltmanScore } from '../lib/altman';
@@ -32,6 +32,13 @@ const TRUST_DAYS = 7;
 /** Au-dela, l'annuaire est recharge — introductions et changements de ticker. */
 const DIRECTORY_MAX_AGE_DAYS = 7;
 
+/**
+ * Rapports annuels des emetteurs etrangers, equivalents du 10-K. Leur presence
+ * est le seul marqueur fiable d'une cotation par ADR : ni le profil ni les
+ * comptes ne portent le rapport ADS/actions ordinaires.
+ */
+const FOREIGN_ANNUAL_FORMS = new Set(['20-F', '40-F']);
+
 function ageInDays(iso: string): number {
   const t = Date.parse(iso);
   return Number.isFinite(t) ? (Date.now() - t) / DAY_MS : Number.POSITIVE_INFINITY;
@@ -42,11 +49,13 @@ export type FundamentalsError =
   | { kind: 'directory_failed' }
   | { kind: 'not_us_listed'; ticker: string }
   /**
-   * Depose bien aupres de la SEC, mais dans une monnaie que le resolver ne lit
-   * pas — il interroge l'unite USD en dur. Cas des emetteurs etrangers cotes
-   * aux Etats-Unis : ASML publie en EUR.
+   * Depose bien aupres de la SEC, mais aucune combinaison taxonomie/devise n'y
+   * resout d'etats financiers. Depuis le support d'IFRS, ce n'est plus le cas
+   * des emetteurs etrangers : il reste celui des vehicules sans exploitation
+   * (ETF, fonds, fiducies) et des taxonomies non couvertes, d'ou le detail des
+   * espaces de noms rencontres.
    */
-  | { kind: 'unsupported_currency'; currency: string | null; name: string }
+  | { kind: 'no_financials'; name: string; namespaces: string[] }
   | { kind: 'fetch_failed'; step: 'profile' | 'facts' };
 
 export class FundamentalsFailure extends Error {
@@ -73,6 +82,12 @@ interface CachedPayload {
   series: AnnualFigures[];
   sharesChanges: Record<string, number | null>;
   sharesOutstanding: number | null;
+  /**
+   * Absent des snapshots ecrits avant le support d'IFRS — tous en dollars par
+   * construction, le resolver n'ayant alors rien su lire d'autre. D'ou le repli
+   * sur `USD` a la lecture plutot qu'une invalidation du cache.
+   */
+  reporting?: Reporting;
 }
 
 export interface FundamentalsData {
@@ -80,6 +95,15 @@ export interface FundamentalsData {
   cik: string;
   profile: CompanyProfile;
   series: AnnualFigures[];
+
+  /** Taxonomie et devise dans lesquelles les comptes ont ete lus. */
+  reporting: Reporting;
+  /**
+   * Depose un 20-F ou un 40-F : la ligne cotee est un ADR, dont le rapport aux
+   * actions ordinaires n'est publie nulle part chez la SEC. Verrouille tout
+   * calcul de capitalisation, cf. `sharesOutstanding`.
+   */
+  isForeignIssuer: boolean;
 
   isFinancial: boolean;
   piotroski: PiotroskiScore[];
@@ -143,22 +167,30 @@ async function buildPayload(cik: string, profile: CompanyProfile): Promise<Cache
   const facts = await fetchCompanyFacts(cik);
   if (!facts) throw new FundamentalsFailure({ kind: 'fetch_failed', step: 'facts' });
 
-  const series = buildAnnualSeries(facts);
+  // Mesure une fois, transmise partout : deux appels a `detectReporting`
+  // rendraient le meme resultat, mais la serie et la variation du nombre
+  // d'actions doivent par construction parler de la meme taxonomie.
+  const reporting = detectReporting(facts);
+  const series = reporting ? buildAnnualSeries(facts, reporting) : [];
   if (series.length === 0) {
     throw new FundamentalsFailure({
-      kind: 'unsupported_currency',
-      currency: reportingCurrency(facts),
+      kind: 'no_financials',
       name: profile.name,
+      namespaces: factNamespaces(facts),
     });
   }
 
   const sharesChanges: Record<string, number | null> = {};
   for (let i = 1; i < series.length; i++) {
     sharesChanges[series[i].periodEnd] =
-      sharesChangeWithinFiling(facts, series[i].periodEnd, series[i - 1].periodEnd);
+      sharesChangeWithinFiling(facts, series[i].periodEnd, series[i - 1].periodEnd, reporting);
   }
 
-  return { profile, series, sharesChanges, sharesOutstanding: sharesOutstanding(facts) };
+  return {
+    profile, series, sharesChanges,
+    sharesOutstanding: sharesOutstanding(facts),
+    reporting: reporting ?? undefined,
+  };
 }
 
 export function useFundamentals(ticker: string | null) {
@@ -204,10 +236,11 @@ export function useFundamentals(ticker: string | null) {
       const { profile, series } = payload;
 
       const isFinancial = isFinancialSic(profile.sic);
+      const isForeignIssuer = FOREIGN_ANNUAL_FORMS.has(profile.lastAnnualReport?.form ?? '');
       const last = series[series.length - 1] ?? null;
 
       let marketCap: number | null = null;
-      if (!isFinancial && payload.sharesOutstanding != null) {
+      if (!isFinancial && !isForeignIssuer && payload.sharesOutstanding != null) {
         const prices = await fetchYahooPrices([symbol]).catch(
           (): Record<string, number> => ({}),
         );
@@ -217,6 +250,8 @@ export function useFundamentals(ticker: string | null) {
 
       return {
         ticker: symbol, cik, profile, series,
+        reporting: payload.reporting ?? { taxonomy: 'us-gaap', currency: 'USD' },
+        isForeignIssuer,
         isFinancial,
         piotroski: isFinancial
           ? []
