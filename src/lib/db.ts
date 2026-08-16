@@ -120,6 +120,7 @@ async function runMigrations(db: Database): Promise<void> {
   await migrateToV13(db);
   await migrateToV14(db);
   await migrateToV15(db);
+  await migrateToV16(db);
 
   // positions: second take-profit target (Phase 1 extension)
   const tp2Col = await db.select<{ name: string }[]>(
@@ -513,6 +514,29 @@ async function migrateToV15(db: Database): Promise<void> {
   );
 }
 
+// Cache des indicateurs de marche Alpha Vantage (forward P/E, PEG, beta,
+// croissance trimestrielle) — cf. lib/api/alphavantage.ts. Table separee de
+// `sec_company_cache` : source, cle (ticker et non CIK) et cadence de fraicheur
+// differentes. Persister en SQLite plutot que dans le cache memoire TanStack
+// Query importe ici a cause du plafond de 25 requetes/jour du tier gratuit,
+// qui ne survivrait pas a un redemarrage de l'app.
+async function migrateToV16(db: Database): Promise<void> {
+  if (await tableExists(db, 'market_indicators_cache')) return;
+
+  await db.execute(`
+    CREATE TABLE market_indicators_cache (
+      ticker     TEXT PRIMARY KEY,
+      payload    TEXT NOT NULL,
+      fetched_at TEXT NOT NULL
+    )
+  `);
+
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('schema_version', '16')
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value`
+  );
+}
+
 // positions.sector_id : rattachement optionnel à un secteur (lib/sectors.ts),
 // pour l'exposition sectorielle et les badges d'essoufflement du Dashboard.
 async function migrateToV11(db: Database): Promise<void> {
@@ -866,6 +890,33 @@ export async function touchCachedCompany(cik: string): Promise<void> {
     new Date().toISOString(),
     cik,
   ]);
+}
+
+export interface CachedMarketIndicatorsRow {
+  payload: string;
+  fetchedAt: string;
+}
+
+export async function getCachedMarketIndicators(
+  ticker: string
+): Promise<CachedMarketIndicatorsRow | null> {
+  const db = await getDb();
+  const rows = await db.select<{ payload: string; fetched_at: string }[]>(
+    'SELECT payload, fetched_at FROM market_indicators_cache WHERE ticker=$1',
+    [ticker]
+  );
+  const r = rows[0];
+  return r ? { payload: r.payload, fetchedAt: r.fetched_at } : null;
+}
+
+export async function putCachedMarketIndicators(ticker: string, payload: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO market_indicators_cache (ticker, payload, fetched_at)
+     VALUES ($1, $2, $3)
+     ON CONFLICT(ticker) DO UPDATE SET payload=excluded.payload, fetched_at=excluded.fetched_at`,
+    [ticker, payload, new Date().toISOString()]
+  );
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {

@@ -246,6 +246,8 @@
   font-family: var(--font-mono);
   color: var(--text-primary);
 }
+.metricValue.good { color: var(--green); }
+.metricValue.bad  { color: var(--red); }
 
 /* ── Lecture marche ──────────────────────────────── */
 

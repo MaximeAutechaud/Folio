@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getSetting, setSetting } from '../../lib/db';
 import { callAnthropic, ANTHROPIC_API_KEY_SETTING, ANTHROPIC_MODEL, ANTHROPIC_MODEL_SETTING, ANTHROPIC_MODELS } from '../../lib/anthropic';
 import { SEC_CONTACT_EMAIL_SETTING, isValidSecContactEmail } from '../../lib/api/sec';
+import { ALPHA_VANTAGE_API_KEY_SETTING } from '../../lib/api/alphavantage';
 import styles from './AppSettings.module.css';
 
 interface Props {
@@ -24,6 +25,9 @@ export function AppSettings({ onClose }: Props) {
   const [secEmail, setSecEmail] = useState('');
   const [secSaved, setSecSaved] = useState(false);
 
+  const [avKey, setAvKey] = useState('');
+  const [avSaved, setAvSaved] = useState(false);
+
   useEffect(() => {
     getSetting(ANTHROPIC_API_KEY_SETTING).then((v) => {
       setKey(v ?? '');
@@ -33,6 +37,7 @@ export function AppSettings({ onClose }: Props) {
       if (v) setModel(v);
     });
     getSetting(SEC_CONTACT_EMAIL_SETTING).then((v) => setSecEmail(v ?? ''));
+    getSetting(ALPHA_VANTAGE_API_KEY_SETTING).then((v) => setAvKey(v ?? ''));
   }, []);
 
   async function handleModelChange(id: string) {
@@ -61,6 +66,12 @@ export function AppSettings({ onClose }: Props) {
     await setSetting(SEC_CONTACT_EMAIL_SETTING, secEmail.trim());
     setSecSaved(true);
     setTimeout(() => setSecSaved(false), 1500);
+  }
+
+  async function handleAvSave() {
+    await setSetting(ALPHA_VANTAGE_API_KEY_SETTING, avKey.trim());
+    setAvSaved(true);
+    setTimeout(() => setAvSaved(false), 1500);
   }
 
   // Meme regle que celle appliquee a l'appel reseau : une seule source de verite.
@@ -160,6 +171,32 @@ export function AppSettings({ onClose }: Props) {
           <div className={styles.row}>
             <button className={styles.btn} onClick={handleSecSave} disabled={!secEmailValid}>
               {secSaved ? 'Enregistré ✓' : 'Enregistrer'}
+            </button>
+          </div>
+
+          <div className={styles.divider} />
+          <div className={styles.sectionTitle}>Indicateurs marché (Alpha Vantage)</div>
+
+          <label className={styles.label}>
+            Clé API Alpha Vantage
+            <input
+              className={styles.input}
+              type="password"
+              placeholder="clé gratuite sur alphavantage.co"
+              value={avKey}
+              onChange={(e) => setAvKey(e.target.value)}
+            />
+          </label>
+          <p className={styles.hint}>
+            Ajoute P/E prévisionnel, PEG, beta et croissance trimestrielle à l'onglet Fonda —
+            des estimations d'analystes, absentes des comptes SEC (100 % historiques). Tier
+            gratuit limité à 25 requêtes/jour ; sans clé, ces indicateurs restent simplement
+            masqués, le reste du score n'en dépend pas.
+          </p>
+
+          <div className={styles.row}>
+            <button className={styles.btn} onClick={handleAvSave} disabled={!avKey.trim()}>
+              {avSaved ? 'Enregistré ✓' : 'Enregistrer'}
             </button>
           </div>
         </div>

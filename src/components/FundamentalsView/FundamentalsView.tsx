@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { TickerSearch, type TickerResult } from '../TickerSearch/TickerSearch';
 import { useFundamentals, type FundamentalsData } from '../../hooks/useFundamentals';
+import { useMarketIndicators, type MarketIndicatorsState } from '../../hooks/useMarketIndicators';
 import { MIN_AVAILABLE_TESTS, type PiotroskiScore } from '../../lib/piotroski';
 import { PiotroskiRadar } from './PiotroskiRadar';
 import styles from './FundamentalsView.module.css';
@@ -66,16 +67,58 @@ function Verdict({ score }: { score: PiotroskiScore }) {
   );
 }
 
-function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
+/**
+ * `null` = pas de lecture bon/mauvais tranchée pour cet indicateur — reste en
+ * couleur neutre plutôt que de forcer un jugement. Volontairement absent des
+ * ratios de VALORISATION (PER, EV/résultat opé, rendement FCF, P/E
+ * prévisionnel, PEG) : la séparation « bonne entreprise » / « pas chère » est
+ * structurelle dans cette vue (cf. le sectionNote juste au-dessus), et teinter
+ * ces cases en vert/rouge referait exactement la confusion qu'elle évite. Même
+ * chose pour DSO et jours de stock, des indicateurs de TENDANCE sans valeur
+ * absolue comparable d'une société à l'autre, et pour le beta, qui mesure une
+ * volatilité, pas une qualité.
+ */
+type Tone = 'good' | 'bad' | null;
+
+/** Signe seul : au-dessus de zéro c'est bon, en dessous ça ne l'est pas. */
+function signTone(n: number | null): Tone {
+  if (n == null || n === 0) return null;
+  return n > 0 ? 'good' : 'bad';
+}
+
+/** Trésorerie nette (dette nette négative) seulement — l'inverse n'est pas gradué ici, cf. dette nette / CFO juste à côté. */
+function netCashTone(n: number | null): Tone {
+  if (n == null) return null;
+  return n < 0 ? 'good' : null;
+}
+
+/**
+ * Bande à deux seuils, reprise telle quelle des bornes déjà données dans les
+ * `hint` de chaque métrique — jamais une nouvelle borne inventée pour l'occasion.
+ */
+function bandTone(n: number | null, goodAt: number, badAt: number, higherIsBetter: boolean): Tone {
+  if (n == null) return null;
+  if (higherIsBetter) {
+    if (n >= goodAt) return 'good';
+    if (n <= badAt) return 'bad';
+  } else {
+    if (n <= goodAt) return 'good';
+    if (n >= badAt) return 'bad';
+  }
+  return null;
+}
+
+function Metric({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: Tone }) {
+  const valueCls = tone ? `${styles.metricValue} ${styles[tone]}` : styles.metricValue;
   return (
     <div className={styles.metric} {...(hint ? { 'data-tooltip': hint } : {})}>
       <span className={styles.metricLabel}>{label}</span>
-      <span className={styles.metricValue}>{value}</span>
+      <span className={valueCls}>{value}</span>
     </div>
   );
 }
 
-function Report({ data }: { data: FundamentalsData }) {
+function Report({ data, marketIndicators }: { data: FundamentalsData; marketIndicators: MarketIndicatorsState | undefined }) {
   const last = data.piotroski[data.piotroski.length - 1] ?? null;
   const { altman, context, reporting } = data;
   const amount = (n: number | null) => money(n, reporting.currency);
@@ -175,9 +218,9 @@ function Report({ data }: { data: FundamentalsData }) {
             </span>
           </div>
           <div className={styles.metrics}>
-            <Metric label="FCF" value={amount(context.freeCashFlow)}
+            <Metric label="FCF" value={amount(context.freeCashFlow)} tone={signTone(context.freeCashFlow)}
               hint="Le cash qui reste une fois l'exploitation payée et les investissements faits. C'est lui qui finance dividendes, rachats d'actions et désendettement. Durablement négatif : l'entreprise brûle du cash et devra emprunter ou émettre des actions." />
-            <Metric label="Marge de FCF" value={pct(context.freeCashFlowMargin)}
+            <Metric label="Marge de FCF" value={pct(context.freeCashFlowMargin)} tone={bandTone(context.freeCashFlowMargin, 0.15, 0.05, true)}
               hint="Part du chiffre d'affaires qui finit en cash disponible. Au-dessus de 15 %, la conversion est excellente ; sous 5 %, la marge de manœuvre est mince. Très sectoriel : un éditeur de logiciels dépasse souvent 25 %, un distributeur reste sous 5 %." />
             {/* Les trois ratios de valorisation confrontent un cours a des
                 comptes : sans capitalisation fiable, ils ne sont pas affiches
@@ -192,11 +235,11 @@ function Report({ data }: { data: FundamentalsData }) {
                   hint="Même idée que le PER, mais dette incluse et avant impôt. Plus honnête pour comparer deux entreprises dont l'endettement diffère, là où le PER ignore la dette. Sous 12 c'est modéré, au-delà de 25 le marché attend beaucoup." />
               </>
             )}
-            <Metric label="Dette nette" value={amount(context.netDebt)}
+            <Metric label="Dette nette" value={amount(context.netDebt)} tone={netCashTone(context.netDebt)}
               hint="Dette long terme moins trésorerie : le montant réellement dû, pas la dette brute. Négatif = l'entreprise détient plus de cash que de dettes et pourrait tout rembourser demain." />
-            <Metric label="Dette nette / CFO" value={num(context.netDebtToOperatingCashFlow, 2)}
+            <Metric label="Dette nette / CFO" value={num(context.netDebtToOperatingCashFlow, 2)} tone={bandTone(context.netDebtToOperatingCashFlow, 3, 5, false)}
               hint="Années de cash-flow d'exploitation nécessaires pour rembourser toute la dette nette. Sous 3, l'endettement est confortable ; au-delà de 5, il contraint, et la moindre baisse d'activité fait mal. Absent en trésorerie nette : il n'y a rien à rembourser." />
-            <Metric label="Couverture intérêts" value={num(context.interestCoverage)}
+            <Metric label="Couverture intérêts" value={num(context.interestCoverage)} tone={bandTone(context.interestCoverage, 10, 2, true)}
               hint="Combien de fois le résultat opérationnel couvre les intérêts de la dette. Sous 2, une mauvaise année suffit à ne plus pouvoir payer ses créanciers ; au-delà de 10, la charge est indolore. Souvent indisponible : tous les émetteurs ne publient pas ce poste." />
             <Metric label="DSO" value={context.daysSalesOutstanding == null ? '—' : `${Math.round(context.daysSalesOutstanding)} j`}
               hint="Jours entre une vente et son encaissement. À suivre dans le temps sur UNE société : une hausse régulière signale des clients qui paient plus lentement, ou des ventes poussées en fin de trimestre. Ne se compare pas entre secteurs — un distributeur encaisse comptant, un éditeur B2B facture à 90 jours." />
@@ -204,6 +247,42 @@ function Report({ data }: { data: FundamentalsData }) {
               hint="Jours de ventes immobilisés en stock. Une hausse plus rapide que les ventes précède souvent une mauvaise nouvelle : produits qui ne partent pas, dépréciations à venir. À lire en tendance — Apple tourne à 9 jours, un industriel à 150, sans que l'un soit meilleur." />
           </div>
         </>
+      )}
+
+      {marketIndicators?.data && (
+        <>
+          <div className={styles.sectionTitle}>
+            Marché & consensus — hors score
+            <span className={styles.sectionNote}>
+              estimations d'analystes (Alpha Vantage), pas des comptes déposés
+              {marketIndicators.stale && ' · servi depuis le cache, quota quotidien atteint ou réseau indisponible'}
+            </span>
+          </div>
+          <div className={styles.metrics}>
+            <Metric label="P/E prévisionnel" value={num(marketIndicators.data.forwardPE)}
+              hint="Capitalisation rapportée au bénéfice ATTENDU par les analystes sur les 12 prochains mois, plutôt qu'au bénéfice déjà publié comme le PER classique. Nettement sous le PER : croissance des bénéfices anticipée. Au-dessus : baisse anticipée." />
+            <Metric label="PEG" value={num(marketIndicators.data.pegRatio, 2)}
+              hint="Le P/E rapporté au taux de croissance attendu. Sous 1, le prix payé semble raisonnable pour la croissance offerte ; au-dessus de 2, le marché paie cher une croissance qui doit encore se confirmer." />
+            <Metric label="Beta" value={num(marketIndicators.data.beta, 2)}
+              hint="Amplitude des mouvements de l'action par rapport au marché. 1 = bouge comme le marché ; au-dessus, plus volatil dans les deux sens ; en dessous, plus stable — parfois au prix d'une croissance plus faible." />
+            <Metric label="Croissance BPA (T vs T-4)" value={pct(marketIndicators.data.quarterlyEarningsGrowthYoY)}
+              tone={signTone(marketIndicators.data.quarterlyEarningsGrowthYoY)}
+              hint="Bénéfice par action du dernier trimestre publié contre le même trimestre un an plus tôt. Complète les tests annuels de Piotroski par un signal plus récent, donc aussi plus bruité." />
+            <Metric label="Croissance CA (T vs T-4)" value={pct(marketIndicators.data.quarterlyRevenueGrowthYoY)}
+              tone={signTone(marketIndicators.data.quarterlyRevenueGrowthYoY)}
+              hint="Chiffre d'affaires du dernier trimestre publié contre le même trimestre un an plus tôt." />
+          </div>
+        </>
+      )}
+
+      {marketIndicators && !marketIndicators.enabled && !marketIndicators.data && (
+        <div className={styles.notice}>
+          <span className={styles.noticeIcon}>ℹ</span>
+          <span>
+            P/E prévisionnel, PEG et beta demandent une clé Alpha Vantage (gratuite) — à renseigner
+            dans <strong>Réglages ⚙ → Indicateurs marché</strong> pour les activer.
+          </span>
+        </div>
       )}
 
       {data.isForeignIssuer && (
@@ -262,6 +341,7 @@ function isUsListedStock(r: TickerResult): boolean {
 export function FundamentalsView() {
   const [picked, setPicked] = useState<TickerResult | null>(null);
   const { data, failure, isFetching } = useFundamentals(picked?.ticker ?? null);
+  const { data: marketIndicators } = useMarketIndicators(picked?.ticker ?? null);
 
   return (
     <div className={styles.root}>
@@ -330,7 +410,7 @@ export function FundamentalsView() {
         </div>
       )}
 
-      {data && <Report data={data} />}
+      {data && <Report data={data} marketIndicators={marketIndicators} />}
     </div>
   );
 }
