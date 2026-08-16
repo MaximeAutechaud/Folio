@@ -172,7 +172,13 @@
   transition: border-color 0.15s, transform 0.1s;
   position: relative;
 }
-.card:hover { border-color: #30363d; transform: translateY(-1px); }
+/* Pas de `transform` ici : sur `:hover`, il cree une nouvelle stacking context
+   pour CETTE carte, qui piège le z-index de ses tooltips (badges score/RSI) --
+   une carte voisine plus tard dans le DOM peint alors PAR-DESSUS la bulle,
+   qui semble passer derriere. Mesure sur banc Edge headless : la bulle
+   disparait partiellement des que la carte survolee a un transform actif.
+   NarrativeDashboard n'a jamais eu ce transform, d'ou son comportement correct. */
+.card:hover { border-color: #30363d; }
 .cardSelected { border-color: var(--accent) !important; }
 
 .cardHot {
